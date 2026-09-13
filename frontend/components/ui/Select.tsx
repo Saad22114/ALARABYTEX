@@ -1,0 +1,49 @@
+'use client';
+
+import React from 'react';
+
+interface SelectOption {
+  value: string | number;
+  label: string;
+}
+
+interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  label?: string;
+  error?: string;
+  options: SelectOption[];
+  placeholder?: string;
+}
+
+export default function Select({ label, error, options, placeholder, className = '', ...props }: SelectProps) {
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <label className="block text-sm font-medium text-neutral-700">{label}</label>
+      )}
+      <select
+        dir="rtl"
+        className={`
+          w-full rounded-xl border px-4 py-2.5 text-sm
+          bg-surface text-neutral-800
+          border-sand-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-100
+          outline-none transition-colors duration-150
+          ${error ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}
+          ${className}
+        `}
+        {...props}
+      >
+        {placeholder && (
+          <option value="" disabled>
+            {placeholder}
+          </option>
+        )}
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}

@@ -1,0 +1,51 @@
+from decimal import Decimal
+
+from django.db import transaction as txn
+from django.utils import timezone
+
+from warehouses.models import DocumentSequence
+
+from .models import Partner, PartnerOperation, PartnerMovement
+
+
+class PartnerOperationError(Exception):
+    pass
+
+
+def signed_movement_amount(movement: PartnerMovement) -> Decimal:
+    """المبلغ بعلامته حسب نوع الحركة: دعم موجب، سحب سالب."""
+    return (
+        movement.amount
+        if movement.movement_type == PartnerOperation.OperationType.SUPPORT
+        else -movement.amount
+    )
+
+
+def create_partner_operation(*, partner, date, operation_type, amount, payment_method="cash", reason="", notes=""):
+    if amount <= 0:
+        raise PartnerOperationError("المبلغ يجب أن أكبر من صفر")
+    if not partner.is_active:
+        raise PartnerOperationError("الشريك المحدد غير نشط")
+    with txn.atomic():
+        operation = PartnerOperation.objects.create(
+            number=DocumentSequence.next_number("TRP"),
+            date=date or timezone.localdate(),
+            partner=partner,
+            operation_type=operation_type,
+            payment_method=payment_method,
+            amount=amount,
+            reason=reason,
+            notes=notes,
+        )
+        movement_type = (
+            PartnerMovement.MovementType.WITHDRAW
+            if operation_type == PartnerOperation.OperationType.WITHDRAW
+            else PartnerMovement.MovementType.SUPPORT
+        )
+        PartnerMovement.objects.create(
+            operation=operation,
+            partner=partner,
+            movement_type=movement_type,
+            amount=amount,
+        )
+    return operation
