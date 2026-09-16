@@ -3,8 +3,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { AppSettings, SettingsContextValue } from '@/types';
 import { getSettings, updateSettings as apiUpdateSettings } from '@/services/settings';
-import { configureCurrency } from '@/lib/format';
-import { STORAGE_KEYS } from '@/lib/themes';
+import { configureCurrency, configureDateFormat } from '@/lib/format';
+import { STORAGE_KEYS, THEME_PRESETS } from '@/lib/themes';
 
 const SettingsContext = createContext<SettingsContextValue>({
   settings: null,
@@ -31,7 +31,22 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
   }, []);
 
   const applyCurrency = useCallback((s: AppSettings) => {
-    configureCurrency({ symbol: s.currency_symbol, decimals: s.decimal_places });
+    configureCurrency({
+      symbol: s.currency_symbol,
+      decimals: s.decimal_places,
+      position: s.currency_position || 'after',
+    });
+    configureDateFormat(s.date_format || 'YYYY-MM-DD');
+    const validTheme = THEME_PRESETS.some((p) => p.id === s.default_theme) ? s.default_theme : null;
+    if (validTheme) {
+      try {
+        const t = localStorage.getItem(STORAGE_KEYS.theme);
+        if (!t) {
+          localStorage.setItem(STORAGE_KEYS.theme, validTheme);
+          document.documentElement.dataset.theme = validTheme;
+        }
+      } catch {}
+    }
   }, []);
 
   const refreshSettings = useCallback(async () => {

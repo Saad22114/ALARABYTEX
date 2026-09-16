@@ -69,6 +69,9 @@ export default function ExpensesPage() {
       is_active: false,
       sales_count: 0,
       expenses_count: 0,
+      monthly_sales_target: 0,
+      monthly_sales: 0,
+      target_progress_pct: 0,
       created_at: '',
       updated_at: '',
     }];

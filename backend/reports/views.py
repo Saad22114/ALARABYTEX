@@ -9,17 +9,19 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from branches.models import Branch
-from expenses.models import Expense, ExpenseCategory
+from expenses.models import Expense, ExpenseBudget, ExpenseCategory
 from partners.models import PartnerOperation
-from sales.models import DailySale, DailySaleItem
+from sales.models import DailySale
 from suppliers.models import Fabric, Supplier
+from sale_sessions.models import SaleSession
 from warehouses.models import (
     FabricRoll,
     GoodsReceiptItem,
     StockMovement,
-    StockOpeningItem,
     Warehouse,
 )
+
+from .cogs import cogs_by_fabric, fabric_average_costs, sold_by_fabric
 
 
 def _generate_excel(workbook, sheet_name, headers, rows):
@@ -210,6 +212,100 @@ class ExpensesReportView(APIView):
                 "total_amount": float(totals["total_amount"] or 0),
             },
             "count": qs.count(),
+        })
+
+
+def _month_start(value, fallback):
+    """تحويل YYYY-MM أو تاريخ إلى أول يوم من الشهر."""
+    try:
+        if len(str(value)) == 7:
+            return date.fromisoformat(f"{value}-01")
+        return date.fromisoformat(str(value)).replace(day=1)
+    except (TypeError, ValueError):
+        return fallback
+
+
+class ExpensesBudgetReportView(APIView):
+    """مصاريف كل فرع/تصنيف مقابل الميزانية الشهرية المحددة له."""
+
+    def get(self, request):
+        today = timezone.localdate()
+        month_start = _month_start(
+            request.query_params.get("month"), today.replace(day=1)
+        )
+        month_end = month_start.replace(day=28) + timedelta(days=4)
+        month_end = month_end.replace(day=1) - timedelta(days=1)
+
+        branch = request.query_params.get("branch")
+        category = request.query_params.get("category")
+
+        budget_qs = ExpenseBudget.objects.filter(month=month_start)
+        expense_qs = Expense.objects.filter(date__gte=month_start, date__lte=month_end)
+        if branch:
+            budget_qs = budget_qs.filter(branch_id=branch)
+            expense_qs = expense_qs.filter(branch_id=branch)
+        if category:
+            budget_qs = budget_qs.filter(category_id=category)
+            expense_qs = expense_qs.filter(category_id=category)
+
+        budgets = {}
+        for b in budget_qs.select_related("branch", "category"):
+            budgets[(b.branch_id, b.category_id)] = Decimal(b.amount)
+
+        spent = {}
+        agg = (
+            expense_qs.values("branch_id", "branch__name", "category_id", "category__name")
+            .annotate(total=Sum("amount"))
+        )
+        for row in agg:
+            spent[(row["branch_id"], row["category_id"])] = {
+                "total": row["total"] or Decimal("0"),
+                "branch_name": row["branch__name"],
+                "category_name": row["category__name"],
+            }
+
+        data = []
+        keys = set(budgets.keys()) | set(spent.keys())
+        for key in keys:
+            branch_id, category_id = key
+            budget_row = budget_qs.filter(branch_id=branch_id, category_id=category_id).first()
+            spent_row = spent.get(key)
+            budget_amount = budgets.get(key, Decimal("0"))
+            spent_amount = spent_row["total"] if spent_row else Decimal("0")
+            remaining = budget_amount - spent_amount
+            used_pct = float(spent_amount * Decimal("100") / budget_amount) if budget_amount else 0.0
+            data.append({
+                "branch": branch_id,
+                "branch_name": budget_row.branch.name if budget_row else spent_row["branch_name"],
+                "category": category_id,
+                "category_name": budget_row.category.name if budget_row else spent_row["category_name"],
+                "budget": float(budget_amount),
+                "spent": float(spent_amount),
+                "remaining": float(remaining),
+                "used_pct": round(used_pct, 1),
+            })
+        data.sort(key=lambda d: (d["branch_name"], d["category_name"]))
+
+        totals = {
+            "budget": float(sum(d["budget"] for d in data)),
+            "spent": float(sum(d["spent"] for d in data)),
+            "remaining": float(sum(d["remaining"] for d in data)),
+            "rows": len(data),
+        }
+
+        if request.query_params.get("export") == "xlsx":
+            headers = ["الفرع", "التصنيف", "الميزانية", "المنصرف", "المتبقي", "نسبة الاستهلاك %"]
+            rows_x = [[d["branch_name"], d["category_name"], d["budget"], d["spent"],
+                       d["remaining"], d["used_pct"]] for d in data]
+            wb = _export_generic_to_xlsx("المصاريف مقابل الميزانية", headers, rows_x)
+            if wb is None:
+                return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
+            return _xlsx_response(wb, "تقرير_الميزانية")
+
+        return Response({
+            "items": data,
+            "totals": totals,
+            "month": month_start.isoformat(),
         })
 
 
@@ -467,44 +563,10 @@ def _report_dates(request):
     return date.fromisoformat(date_from), date.fromisoformat(date_to)
 
 
-def _sold_by_fabric(date_from, date_to):
-    sold = defaultdict(lambda: Decimal("0"))
-    items = DailySaleItem.objects.filter(
-        sale__date__gte=date_from, sale__date__lte=date_to
-    ).values_list("fabric_id", "yards")
-    for fid, yards in items:
-        sold[fid] += yards
-    return dict(sold)
-
-
-def _fabric_average_costs(fabric_ids=None):
-    """متوسط تكلفة الياردة لكل قماش:
-    (قيمة الاستلامات المرحّلة + قيمة الأرصدة الافتتاحية) ÷ مجموع الياردات."""
-    buckets = defaultdict(lambda: [Decimal("0"), Decimal("0")])
-    receipts = GoodsReceiptItem.objects.filter(receipt__status="posted")
-    openings = StockOpeningItem.objects.all()
-    if fabric_ids:
-        receipts = receipts.filter(fabric_id__in=fabric_ids)
-        openings = openings.filter(fabric_id__in=fabric_ids)
-    for item in receipts:
-        buckets[item.fabric_id][0] += item.total
-        buckets[item.fabric_id][1] += item.yards
-    for item in openings:
-        buckets[item.fabric_id][0] += (item.unit_price or 0) * item.yards
-        buckets[item.fabric_id][1] += item.yards
-    return {fid: value / yards for fid, (value, yards) in buckets.items() if yards > 0}
-
-
 def _cogs_total(date_from, date_to):
     """تكلفة البضاعة المباعة الإجمالية في الفترة."""
-    sold = _sold_by_fabric(date_from, date_to)
-    if not sold:
-        return Decimal("0")
-    costs = _fabric_average_costs()
-    total = Decimal("0")
-    for fid, yards in sold.items():
-        total += (costs.get(fid) or Decimal("0")) * yards
-    return total
+    cogs = cogs_by_fabric(date_from, date_to)
+    return sum(cogs.values(), Decimal("0"))
 
 
 class CogsReportView(APIView):
@@ -513,13 +575,13 @@ class CogsReportView(APIView):
     def get(self, request):
         date_from, date_to = _report_dates(request)
         fabric_id = request.query_params.get("fabric")
-        sold = _sold_by_fabric(date_from, date_to)
+        sold = sold_by_fabric(date_from, date_to)
         if fabric_id:
             try:
                 sold = {k: v for k, v in sold.items() if k == int(fabric_id)}
             except (TypeError, ValueError):
                 sold = {}
-        costs = _fabric_average_costs()
+        costs = fabric_average_costs()
         fabrics = {f.id: f for f in Fabric.objects.filter(id__in=list(sold.keys()))}
 
         data = []
@@ -626,6 +688,97 @@ class ProfitLossReportView(APIView):
                 "net_profit": float(net_profit),
             },
             "branches": rows,
+        })
+
+
+class CommissionsReportView(APIView):
+    """عمولات المبيعات لكل موظف في الفترة حسب إغلاق الورديات."""
+
+    def get(self, request):
+        today = timezone.localdate()
+        month_start = _month_start(
+            request.query_params.get("month") or today.strftime("%Y-%m"),
+            today.replace(day=1),
+        )
+        month_end = month_start.replace(day=28) + timedelta(days=4)
+        month_end = month_end.replace(day=1) - timedelta(days=1)
+
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+        if date_from:
+            try:
+                month_start = date.fromisoformat(date_from)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                month_end = date.fromisoformat(date_to)
+            except ValueError:
+                pass
+
+        qs = SaleSession.objects.filter(
+            status=SaleSession.Status.CLOSED,
+            closed_at__date__gte=month_start,
+            closed_at__date__lte=month_end,
+        ).select_related("employee", "employee__branch", "branch").prefetch_related("items")
+
+        employee = request.query_params.get("employee")
+        branch = request.query_params.get("branch")
+        if employee:
+            qs = qs.filter(employee_id=employee)
+        if branch:
+            qs = qs.filter(branch_id=branch)
+
+        rows = {}
+        for s in qs:
+            key = (s.employee_id, s.branch_id)
+            entry = rows.setdefault(key, {
+                "employee": s.employee_id,
+                "employee_name": s.employee.name,
+                "branch": s.branch_id,
+                "branch_name": s.branch.name,
+                "sessions_count": 0,
+                "total_sales": Decimal("0"),
+                "total_commission": Decimal("0"),
+            })
+            entry["sessions_count"] += 1
+            entry["total_sales"] += sum(r.total for r in s.items.all())
+            entry["total_commission"] += s.commission_amount or Decimal("0")
+
+        data = []
+        for entry in rows.values():
+            data.append({
+                "employee": entry["employee"],
+                "employee_name": entry["employee_name"],
+                "branch": entry["branch"],
+                "branch_name": entry["branch_name"],
+                "sessions_count": entry["sessions_count"],
+                "total_sales": float(entry["total_sales"]),
+                "total_commission": float(entry["total_commission"]),
+            })
+        data.sort(key=lambda d: (d["employee_name"], d["branch_name"]))
+
+        totals = {
+            "sessions": sum(d["sessions_count"] for d in data),
+            "sales": float(sum(d["total_sales"] for d in data)),
+            "commission": float(sum(d["total_commission"] for d in data)),
+            "employees": len(data),
+        }
+
+        if request.query_params.get("export") == "xlsx":
+            headers = ["الموظف", "الفرع", "عدد الورديات", "إجمالي المبيعات", "العمولة"]
+            rows_x = [[d["employee_name"], d["branch_name"], d["sessions_count"],
+                       d["total_sales"], d["total_commission"]] for d in data]
+            wb = _export_generic_to_xlsx("عمولات المبيعات", headers, rows_x)
+            if wb is None:
+                return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
+            return _xlsx_response(wb, "تقرير_عمولات_المبيعات")
+
+        return Response({
+            "items": data,
+            "totals": totals,
+            "start_date": month_start.isoformat(),
+            "end_date": month_end.isoformat(),
         })
 
 

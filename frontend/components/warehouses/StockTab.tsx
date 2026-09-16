@@ -438,7 +438,7 @@ export default function StockTab() {
                     step="0.01"
                     value={line.yards}
                     onChange={(e) => setLine(idx, { yards: e.target.value })}
-                    placeholder="0.00"
+                    placeholder=""
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <Input
@@ -457,7 +457,7 @@ export default function StockTab() {
                       step="0.01"
                       value={line.unit_price}
                       onChange={(e) => setLine(idx, { unit_price: e.target.value })}
-                      placeholder="0.00"
+                      placeholder=""
                     />
                   </div>
                 </div>
@@ -514,7 +514,7 @@ export default function StockTab() {
                     step="0.01"
                     value={editRows[w.warehouse] ?? ''}
                     onChange={(e) => setEditRows((prev) => ({ ...prev, [w.warehouse]: e.target.value }))}
-                    placeholder="0.00"
+                    placeholder=""
                   />
                 </div>
               ))}

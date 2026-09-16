@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import Coalesce
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -123,49 +124,110 @@ class PartnerViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="distribution")
     def distribution(self, request):
-        """توزيع الأرباح: مقارنة الرصيد الفعلي لكل شريك مع نصيبه النظري حسب نسبة المشاركة."""
-        partners = list(self.get_queryset().filter(is_active=True))
+        """تقرير حصة كل شريك مع احتساب التوزيع والإطفاء (تسوية الحسابات).
+
+        يقارن الرصيد الفعلي لكل شريك مع نصيبه النظري حسب نسبة المشاركة، ويقترح
+        التسوية المطلوبة (إضافة/سحب رصيد) لضبط الحسابات. يدعم تحديد الفترة عبر
+        date_from/date_to فيقتصر الحساب على حركات الفترة المحددة.
+        """
+        from .models import PartnerMovement as PM
+
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+
+        period_filter = {}
+        if date_from:
+            period_filter["movements__operation__date__gte"] = date_from
+        if date_to:
+            period_filter["movements__operation__date__lte"] = date_to
+
+        pm_filter = Q(**period_filter) if period_filter else Q()
+        qs = (
+            Partner.objects.filter(is_active=True)
+            .annotate(
+                support=Coalesce(
+                    Sum(
+                        "movements__amount",
+                        filter=Q(movements__movement_type=PM.MovementType.SUPPORT) & pm_filter,
+                    ),
+                    Decimal("0"),
+                ),
+                withdraw=Coalesce(
+                    Sum(
+                        "movements__amount",
+                        filter=Q(movements__movement_type=PM.MovementType.WITHDRAW) & pm_filter,
+                    ),
+                    Decimal("0"),
+                ),
+            )
+            .order_by("name")
+        )
+        partners = list(qs)
         total_support = sum((p.support or Decimal("0") for p in partners), Decimal("0"))
         total_withdraw = sum((p.withdraw or Decimal("0") for p in partners), Decimal("0"))
         total_net = total_support - total_withdraw
 
         items = []
         for p in partners:
-            actual_net = (p.support or Decimal("0")) - (p.withdraw or Decimal("0"))
+            support = p.support or Decimal("0")
+            withdraw = p.withdraw or Decimal("0")
+            actual_net = support - withdraw
             theoretical_share = total_net * p.share_percent / Decimal("100")
+            difference = theoretical_share - actual_net
+            if abs(difference) < Decimal("0.005"):
+                settlement = "balanced"
+            elif difference < 0:
+                settlement = "withdraw"
+            else:
+                settlement = "add"
             items.append({
                 "id": p.id,
                 "name": p.name,
                 "share_percent": p.share_percent,
+                "total_support": support,
+                "total_withdraw": withdraw,
                 "actual_net": actual_net,
                 "theoretical_share": theoretical_share,
-                "difference": theoretical_share - actual_net,
+                "difference": difference,
+                "settlement": settlement,
+                "settlement_amount": abs(difference),
             })
 
         export = request.query_params.get("export") == "xlsx"
         if export:
             headers = [
-                "الشريك", "نسبة المشاركة %", "الرصيد الفعلي",
-                "النصيب النظري", "الفرق (نظري - فعلي)",
+                "الشريك", "نسبة المشاركة %", "الدعم", "السحب",
+                "الصافي الفعلي", "النصيب النظري", "الفرق (نظري - فعلي)", "التسوية المطلوبة",
             ]
             rows = [
                 [
                     it["name"],
                     float(it["share_percent"]),
+                    float(it["total_support"]),
+                    float(it["total_withdraw"]),
                     float(it["actual_net"]),
                     float(it["theoretical_share"]),
                     float(it["difference"]),
+                    {
+                        "balanced": "متوازن",
+                        "add": "إضافة (دعم)",
+                        "withdraw": "سحب من الرصيد",
+                    }[it["settlement"]],
                 ]
                 for it in items
             ]
-            wb = _export_generic_to_xlsx("توزيع الأرباح", headers, rows)
+            wb = _export_generic_to_xlsx(
+                f"تقرير_حصص_الشركاء_{date_from or 'all'}_{date_to or 'all'}", headers, rows
+            )
             if wb is not None:
-                return _xlsx_response(wb, "توزيع_الأرباح")
+                return _xlsx_response(wb, "تقرير_حصص_الشركاء")
 
         def _to_float(value):
             return float(value)
 
         return Response({
+            "date_from": date_from,
+            "date_to": date_to,
             "total_support": _to_float(total_support),
             "total_withdraw": _to_float(total_withdraw),
             "total_net": _to_float(total_net),
@@ -174,9 +236,13 @@ class PartnerViewSet(viewsets.ModelViewSet):
                     "id": it["id"],
                     "name": it["name"],
                     "share_percent": _to_float(it["share_percent"]),
+                    "total_support": _to_float(it["total_support"]),
+                    "total_withdraw": _to_float(it["total_withdraw"]),
                     "actual_net": _to_float(it["actual_net"]),
                     "theoretical_share": _to_float(it["theoretical_share"]),
                     "difference": _to_float(it["difference"]),
+                    "settlement": it["settlement"],
+                    "settlement_amount": _to_float(it["settlement_amount"]),
                 }
                 for it in items
             ],
@@ -265,6 +331,11 @@ class PartnerOperationViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         instance = serializer.save()
+        try:
+            from accounting.services import post_partner_operation
+            post_partner_operation(instance)
+        except Exception:
+            pass
         return Response(
             PartnerOperationReadSerializer(instance, context=self.get_serializer_context()).data,
             status=201,
@@ -272,5 +343,11 @@ class PartnerOperationViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         obj = self.get_object()
+        try:
+            from accounting.models import JournalEntry
+            from accounting.services import unpost_source
+            unpost_source(JournalEntry.Source.PARTNER, obj.pk)
+        except Exception:
+            pass
         obj.delete()
         return Response({"detail": settings.API_MESSAGES["deleted"]}, status=200)

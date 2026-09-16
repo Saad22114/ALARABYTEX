@@ -1,8 +1,10 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.conf import settings
-from .models import Expense, ExpenseCategory
+from datetime import date
+from .models import Expense, ExpenseBudget, ExpenseCategory
 from .serializers import (
+    ExpenseBudgetSerializer,
     ExpenseCategorySerializer,
     ExpenseReadSerializer,
     ExpenseWriteSerializer,
@@ -58,6 +60,65 @@ class ExpenseViewSet(viewsets.ModelViewSet):
             qs = qs.filter(date__gte=date_from)
         if date_to:
             qs = qs.filter(date__lte=date_to)
+        return qs
+
+    def perform_create(self, serializer):
+        expense = serializer.save()
+        try:
+            from accounting.services import post_expense
+            post_expense(expense)
+        except Exception:
+            pass
+
+    def perform_update(self, serializer):
+        expense = serializer.save()
+        try:
+            from accounting.services import post_expense
+            post_expense(expense)
+        except Exception:
+            pass
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            from accounting.models import JournalEntry
+            from accounting.services import unpost_source
+            unpost_source(JournalEntry.Source.EXPENSE, instance.pk)
+        except Exception:
+            pass
+        self.perform_destroy(instance)
+        return Response(
+            {"detail": settings.API_MESSAGES["deleted"]},
+            status=status.HTTP_200_OK,
+        )
+
+
+def _normalize_month(value):
+    """تحويل YYYY-MM أو تاريخ كامل إلى أول يوم من الشهر."""
+    try:
+        if len(str(value)) == 7:
+            return date.fromisoformat(f"{value}-01")
+        return date.fromisoformat(str(value)).replace(day=1)
+    except ValueError:
+        return None
+
+
+class ExpenseBudgetViewSet(viewsets.ModelViewSet):
+    queryset = ExpenseBudget.objects.select_related("branch", "category").all()
+    serializer_class = ExpenseBudgetSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        branch = self.request.query_params.get("branch")
+        category = self.request.query_params.get("category")
+        month = self.request.query_params.get("month")
+        if branch:
+            qs = qs.filter(branch_id=branch)
+        if category:
+            qs = qs.filter(category_id=category)
+        normalized = _normalize_month(month) if month else None
+        if normalized:
+            qs = qs.filter(month=normalized)
         return qs
 
     def destroy(self, request, *args, **kwargs):

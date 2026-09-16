@@ -73,7 +73,7 @@ export default function PaymentForm({ onSubmit, onCancel }: PaymentFormProps) {
           value={form.amount}
           onChange={(e) => setForm({ ...form, amount: e.target.value })}
           error={errors.amount}
-          placeholder="0.00"
+          placeholder=""
         />
       </div>
       <Select

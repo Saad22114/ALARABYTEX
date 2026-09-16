@@ -4,7 +4,7 @@ import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { X, Plus } from 'lucide-react';
-import { Fabric } from '@/types';
+import { Fabric, Warehouse, Branch } from '@/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
 
 export interface LedgerItemRow {
@@ -13,16 +13,20 @@ export interface LedgerItemRow {
   quantity_yards: string;
   rolls: string;
   unit_price: string;
+  destType: '' | 'warehouse' | 'branch';
+  destId: number | '';
 }
 
 interface LedgerItemsFieldsProps {
   fabrics: Fabric[];
   items: LedgerItemRow[];
   onChange: (items: LedgerItemRow[]) => void;
+  destinations?: { warehouses: Warehouse[]; branches: Branch[] };
+  destinationLabel?: string;
 }
 
 export function newLedgerItemRow(key: number): LedgerItemRow {
-  return { key, fabric: '', quantity_yards: '', rolls: '', unit_price: '' };
+  return { key, fabric: '', quantity_yards: '', rolls: '', unit_price: '', destType: '', destId: '' };
 }
 
 export function ledgerItemsTotal(items: LedgerItemRow[]): number {
@@ -35,12 +39,38 @@ export function rowTotal(r: LedgerItemRow): number {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export default function LedgerItemsFields({ fabrics, items, onChange }: LedgerItemsFieldsProps) {
+export default function LedgerItemsFields({ fabrics, items, onChange, destinations, destinationLabel }: LedgerItemsFieldsProps) {
   const yardsPerRoll = (fabricId: number | ''): number => {
     if (fabricId === '') return 0;
     const f = fabrics.find((x) => x.id === fabricId);
     const v = f?.yards_per_roll;
     return v != null && Number(v) > 0 ? Number(v) : 0;
+  };
+
+  const destOptions = destinations
+    ? [
+        { value: '', label: 'بدون وجهة (لا يُورَّد)' },
+        ...destinations.warehouses.map((w) => ({ value: `w:${w.id}`, label: `مخزن: ${w.name}` })),
+        ...destinations.branches.map((b) => ({ value: `b:${b.id}`, label: `فرع: ${b.name}` })),
+      ]
+    : [];
+
+  const setRowDest = (key: number, raw: string) => {
+    const [kind, idStr] = raw.split(':');
+    onChange(
+      items.map((r) =>
+        r.key === key
+          ? { ...r, destType: (kind === 'w' || kind === 'b' ? kind : '') as '' | 'warehouse' | 'branch', destId: idStr ? Number(idStr) : '' }
+          : r
+      )
+    );
+  };
+
+  const applyToAll = (raw: string) => {
+    const [kind, idStr] = raw.split(':');
+    const destType = (kind === 'w' ? 'warehouse' : kind === 'b' ? 'branch' : '') as '' | 'warehouse' | 'branch';
+    const destId = idStr ? Number(idStr) : '';
+    onChange(items.map((r) => ({ ...r, destType, destId })));
   };
 
   const updateRow = (key: number, patch: Partial<LedgerItemRow>) => {
@@ -85,6 +115,20 @@ export default function LedgerItemsFields({ fabrics, items, onChange }: LedgerIt
         </Button>
       </div>
 
+      {destinations && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-dashed border-sand-300 bg-sand-50/50 p-3">
+          <Select
+            label={destinationLabel || 'وجهة التوريد (اختياري)'}
+            value=""
+            onChange={(e) => applyToAll(e.target.value)}
+            options={[{ value: '', label: 'تطبيق وجهة واحدة على جميع البنود...' }, { value: 'none:d', label: 'بدون وجهة (لا يُورَّد)' }, ...destOptions.slice(1)]}
+          />
+          <p className="text-xs text-neutral-500 sm:max-w-[260px]">
+            تُطبق على كل البنود، ويمكن تغيير وجهة كل بند على حدة بعد ذلك. البند بدون وجهة لا يُضاف للمخزون.
+          </p>
+        </div>
+      )}
+
       {items.length === 0 ? (
         <p className="text-xs text-neutral-400 py-2">لم تتم إضافة أي أصناف بعد.</p>
       ) : (
@@ -122,7 +166,7 @@ export default function LedgerItemsFields({ fabrics, items, onChange }: LedgerIt
                 min="0"
                 value={r.quantity_yards}
                 onChange={(e) => updateRow(r.key, { quantity_yards: e.target.value })}
-                placeholder="0.00"
+                placeholder=""
               />
               <Input
                 label="عدد اللفات"
@@ -140,9 +184,17 @@ export default function LedgerItemsFields({ fabrics, items, onChange }: LedgerIt
                 min="0"
                 value={r.unit_price}
                 onChange={(e) => updateRow(r.key, { unit_price: e.target.value })}
-                placeholder="0.00"
+                placeholder=""
               />
             </div>
+            {destinations && (
+              <Select
+                label="وجهة توريد هذا البند (اختياري)"
+                value={r.destType ? `${r.destType}:${r.destId}` : ''}
+                onChange={(e) => setRowDest(r.key, e.target.value)}
+                options={destOptions}
+              />
+            )}
             <div className="flex items-center justify-between text-sm">
               <span className="text-neutral-500">الإجمالي</span>
               <span className="font-semibold text-neutral-800 tabular-nums">{formatCurrency(rowTotal(r))}</span>

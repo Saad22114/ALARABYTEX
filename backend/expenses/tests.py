@@ -77,3 +77,53 @@ class ExpenseAPITest(TestCase):
         r = self.c.post("/api/expense-categories/", {"name": "Custom", "code": "CST"})
         self.assertEqual(r.status_code, 201)
         self.assertFalse(r.data["is_system"])
+
+
+class ExpenseBudgetAPITest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.cat = ExpenseCategory.objects.create(name="Test", code="TST")
+        self.month = date.today().replace(day=1)
+
+    def test_create_budget(self):
+        r = self.c.post("/api/expense-budgets/", {
+            "branch": self.branch.id,
+            "category": self.cat.id,
+            "month": self.month.isoformat(),
+            "amount": 500,
+        })
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.data["branch_name"], "B")
+
+    def test_budget_unique_per_branch_category_month(self):
+        payload = {
+            "branch": self.branch.id,
+            "category": self.cat.id,
+            "month": self.month.isoformat(),
+            "amount": 500,
+        }
+        self.assertEqual(self.c.post("/api/expense-budgets/", payload).status_code, 201)
+        r = self.c.post("/api/expense-budgets/", payload)
+        self.assertEqual(r.status_code, 400)
+
+    def test_budget_month_filter_yyyy_mm(self):
+        self.c.post("/api/expense-budgets/", {
+            "branch": self.branch.id,
+            "category": self.cat.id,
+            "month": self.month.isoformat(),
+            "amount": 500,
+        })
+        r = self.c.get("/api/expense-budgets/", {"month": self.month.strftime("%Y-%m")})
+        self.assertEqual(r.data["count"], 1)
+
+    def test_delete_budget(self):
+        r = self.c.post("/api/expense-budgets/", {
+            "branch": self.branch.id,
+            "category": self.cat.id,
+            "month": self.month.isoformat(),
+            "amount": 500,
+        })
+        eid = r.data["id"]
+        r = self.c.delete(f"/api/expense-budgets/{eid}/")
+        self.assertEqual(r.status_code, 200)

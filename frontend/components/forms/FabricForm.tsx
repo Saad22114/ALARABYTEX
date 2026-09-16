@@ -197,9 +197,9 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
 
       {sectionTitle('التسعير والهوامش')}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input label="تكلفة الشراء (للياردة)" type="number" step="0.001" min="0" value={form.purchase_price} onChange={(e) => set('purchase_price', e.target.value)} placeholder="0.000" />
-        <Input label="سعر بيع الياردة" type="number" step="0.001" min="0" value={form.sale_price_yard} onChange={(e) => set('sale_price_yard', e.target.value)} placeholder="0.000" />
-        <Input label="الحد الأدنى لسعر بيع الياردة" type="number" step="0.001" min="0" value={form.min_sale_yard} onChange={(e) => set('min_sale_yard', e.target.value)} error={errors.min_sale_yard} placeholder="0.000" />
+        <Input label="تكلفة الشراء (للياردة)" type="number" step="0.001" min="0" value={form.purchase_price} onChange={(e) => set('purchase_price', e.target.value)} placeholder="" />
+        <Input label="سعر بيع الياردة" type="number" step="0.001" min="0" value={form.sale_price_yard} onChange={(e) => set('sale_price_yard', e.target.value)} placeholder="" />
+        <Input label="الحد الأدنى لسعر بيع الياردة" type="number" step="0.001" min="0" value={form.min_sale_yard} onChange={(e) => set('min_sale_yard', e.target.value)} error={errors.min_sale_yard} placeholder="" />
         <Input label="سعر بيع اللفة" type="number" step="0.001" min="0" value={form.sale_price_roll} onChange={(e) => set('sale_price_roll', e.target.value)} placeholder="اتركه فارغاً للحساب التلقائي" />
         <Input label="الحد الأدنى لسعر بيع اللفة" type="number" step="0.001" min="0" value={form.min_sale_roll} onChange={(e) => set('min_sale_roll', e.target.value)} error={errors.min_sale_roll} placeholder="اتركه فارغاً للحساب التلقائي" />
         <Input label="ياردات اللفة الواحدة" type="number" step="0.001" min="0" value={form.yards_per_roll} onChange={(e) => set('yards_per_roll', e.target.value)} placeholder="مثال: 25" />

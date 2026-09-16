@@ -444,7 +444,7 @@ export default function PartnerDetailPage() {
                 step="0.01"
                 value={opAmount}
                 onChange={(e) => setOpAmount(e.target.value)}
-                placeholder="0.00"
+                placeholder=""
               />
             </div>
             <Input

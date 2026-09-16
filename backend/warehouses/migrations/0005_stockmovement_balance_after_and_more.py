@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='stockmovement',
             name='movement_type',
-            field=models.CharField(choices=[('receipt', 'استلام من مورد'), ('transfer_out', 'تحويل صادر'), ('transfer_in', 'تحويل وارد'), ('adjustment_in', 'تسوية إضافة'), ('adjustment_out', 'تسوية خصم'), ('count', 'تسوية جرد'), ('sale', 'مبيعات'), ('opening', 'رصيد افتتاحي')], max_length=20, verbose_name='نوع الحركة'),
+            field=models.CharField(choices=[('receipt', 'استلام من مورد'), ('transfer_out', 'تحويل صادر'), ('transfer_in', 'تحويل ياردةد'), ('adjustment_in', 'تسوية إضافة'), ('adjustment_out', 'تسوية خصم'), ('count', 'تسوية جرد'), ('sale', 'مبيعات'), ('opening', 'رصيد افتتاحي')], max_length=20, verbose_name='نوع الحركة'),
         ),
         migrations.CreateModel(
             name='StockOpening',

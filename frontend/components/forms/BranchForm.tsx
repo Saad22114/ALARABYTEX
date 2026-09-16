@@ -21,6 +21,7 @@ export default function BranchForm({ initial, onSubmit, onCancel }: BranchFormPr
     city: initial?.city || '',
     notes: initial?.notes || '',
     is_active: initial?.is_active ?? true,
+    monthly_sales_target: initial?.monthly_sales_target || 0,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -35,6 +36,7 @@ export default function BranchForm({ initial, onSubmit, onCancel }: BranchFormPr
         city: initial.city || '',
         notes: initial.notes || '',
         is_active: initial.is_active ?? true,
+        monthly_sales_target: initial.monthly_sales_target || 0,
       });
     }
   }, [initial]);
@@ -58,7 +60,7 @@ export default function BranchForm({ initial, onSubmit, onCancel }: BranchFormPr
     }
   };
 
-  const set = (key: string, val: string | boolean) => setForm((f) => ({ ...f, [key]: val }));
+  const set = (key: string, val: string | boolean | number) => setForm((f) => ({ ...f, [key]: val }));
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -97,6 +99,14 @@ export default function BranchForm({ initial, onSubmit, onCancel }: BranchFormPr
         value={form.address}
         onChange={(e) => set('address', e.target.value)}
         placeholder="العنوان التفصيلي"
+      />
+      <Input
+        label="الهدف الشهري للمبيعات (اختياري)"
+        type="number"
+        min={0}
+        value={form.monthly_sales_target}
+        onChange={(e) => set('monthly_sales_target', Number(e.target.value))}
+        placeholder="صفر بدون هدف"
       />
       <Textarea
         label="ملاحظات"

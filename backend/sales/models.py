@@ -59,6 +59,10 @@ class DailySaleItem(TimeStampedModel):
         "suppliers.Fabric", on_delete=models.PROTECT, related_name="sale_items", verbose_name="القماش"
     )
     yards = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="ياردات المبيعات")
+    unit_price = models.DecimalField(
+        max_digits=12, decimal_places=3, null=True, blank=True,
+        verbose_name="سعر الوحدة", help_text="سعر الياردة عند البيع (اختياري)",
+    )
 
     class Meta:
         verbose_name = "صنف مبيعات"

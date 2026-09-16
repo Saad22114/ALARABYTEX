@@ -32,10 +32,12 @@ import {
   Scale,
   Printer,
   Download,
+  Share2,
 } from 'lucide-react';
 import { Supplier, LedgerEntry, LedgerSummary, CreateLedgerEntry } from '@/types';
 import { getSupplier, updateSupplier, getSupplierSummary, getSupplierLedger, createLedgerEntry, deleteLedgerEntry, receiveLedgerEntry } from '@/services/suppliers';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { openSupplierReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 
@@ -93,6 +95,23 @@ export default function SupplierDetailPage() {
   const [deleting, setDeleting] = useState<LedgerEntry | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [receivingId, setReceivingId] = useState<number | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const openReport = async (autoPrint: boolean) => {
+    if (!supplier || !summary) return;
+    setReportLoading(true);
+    try {
+      const full = await getSupplierLedger(id, 1, 200);
+      openSupplierReport(supplier, full.results, summary, settings, {
+        title: 'كشف حساب مورد',
+        autoPrint,
+      });
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
   const listPageSize = activeTab === 'ledger' ? pageSize : 500;
 
@@ -236,6 +255,14 @@ export default function SupplierDetailPage() {
             عودة إلى الموردين
           </Button>
           <div className="flex items-center gap-3">
+            <Button variant="secondary" loading={reportLoading} onClick={() => openReport(false)} title="مشاركة كشف الحساب كملف PDF">
+              <Share2 size={16} />
+              مشاركة التقرير
+            </Button>
+            <Button variant="secondary" loading={reportLoading} onClick={() => openReport(true)} title="طباعة كشف حساب المورد">
+              <Printer size={16} />
+              طباعة التقرير
+            </Button>
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               <Pencil size={16} />
               تعديل
@@ -412,6 +439,7 @@ export default function SupplierDetailPage() {
                                             <Th>عدد اللفات</Th>
                                             <Th>سعر الياردة</Th>
                                             <Th>الإجمالي</Th>
+                                            <Th>الوجهة</Th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -422,6 +450,15 @@ export default function SupplierDetailPage() {
                                               <Td className="tabular-nums">{item.rolls || '-'}</Td>
                                               <Td className="tabular-nums">{formatCurrency(item.unit_price)}</Td>
                                               <Td className="tabular-nums font-medium">{formatCurrency(item.total)}</Td>
+                                              <Td>
+                                                {item.destination_name ? (
+                                                  <Badge variant={item.destination_type === 'branch' ? 'warning' : 'neutral'}>
+                                                    {item.destination_type === 'branch' ? 'فرع' : 'مخزن'}: {item.destination_name}
+                                                  </Badge>
+                                                ) : (
+                                                  <span className="text-xs text-neutral-400">—</span>
+                                                )}
+                                              </Td>
                                             </Tr>
                                           ))}
                                         </tbody>
@@ -462,6 +499,7 @@ export default function SupplierDetailPage() {
                                 <Th>عدد اللفات</Th>
                                 <Th>سعر الياردة</Th>
                                 <Th>الإجمالي</Th>
+                                <Th>الوجهة</Th>
                               </tr>
                             </thead>
                             <tbody>
@@ -472,6 +510,15 @@ export default function SupplierDetailPage() {
                                   <Td className="tabular-nums">{item.rolls || '-'}</Td>
                                   <Td className="tabular-nums">{formatCurrency(item.unit_price)}</Td>
                                   <Td className="tabular-nums font-medium">{formatCurrency(item.total)}</Td>
+                                  <Td>
+                                    {item.destination_name ? (
+                                      <Badge variant={item.destination_type === 'branch' ? 'warning' : 'neutral'}>
+                                        {item.destination_type === 'branch' ? 'فرع' : 'مخزن'}: {item.destination_name}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-xs text-neutral-400">—</span>
+                                    )}
+                                  </Td>
                                 </Tr>
                               ))}
                             </tbody>
@@ -493,7 +540,7 @@ export default function SupplierDetailPage() {
                           <div className="flex items-center gap-3 text-sm pt-2">
                             <span className="text-neutral-500">وجهة التوريد:</span>
                             <Badge variant={e.destination_type === 'branch' ? 'warning' : 'neutral'}>
-                              {e.destination_type === 'branch' ? 'فرع' : 'مخزن'}: {e.destination_name}
+                              {e.destination_type === 'branch' ? 'فرع' : e.destination_type === 'mixed' ? 'وجوه متعددة' : 'مخزن'}: {e.destination_name}
                             </Badge>
                             {e.goods_receipt_number ? (
                               <span className="text-xs text-emerald-600">استُلمت تلقائياً ({e.goods_receipt_number})</span>

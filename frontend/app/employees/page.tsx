@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -14,14 +14,17 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
-import { Plus, Pencil, Trash2, UserRoundPlus } from 'lucide-react';
-import { Employee } from '@/types';
+import StatCard from '@/components/ui/StatCard';
+import PermissionsModal from '@/components/employees/PermissionsModal';
+import { ShieldCheck, Plus, Pencil, Trash2, UserRoundPlus, Users, UserCheck, UserX, Shield } from 'lucide-react';
+import { Employee, EmployeeRole, SectionsInfo, EmployeePermissions } from '@/types';
 import {
   listEmployees,
   createEmployee,
   updateEmployee,
   deleteEmployee,
 } from '@/services/sessions';
+import { getSectionsInfo } from '@/services/sections';
 import { listBranches } from '@/services/branches';
 import { useToast } from '@/components/ui/Toast';
 
@@ -31,17 +34,38 @@ interface EmployeeForm {
   branch: number | null;
   notes: string;
   is_active: boolean;
+  commission_active: boolean;
+  commission_percent: number;
 }
 
-const emptyForm = (): EmployeeForm => ({ name: '', phone: '', branch: null, notes: '', is_active: true });
+const ROLE_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'neutral' | 'danger'> = {
+  admin: 'danger',
+  supervisor: 'warning',
+  sales: 'success',
+  viewer: 'neutral',
+  custom: 'neutral',
+};
+
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'مدير النظام' },
+  { value: 'supervisor', label: 'مشرف' },
+  { value: 'sales', label: 'مندوب مبيعات' },
+  { value: 'viewer', label: 'مشاهد' },
+  { value: 'custom', label: 'مخصص' },
+];
+
+const emptyForm = (): EmployeeForm => ({ name: '', phone: '', branch: null, notes: '', is_active: true, commission_active: false, commission_percent: 0 });
 
 export default function EmployeesPage() {
   const { toast } = useToast();
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [branches, setBranches] = useState<Array<{ id: number; name: string }>>([]);
+  const [sectionsInfo, setSectionsInfo] = useState<SectionsInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filterBranch, setFilterBranch] = useState('');
+  const [filterRole, setFilterRole] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<EmployeeForm>(emptyForm());
@@ -51,17 +75,24 @@ export default function EmployeesPage() {
   const [deleting, setDeleting] = useState<Employee | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  const [permsTarget, setPermsTarget] = useState<Employee | null>(null);
+  const [permsSaving, setPermsSaving] = useState(false);
+
   const fetchData = () => {
     let cancelled = false;
     setLoading(true);
-    listEmployees({ page_size: 100, search: search || undefined })
+    listEmployees({
+      page_size: 100,
+      search: search || undefined,
+      branch: filterBranch || undefined,
+    })
       .then((res) => { if (!cancelled) setEmployees(res.results); })
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   };
 
-  useEffect(fetchData, [search]);
+  useEffect(fetchData, [search, filterBranch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,10 +102,40 @@ export default function EmployeesPage() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    getSectionsInfo()
+      .then((res) => { if (!cancelled) setSectionsInfo(res); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const stats = useMemo(() => {
+    return {
+      total: employees.length,
+      active: employees.filter((e) => e.is_active).length,
+      inactive: employees.filter((e) => !e.is_active).length,
+      sales: employees.filter((e) => e.role === 'sales' && e.is_active).length,
+    };
+  }, [employees]);
+
+  const filtered = useMemo(() => {
+    if (!filterRole) return employees;
+    return employees.filter((e) => e.role === filterRole);
+  }, [employees, filterRole]);
+
   const openModal = (emp?: Employee) => {
     setEditing(emp || null);
     setForm(emp
-      ? { name: emp.name, phone: emp.phone, branch: emp.branch, notes: emp.notes, is_active: emp.is_active }
+      ? {
+          name: emp.name,
+          phone: emp.phone,
+          branch: emp.branch,
+          notes: emp.notes,
+          is_active: emp.is_active,
+          commission_active: emp.commission_active,
+          commission_percent: Number(emp.commission_percent ?? 0),
+        }
       : emptyForm());
     setModalOpen(true);
   };
@@ -121,12 +182,36 @@ export default function EmployeesPage() {
     }
   };
 
+  const handleSavePermissions = async (data: {
+    role: EmployeeRole;
+    permissions: EmployeePermissions;
+    hidden_sections: string[];
+  }) => {
+    if (!permsTarget) return;
+    setPermsSaving(true);
+    try {
+      await updateEmployee(permsTarget.id, {
+        role: data.role,
+        permissions: data.permissions,
+        hidden_sections: data.hidden_sections,
+      });
+      toast('success', 'تم حفظ صلاحيات الموظف');
+      setPermsTarget(null);
+      fetchData();
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setPermsSaving(false);
+    }
+  };
+
   return (
     <AppShell>
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">الموظفون</h1>
+            <Badge variant="neutral">{stats.total} موظف</Badge>
           </div>
           <Button onClick={() => openModal()}>
             <UserRoundPlus size={18} />
@@ -134,58 +219,149 @@ export default function EmployeesPage() {
           </Button>
         </div>
 
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            icon={<Users size={20} />}
+            label="إجمالي الموظفين"
+            value={String(stats.total)}
+          />
+          <StatCard
+            icon={<UserCheck size={20} />}
+            iconBg="bg-emerald-50 text-emerald-600"
+            label="موظفون نشطون"
+            value={String(stats.active)}
+          />
+          <StatCard
+            icon={<Shield size={20} />}
+            iconBg="bg-amber-50 text-amber-600"
+            label="مندوبو مبيعات"
+            value={String(stats.sales)}
+            sub="نشطون"
+          />
+          <StatCard
+            icon={<UserX size={20} />}
+            iconBg="bg-neutral-100 text-neutral-500"
+            label="موقوفون"
+            value={String(stats.inactive)}
+          />
+        </div>
+
+        {/* Filters */}
         <Card className="!p-4">
-          <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-wrap items-end gap-3">
             <div className="flex-1 min-w-[200px]">
               <SearchInput value={search} onChange={(v) => setSearch(v)} placeholder="بحث بالاسم أو الهاتف أو الفرع..." />
             </div>
+            <Select
+              value={filterBranch}
+              onChange={(e) => { setFilterBranch(e.target.value); }}
+              options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+              className="w-full sm:w-48"
+            />
+            <Select
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              options={[{ value: '', label: 'كل الأدياردة' }, ...ROLE_OPTIONS]}
+              className="w-full sm:w-48"
+            />
           </div>
         </Card>
 
         <Card>
           {loading ? (
             <div className="flex justify-center py-12"><Spinner size={32} /></div>
-          ) : employees.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <EmptyState
-              title="لا يوجد موظفون بعد"
-              description="أضف موظفاً واربطه بفرع ليتمكن من فتح وردية بيع"
+              title="لا يوجد موظفون"
+              description="أضف موظفاً ياردةبطه بفرع ليتمكن من فتح وردية بيع"
             />
           ) : (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>الاسم</Th>
-                  <Th>الهاتف</Th>
-                  <Th>الفرع</Th>
-                  <Th>الحالة</Th>
-                  <Th>إجراءات</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((emp) => (
-                  <Tr key={emp.id}>
-                    <Td className="font-medium">{emp.name}</Td>
-                    <Td className="tabular-nums" dir="ltr">{emp.phone || '-'}</Td>
-                    <Td>{emp.branch_name}</Td>
-                    <Td>
-                      <Badge variant={emp.is_active ? 'success' : 'neutral'}>
-                        {emp.is_active ? 'نشط' : 'موقوف'}
-                      </Badge>
-                    </Td>
-                    <Td>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => openModal(emp)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors">
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => setDeleting(emp)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
+            <div className="overflow-x-auto">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>الموظف</Th>
+                    <Th>الفرع</Th>
+                    <Th>الدور</Th>
+                    <Th>العمولة</Th>
+                    <Th>الصلاحيات</Th>
+                    <Th>الأقسام</Th>
+                    <Th>الحالة</Th>
+                    <Th>إجراءات</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((emp) => {
+                    const permsCount = emp.permissions
+                      ? Object.values(emp.permissions).filter((p) => p && p.view).length
+                      : 0;
+                    const hiddenCount = emp.hidden_sections?.length || 0;
+                    const initials = emp.name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('');
+                    return (
+                      <Tr key={emp.id}>
+                        <Td>
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold text-sm dark:bg-brand-500/15 dark:text-brand-300">
+                              {initials}
+                            </div>
+                            <div>
+                              <p className="font-medium">{emp.name}</p>
+                              <p className="text-xs text-neutral-400 tabular-nums" dir="ltr">{emp.phone || '—'}</p>
+                            </div>
+                          </div>
+                        </Td>
+                        <Td>{emp.branch_name}</Td>
+                        <Td>
+                          <Badge variant={ROLE_BADGE_VARIANT[emp.role] || 'neutral'}>{emp.role_label}</Badge>
+                        </Td>
+                        <Td>
+                          {emp.commission_active && Number(emp.commission_percent) > 0 ? (
+                            <Badge variant="warning">عمولة {emp.commission_percent}%</Badge>
+                          ) : (
+                            <span className="text-xs text-neutral-400">بدون</span>
+                          )}
+                        </Td>
+                        <Td>
+                          <span className="text-sm text-neutral-600 tabular-nums">
+                            {permsCount} قسم مُفعّل
+                          </span>
+                        </Td>
+                        <Td>
+                          {hiddenCount > 0 ? (
+                            <Badge variant="warning">{hiddenCount} مخفي</Badge>
+                          ) : (
+                            <Badge variant="success">الكل ظاهر</Badge>
+                          )}
+                        </Td>
+                        <Td>
+                          <Badge variant={emp.is_active ? 'success' : 'neutral'}>
+                            {emp.is_active ? 'نشط' : 'موقوف'}
+                          </Badge>
+                        </Td>
+                        <Td>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setPermsTarget(emp)}
+                              className="p-1.5 rounded-lg hover:bg-brand-50 text-brand-600 dark:hover:bg-brand-500/15 dark:text-brand-400 transition-colors"
+                              title="إدارة الصلاحيات"
+                            >
+                              <ShieldCheck size={16} />
+                            </button>
+                            <button onClick={() => openModal(emp)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors">
+                              <Pencil size={15} />
+                            </button>
+                            <button onClick={() => setDeleting(emp)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            </div>
           )}
         </Card>
 
@@ -217,6 +393,33 @@ export default function EmployeesPage() {
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="ملاحظات اختيارية..."
             />
+            <div className="rounded-xl bg-sand-50 border border-sand-200 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-neutral-700">عمولة على المبيعات</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">
+                    تُحسب تلقائياً من إجمالي الوردية عند إغلاقها
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.commission_active}
+                  onChange={(e) => setForm({ ...form, commission_active: e.target.checked })}
+                  className="h-4 w-4 accent-brand-600"
+                />
+              </div>
+              {form.commission_active && (
+                <Input
+                  label="نسبة العمولة (%)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={form.commission_percent}
+                  onChange={(e) => setForm({ ...form, commission_percent: Number(e.target.value) })}
+                />
+              )}
+            </div>
             {editing && (
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-neutral-700">موظف نشط</span>
@@ -228,6 +431,12 @@ export default function EmployeesPage() {
                 />
               </div>
             )}
+            {!editing && (
+              <div className="rounded-xl bg-sand-50 border border-sand-200 p-3 text-xs text-neutral-500 flex items-start gap-2">
+                <Shield size={14} className="mt-0.5 shrink-0 text-brand-600" />
+                الموظف الجديد يُنشأ بصلاحيات «مدير النظام» — يمكنك تعديل صلاحياته بعد إنشائه من زر الصلاحيات في الجدول.
+              </div>
+            )}
             <div className="flex items-center justify-end gap-2 pt-2">
               <Button variant="secondary" onClick={() => setModalOpen(false)}>إلغاء</Button>
               <Button onClick={handleSave} loading={saving}>
@@ -236,6 +445,18 @@ export default function EmployeesPage() {
             </div>
           </div>
         </Modal>
+
+        <PermissionsModal
+          open={!!permsTarget}
+          employeeName={permsTarget?.name || ''}
+          info={sectionsInfo}
+          initialRole={permsTarget?.role || 'admin'}
+          initialPermissions={permsTarget?.permissions}
+          initialHidden={permsTarget?.hidden_sections || []}
+          saving={permsSaving}
+          onClose={() => setPermsTarget(null)}
+          onSave={handleSavePermissions}
+        />
 
         <ConfirmDialog
           open={!!deleting}

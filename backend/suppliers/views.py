@@ -9,7 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from warehouses.models import FabricRoll
-from warehouses.services import create_receipt_from_purchase
+from warehouses.services import create_purchase_receipts
 
 from .models import Fabric, LedgerEntry, Supplier
 from .serializers import (
@@ -27,6 +27,50 @@ class SupplierViewSet(viewsets.ModelViewSet):
     serializer_class = SupplierSerializer
     search_fields = ["name", "company_name", "city", "country", "phone", "email"]
     ordering_fields = ["name", "company_name", "city", "created_at"]
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request):
+        qs = self.get_queryset()
+        total_suppliers = qs.count()
+        active_count = qs.filter(is_active=True).count()
+
+        entries = LedgerEntry.objects
+        ledger_agg = entries.aggregate(
+            purchases=Sum("amount", filter=Q(entry_type=LedgerEntry.EntryType.PURCHASE)),
+            payments=Sum("amount", filter=Q(entry_type=LedgerEntry.EntryType.PAYMENT)),
+            returns=Sum("amount", filter=Q(entry_type=LedgerEntry.EntryType.RETURN)),
+        )
+        counts = {
+            r["entry_type"]: r["n"]
+            for r in entries.values("entry_type").annotate(n=Count("id"))
+        }
+
+        owing = list(qs.filter(current_balance__gt=0).order_by("-current_balance"))
+        outstanding = sum((s.current_balance or Decimal("0")) for s in owing)
+
+        top = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "company_name": s.company_name,
+                "balance": float(s.current_balance or 0),
+            }
+            for s in owing[:5]
+        ]
+
+        return Response({
+            "total_suppliers": total_suppliers,
+            "active_count": active_count,
+            "total_purchases": abs(float(ledger_agg["purchases"] or 0)),
+            "purchases_count": counts.get(LedgerEntry.EntryType.PURCHASE, 0),
+            "total_payments": abs(float(ledger_agg["payments"] or 0)),
+            "payments_count": counts.get(LedgerEntry.EntryType.PAYMENT, 0),
+            "total_returns": abs(float(ledger_agg["returns"] or 0)),
+            "returns_count": counts.get(LedgerEntry.EntryType.RETURN, 0),
+            "outstanding_debit": float(outstanding),
+            "owing_count": len(owing),
+            "top_suppliers": top,
+        })
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -254,6 +298,28 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
         )
         serializer.is_valid(raise_exception=True)
         created = serializer.save()
+        try:
+            from accounting.services import post_supplier_entry
+            post_supplier_entry(created)
+            if (
+                created.entry_type == LedgerEntry.EntryType.PURCHASE
+                and created.receipt_no
+                and request.data.get("payment_amount")
+            ):
+                payment = (
+                    LedgerEntry.objects.filter(
+                        supplier=supplier,
+                        entry_type=LedgerEntry.EntryType.PAYMENT,
+                        receipt_no=created.receipt_no,
+                        date=created.date,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+                if payment:
+                    post_supplier_entry(payment)
+        except Exception:
+            pass
         entry = next(
             (row for row in self._annotated_ledger(supplier) if row.pk == created.pk),
             created,
@@ -266,6 +332,25 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
     def destroy(self, request, pk=None, entry_pk=None):
         supplier = get_object_or_404(Supplier, pk=pk)
         entry = get_object_or_404(LedgerEntry, pk=entry_pk, supplier=supplier)
+        try:
+            from accounting.models import JournalEntry
+            from accounting.services import unpost_source
+
+            unpost_source(JournalEntry.Source.PURCHASE, entry.pk)
+            if (
+                entry.entry_type == LedgerEntry.EntryType.PURCHASE
+                and entry.receipt_no
+            ):
+                payment = LedgerEntry.objects.filter(
+                    supplier=supplier,
+                    entry_type=LedgerEntry.EntryType.PAYMENT,
+                    receipt_no=entry.receipt_no,
+                    date=entry.date,
+                ).first()
+                if payment:
+                    unpost_source(JournalEntry.Source.PURCHASE, payment.pk)
+        except Exception:
+            pass
         entry.delete()
         return Response(
             {"detail": settings.API_MESSAGES["deleted"]},
@@ -281,20 +366,22 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
             supplier=supplier,
             entry_type=LedgerEntry.EntryType.PURCHASE,
         )
-        if not (entry.warehouse_id or entry.branch_id):
+        entry_dest = entry.warehouse_id or entry.branch_id
+        item_dest = entry.items.filter(
+            Q(warehouse_id__isnull=False) | Q(branch_id__isnull=False)
+        ).exists()
+        if not entry_dest and not item_dest:
             return Response(
                 {"detail": "حدد وجهة التوريد (مخزن أو فرع) لقيد الشراء أولاً"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if entry.goods_receipts.exists():
             return Response(
-                {"detail": "بضاعة قيد الشراء مُستلمة بالفعل في المخزن"},
+                {"detail": "بضاعة قيد الشراء مُستلمة بالفعل"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            create_receipt_from_purchase(
-                entry, warehouse=entry.warehouse, branch=entry.branch, date=entry.date
-            )
+            create_purchase_receipts(entry, date=entry.date)
         except serializers.ValidationError as exc:
             return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
         entry_row = next(

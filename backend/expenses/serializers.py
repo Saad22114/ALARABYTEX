@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Expense, ExpenseCategory
+from .models import Expense, ExpenseBudget, ExpenseCategory
 
 
 class ExpenseCategorySerializer(serializers.ModelSerializer):
@@ -49,3 +49,16 @@ class ExpenseWriteSerializer(serializers.ModelSerializer):
             "description", "notes",
         ]
         read_only_fields = ["id"]
+
+
+class ExpenseBudgetSerializer(serializers.ModelSerializer):
+    branch_name = serializers.CharField(source="branch.name", read_only=True)
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model = ExpenseBudget
+        fields = [
+            "id", "branch", "branch_name", "category", "category_name",
+            "month", "amount", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]

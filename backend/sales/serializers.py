@@ -17,7 +17,7 @@ class DailySaleItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DailySaleItem
-        fields = ["id", "fabric", "fabric_name", "fabric_unit", "yards"]
+        fields = ["id", "fabric", "fabric_name", "fabric_unit", "yards", "unit_price"]
         read_only_fields = ["id"]
 
 
@@ -96,10 +96,17 @@ class DailySaleWriteSerializer(serializers.ModelSerializer):
             yards = Decimal(str(it.get("yards", "0") or "0"))
             if yards <= 0:
                 raise serializers.ValidationError("ياردات المبيعات يجب أن تكون أكبر من صفر")
+            unit_price = it.get("unit_price")
+            if unit_price in (None, ""):
+                unit_price = None
+            else:
+                unit_price = Decimal(str(unit_price))
+                if unit_price < 0:
+                    raise serializers.ValidationError("سعر الوحدة لا يمكن أن يكون سالباً")
             if fabric.pk in seen:
                 raise serializers.ValidationError(f"القماش «{fabric.name}» مكرر في أصناف المبيعات")
             seen.add(fabric.pk)
-            rows.append((fabric, yards))
+            rows.append((fabric, yards, unit_price))
         return rows
 
     def create(self, validated_data):
@@ -108,9 +115,9 @@ class DailySaleWriteSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             sale = DailySale.objects.create(**validated_data)
             if items:
-                sell_from_branch(sale.branch, sale, items, allow_negative=allow_negative)
-                for fabric, yards in items:
-                    DailySaleItem.objects.create(sale=sale, fabric=fabric, yards=yards)
+                sell_from_branch(sale.branch, sale, [(f, y) for f, y, _ in items], allow_negative=allow_negative)
+                for fabric, yards, unit_price in items:
+                    DailySaleItem.objects.create(sale=sale, fabric=fabric, yards=yards, unit_price=unit_price)
         return sale
 
     def update(self, instance, validated_data):
@@ -124,7 +131,9 @@ class DailySaleWriteSerializer(serializers.ModelSerializer):
             instance = super().update(instance, validated_data)
             instance.sale_items.all().delete()
             if items:
-                sell_from_branch(instance.branch, instance, items, allow_negative=allow_negative)
-                for fabric, yards in items:
-                    DailySaleItem.objects.create(sale=instance, fabric=fabric, yards=yards)
+                sell_from_branch(instance.branch, instance, [(f, y) for f, y, _ in items], allow_negative=allow_negative)
+                for fabric, yards, unit_price in items:
+                    DailySaleItem.objects.create(
+                        sale=instance, fabric=fabric, yards=yards, unit_price=unit_price,
+                    )
         return instance

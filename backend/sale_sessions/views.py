@@ -1,11 +1,14 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.db import transaction
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import Employee, SaleSession, SaleSessionItem
+from .sections import ROLE_PRESETS, SECTIONS
 from .serializers import (
     EmployeeSerializer,
     SaleSessionItemCreateSerializer,
@@ -13,8 +16,29 @@ from .serializers import (
     SaleSessionItemSerializer,
     SaleSessionOpenSerializer,
     SaleSessionReadSerializer,
+    SaleSessionUpdateSerializer,
 )
-from .services import close_session, delete_session_item, update_session_item
+from .services import (
+    close_session,
+    clear_session_items,
+    delete_session,
+    delete_session_item,
+    move_session_item,
+    reopen_session,
+    update_session_item,
+)
+
+
+class SectionsView(APIView):
+    """يعيد قائمة أقسام النظام والصلاحيات المتاحة وأدياردة العملاء الجاهزة."""
+
+    def get(self, request):
+        return Response(
+            {
+                "sections": SECTIONS,
+                "roles": ROLE_PRESETS,
+            }
+        )
 
 
 class EmployeeViewSet(viewsets.ModelViewSet):
@@ -46,14 +70,26 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def destroy(self, request, *args, **kwargs):
-        return Response(
-            {"detail": "لا يمكن حذف وردية بيع — أغلقها فقط"},
-            status=status.HTTP_405_METHOD_NOT_ALLOWED,
-        )
+        session = self.get_object()
+        try:
+            delete_session(session)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": settings.API_MESSAGES["deleted"]}, status=status.HTTP_200_OK)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+        return Response(SaleSessionReadSerializer(instance).data)
 
     def get_serializer_class(self):
         if self.action == "create":
             return SaleSessionOpenSerializer
+        if self.action in ("update", "partial_update"):
+            return SaleSessionUpdateSerializer
         return SaleSessionReadSerializer
 
     def create(self, request, *args, **kwargs):
@@ -83,6 +119,12 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         opened_to = self.request.query_params.get("opened_to")
         if opened_to:
             qs = qs.filter(opened_at__date__lte=opened_to)
+        closed_from = self.request.query_params.get("closed_from")
+        if closed_from:
+            qs = qs.filter(closed_at__date__gte=closed_from)
+        closed_to = self.request.query_params.get("closed_to")
+        if closed_to:
+            qs = qs.filter(closed_at__date__lte=closed_to)
         return qs
 
     @action(detail=False, methods=["get"], url_path="summary")
@@ -120,6 +162,30 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         item = serializer.save()
         return Response(SaleSessionItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="items/bulk")
+    def add_items(self, request, pk=None):
+        session = self.get_object()
+        if session.status == SaleSession.Status.CLOSED:
+            return Response({"detail": "الوردية مغلقة — لا يمكن إضافة بنود"}, status=status.HTTP_400_BAD_REQUEST)
+        items = request.data.get("items")
+        if not isinstance(items, list) or not items:
+            return Response(
+                {"detail": "أرسل قائمة بنود (items) لإضافتها معاً"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializers_ = [
+            SaleSessionItemCreateSerializer(data=data, context={"session": session})
+            for data in items
+        ]
+        for s in serializers_:
+            s.is_valid(raise_exception=True)
+        with transaction.atomic():
+            created = [s.save() for s in serializers_]
+        return Response(
+            SaleSessionItemSerializer(created, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["put", "patch", "delete"], url_path="items/(?P<item_id>[0-9]+)")
     def edit_item(self, request, pk=None, item_id=None):
@@ -162,6 +228,50 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         try:
             close_session(session)
+        except (ValueError, serializers.ValidationError) as e:
+            detail = getattr(e, "detail", str(e))
+            if isinstance(detail, (list, tuple, dict)):
+                detail = "; ".join(str(x) for x in (detail.values() if isinstance(detail, dict) else detail))
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SaleSessionReadSerializer(session).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="clear")
+    def clear(self, request, pk=None):
+        session = self.get_object()
+        try:
+            clear_session_items(session)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SaleSessionReadSerializer(session).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="move-item/(?P<item_id>[0-9]+)")
+    def move_item(self, request, pk=None, item_id=None):
+        session = self.get_object()
+        try:
+            item = session.items.select_related("fabric").get(pk=item_id)
+        except SaleSessionItem.DoesNotExist:
+            return Response({"detail": "البند غير موجود"}, status=status.HTTP_404_NOT_FOUND)
+        target_id = request.data.get("target_session")
+        if not target_id:
+            return Response({"detail": "حدّد الوردية الهدف"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            target = SaleSession.objects.select_related("branch").get(pk=int(target_id))
+        except (ValueError, SaleSession.DoesNotExist):
+            return Response({"detail": "الوردية الهدف غير موجودة"}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            item = move_session_item(session, item, target)
+        except (ValueError, serializers.ValidationError) as e:
+            detail = getattr(e, "detail", str(e))
+            if isinstance(detail, (list, tuple, dict)):
+                detail = "; ".join(str(x) for x in (detail.values() if isinstance(detail, dict) else detail))
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SaleSessionItemSerializer(item).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="reopen")
+    def reopen(self, request, pk=None):
+        session = self.get_object()
+        try:
+            reopen_session(session)
         except (ValueError, serializers.ValidationError) as e:
             detail = getattr(e, "detail", str(e))
             if isinstance(detail, (list, tuple, dict)):

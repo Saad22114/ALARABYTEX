@@ -23,6 +23,7 @@ interface SalesFormProps {
 interface ItemLine {
   fabric: string;
   yards: string;
+  unit_price: string;
 }
 
 export default function SalesForm({ initial, branches, allowNegative = false, onSubmit, onCancel }: SalesFormProps) {
@@ -31,10 +32,10 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
     branch: initial?.branch ? String(initial.branch) : '',
     employee: initial?.employee ? String(initial.employee) : '',
     total_sales: initial?.total_sales ? String(initial.total_sales) : '',
-    cash_amount: initial?.cash_amount ? String(initial.cash_amount) : '0',
-    transfer_amount: initial?.transfer_amount ? String(initial.transfer_amount) : '0',
-    card_amount: initial?.card_amount ? String(initial.card_amount) : '0',
-    other_amount: initial?.other_amount ? String(initial.other_amount) : '0',
+    cash_amount: initial?.cash_amount ? String(initial.cash_amount) : '',
+    transfer_amount: initial?.transfer_amount ? String(initial.transfer_amount) : '',
+    card_amount: initial?.card_amount ? String(initial.card_amount) : '',
+    other_amount: initial?.other_amount ? String(initial.other_amount) : '',
     notes: initial?.notes || '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -43,7 +44,11 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [stock, setStock] = useState<SaleStockResult | null>(null);
   const [items, setItems] = useState<ItemLine[]>(
-    initial?.items?.map((it) => ({ fabric: String(it.fabric), yards: String(it.yards) })) || []
+    initial?.items?.map((it) => ({
+      fabric: String(it.fabric),
+      yards: String(it.yards),
+      unit_price: it.unit_price != null ? String(it.unit_price) : '',
+    })) || []
   );
   const [itemsError, setItemsError] = useState('');
 
@@ -86,14 +91,18 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
         branch: initial.branch ? String(initial.branch) : '',
         employee: initial.employee ? String(initial.employee) : '',
         total_sales: initial.total_sales ? String(initial.total_sales) : '',
-        cash_amount: initial.cash_amount ? String(initial.cash_amount) : '0',
-        transfer_amount: initial.transfer_amount ? String(initial.transfer_amount) : '0',
-        card_amount: initial.card_amount ? String(initial.card_amount) : '0',
-        other_amount: initial.other_amount ? String(initial.other_amount) : '0',
+        cash_amount: initial.cash_amount ? String(initial.cash_amount) : '',
+        transfer_amount: initial.transfer_amount ? String(initial.transfer_amount) : '',
+        card_amount: initial.card_amount ? String(initial.card_amount) : '',
+        other_amount: initial.other_amount ? String(initial.other_amount) : '',
         notes: initial.notes || '',
       });
       setItems(
-        initial.items?.map((it) => ({ fabric: String(it.fabric), yards: String(it.yards) })) || []
+        initial.items?.map((it) => ({
+          fabric: String(it.fabric),
+          yards: String(it.yards),
+          unit_price: it.unit_price != null ? String(it.unit_price) : '',
+        })) || []
       );
     }
   }, [initial]);
@@ -164,7 +173,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
         notes: form.notes,
       };
       if (isEdit || parts.length > 0) {
-        payload.items = parts.map((i) => ({ fabric: Number(i.fabric), yards: num(i.yards) }));
+        payload.items = parts.map((i) => ({ fabric: Number(i.fabric), yards: num(i.yards), unit_price: num(i.unit_price) }));
       }
       await onSubmit(payload);
     } finally {
@@ -175,7 +184,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
   const set = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
   const setLine = (idx: number, patch: Partial<ItemLine>) =>
     setItems((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
-  const addLine = () => setItems((prev) => [...prev, { fabric: '', yards: '' }]);
+  const addLine = () => setItems((prev) => [...prev, { fabric: '', yards: '3.5', unit_price: '' }]);
   const removeLine = (idx: number) => setItems((prev) => prev.filter((_, i) => i !== idx));
 
   return (
@@ -209,7 +218,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
         value={form.total_sales}
         onChange={(e) => set('total_sales', e.target.value)}
         error={errors.total_sales}
-        placeholder="0.00"
+        placeholder=""
         min="0"
         step="0.01"
       />
@@ -219,7 +228,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
           type="number"
           value={form.cash_amount}
           onChange={(e) => set('cash_amount', e.target.value)}
-          placeholder="0.00"
+          placeholder=""
           min="0"
           step="0.01"
         />
@@ -228,7 +237,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
           type="number"
           value={form.transfer_amount}
           onChange={(e) => set('transfer_amount', e.target.value)}
-          placeholder="0.00"
+          placeholder=""
           min="0"
           step="0.01"
         />
@@ -239,7 +248,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
           type="number"
           value={form.card_amount}
           onChange={(e) => set('card_amount', e.target.value)}
-          placeholder="0.00"
+          placeholder=""
           min="0"
           step="0.01"
         />
@@ -248,7 +257,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
           type="number"
           value={form.other_amount}
           onChange={(e) => set('other_amount', e.target.value)}
-          placeholder="0.00"
+          placeholder=""
           min="0"
           step="0.01"
         />
@@ -289,13 +298,20 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
               const available = fid != null ? availableYards(fid) : undefined;
               const low = available !== undefined && num(line.yards) > available;
               return (
-                <div key={idx} className="grid grid-cols-[1fr_140px_36px] gap-2 items-end">
+                <div key={idx} className="grid grid-cols-[1fr_130px_130px_36px] gap-2 items-end">
                   <Select
                     value={line.fabric}
-                    onChange={(e) => setLine(idx, { fabric: e.target.value })}
-                    options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))}
-                    placeholder="اختر القماش"
-                  />
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          const fid = Number(v);
+                          const price = fabrics.find((f) => f.id === fid)?.sale_price_yard;
+                          const patch: Partial<ItemLine> = { fabric: v };
+                          if (price) patch.unit_price = String(price);
+                          setLine(idx, patch);
+                        }}
+                        options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))}
+                        placeholder="اختر القماش"
+                      />
                   <Input
                     label="الياردات"
                     type="number"
@@ -304,6 +320,14 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
                     value={line.yards}
                     onChange={(e) => setLine(idx, { yards: e.target.value })}
                     className={low ? 'border-red-400 ring-2 ring-red-200' : ''}
+                  />
+                  <Input
+                    label="سعر البيع للياردة"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={line.unit_price}
+                    onChange={(e) => setLine(idx, { unit_price: e.target.value })}
                   />
                   <button
                     type="button"
@@ -314,7 +338,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
                     <X size={16} />
                   </button>
                   {available !== undefined && (
-                    <p className={`col-span-3 -mt-1 text-xs ${low ? 'text-red-500 font-medium' : 'text-neutral-400'}`}>
+                    <p className={`col-span-4 -mt-1 text-xs ${low ? 'text-red-500 font-medium' : 'text-neutral-400'}`}>
                       المتوفر في مخزون الفرع: {formatNumber(available)} ياردة{low ? ' — الكمية تتجاوز المتوفر' : ''}
                     </p>
                   )}

@@ -21,7 +21,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
       <div className="lg:mr-72 print:mr-0 print:max-w-full">
         <Header onMenuClick={() => setMenuOpen(true)} />
-        <main className="p-4 sm:p-6 lg:p-8 animate-fade-in">{children}</main>
+        <main className="p-3 sm:p-6 lg:p-8 animate-fade-in">{children}</main>
       </div>
     </div>
   );

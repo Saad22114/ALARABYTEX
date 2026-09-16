@@ -2,6 +2,8 @@ import { apiRequest, buildQuery } from './api';
 import {
   SalesReportData,
   ExpensesReportData,
+  ExpenseBudgetReportRow,
+  CommissionReportRow,
   NetDailyReportData,
   BranchesReportData,
   SuppliersReportData,
@@ -58,6 +60,33 @@ export async function getExpensesReport(
 ): Promise<ExpensesReportResult> {
   const q = buildQuery(params || {});
   return apiRequest<ExpensesReportResult>(`/reports/expenses/${q}`);
+}
+
+export interface ExpenseBudgetReportResult {
+  items: ExpenseBudgetReportRow[];
+  totals: { budget: number; spent: number; remaining: number; rows: number };
+  month: string;
+}
+
+export async function getExpensesBudgetReport(
+  params?: Record<string, string | number | undefined | null>
+): Promise<ExpenseBudgetReportResult> {
+  const q = buildQuery(params || {});
+  return apiRequest<ExpenseBudgetReportResult>(`/reports/expenses-budget/${q}`);
+}
+
+export interface CommissionsReportResult {
+  items: CommissionReportRow[];
+  totals: { sessions: number; sales: number; commission: number; employees: number };
+  start_date: string;
+  end_date: string;
+}
+
+export async function getCommissionsReport(
+  params?: Record<string, string | number | undefined | null>
+): Promise<CommissionsReportResult> {
+  const q = buildQuery(params || {});
+  return apiRequest<CommissionsReportResult>(`/reports/commissions/${q}`);
 }
 
 export async function getNetDailyReport(

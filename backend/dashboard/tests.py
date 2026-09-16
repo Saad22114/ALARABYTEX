@@ -6,8 +6,9 @@ from rest_framework.test import APIClient
 
 from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
+from sale_sessions.models import Employee, SaleSession
 from sales.models import DailySale
-from suppliers.models import Fabric
+from suppliers.models import Fabric, LedgerEntry, Supplier
 from warehouses.models import FabricRoll, GoodsReceipt, Warehouse
 
 
@@ -67,6 +68,15 @@ class DashboardAPITest(TestCase):
         r = self.c.get("/api/dashboard/summary/", {"period": "today"})
         self.assertEqual(r.data["branches_count"], 1)
 
+    def test_profit_fields(self):
+        r = self.c.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["gross_profit"], 1000.0)
+        self.assertEqual(r.data["margin_pct"], 100.0)
+        self.assertIn("cogs", r.data["chart_data"][0])
+        self.assertIn("gross_profit", r.data["chart_data"][0])
+        self.assertIsInstance(r.data["top_fabrics"], list)
+
     def test_alerts_low_stock(self):
         wh = Warehouse.objects.create(name="W")
         f = Fabric.objects.create(name="قطن", code="FAB-1", unit="yard", min_stock=100, sale_price_yard=5)
@@ -78,7 +88,73 @@ class DashboardAPITest(TestCase):
         self.assertEqual(r.data["low_stock"][0]["total_yards"], 50.0)
         self.assertEqual(r.data["today"]["sales"], 1000.0)
 
+    def test_alerts_low_stock_disabled_by_setting(self):
+        from appsettings.models import AppSettings
+
+        settings = AppSettings.load()
+        settings.low_stock_alert_enabled = False
+        settings.save(update_fields=["low_stock_alert_enabled"])
+        wh = Warehouse.objects.create(name="W")
+        f = Fabric.objects.create(name="قطن", code="FAB-1", unit="yard", min_stock=100, sale_price_yard=5)
+        FabricRoll.objects.create(warehouse=wh, fabric=f, yards=50, remaining_yards=50)
+        r = self.c.get("/api/dashboard/alerts/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["low_stock_count"], 0)
+        self.assertEqual(r.data["low_stock"], [])
+
     def test_alerts_no_low_stock(self):
         r = self.c.get("/api/dashboard/alerts/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data["low_stock_count"], 0)
+
+    def test_alerts_open_sessions(self):
+        employee = Employee.objects.create(name="emp1", branch=self.branch)
+        session = SaleSession.objects.create(employee=employee, branch=self.branch)
+        session.opened_at = self.today - timedelta(days=2)
+        session.save(update_fields=["opened_at"])
+        r = self.c.get("/api/dashboard/alerts/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["open_sessions_count"], 1)
+        self.assertEqual(r.data["open_sessions"][0]["employee_name"], "emp1")
+
+    def test_alerts_pending_receipts(self):
+        supplier = Supplier.objects.create(name="S1")
+        e1 = LedgerEntry.objects.create(
+            supplier=supplier, date=self.today,
+            entry_type=LedgerEntry.EntryType.PURCHASE, amount=-500,
+        )
+        wh = Warehouse.objects.create(name="W")
+        GoodsReceipt.objects.create(warehouse=wh, supplier=supplier, purchase_entry=e1)
+        e2 = LedgerEntry.objects.create(
+            supplier=supplier, date=self.today,
+            entry_type=LedgerEntry.EntryType.PURCHASE, amount=-300,
+        )
+        r = self.c.get("/api/dashboard/alerts/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["pending_receipts_count"], 1)
+        self.assertEqual(r.data["pending_receipts"][0]["id"], e2.id)
+
+    def test_summary_previous_period(self):
+        r = self.c.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["previous_sales"], 500.0)
+        self.assertEqual(r.data["sales_delta_pct"], 100.0)
+        self.assertIn("chart_previous", r.data)
+
+    def test_activity(self):
+        supplier = Supplier.objects.create(name="S1")
+        LedgerEntry.objects.create(
+            supplier=supplier, date=self.today,
+            entry_type=LedgerEntry.EntryType.PURCHASE, amount=-500,
+        )
+        LedgerEntry.objects.create(
+            supplier=supplier, date=self.today,
+            entry_type=LedgerEntry.EntryType.PAYMENT, amount=200,
+        )
+        r = self.c.get("/api/dashboard/activity/")
+        self.assertEqual(r.status_code, 200)
+        types = [a["type"] for a in r.data["activities"]]
+        self.assertIn("sale", types)
+        self.assertIn("expense", types)
+        self.assertIn("purchase", types)
+        self.assertIn("payment", types)

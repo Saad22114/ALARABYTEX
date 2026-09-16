@@ -2,25 +2,32 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Bell, RefreshCw, Wallet } from 'lucide-react';
+import { AlertTriangle, Bell, MessageSquareText, RefreshCw, Wallet } from 'lucide-react';
 import { getDashboardAlerts } from '@/services/dashboard';
 import { DashboardAlertsResult } from '@/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
+import { useCurrentEmployee } from '@/components/providers/CurrentEmployeeProvider';
+import { getUnreadCount } from '@/services/messages';
 
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const [alerts, setAlerts] = useState<DashboardAlertsResult | null>(null);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const { currentEmployee } = useCurrentEmployee();
 
   const load = () => {
     getDashboardAlerts().then(setAlerts).catch(() => {});
+    if (currentEmployee) {
+      getUnreadCount(currentEmployee.id).then((r) => setUnreadMessages(r.count)).catch(() => {});
+    }
   };
 
   useEffect(() => {
     load();
     const iv = setInterval(load, 60000);
     return () => clearInterval(iv);
-  }, []);
+  }, [currentEmployee]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -40,9 +47,9 @@ export default function NotificationsBell() {
         className="relative p-2 rounded-xl hover:bg-sand-100 text-neutral-600 dark:text-neutral-300 transition-colors"
       >
         <Bell size={20} />
-        {count > 0 && (
+        {count + unreadMessages > 0 && (
           <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
-            {count}
+            {count + unreadMessages}
           </span>
         )}
       </button>
@@ -61,6 +68,25 @@ export default function NotificationsBell() {
           </div>
 
           <div className="overflow-y-auto">
+            {currentEmployee && (
+              <Link
+                href="/messages"
+                onClick={() => setOpen(false)}
+                className="flex items-center justify-between gap-2 px-4 py-3 border-b border-sand-100 hover:bg-sand-50 transition-colors"
+              >
+                <span className="flex items-center gap-2 text-xs text-neutral-500">
+                  <MessageSquareText size={14} />
+                  الرسائل
+                </span>
+                {unreadMessages > 0 ? (
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-brand-600 text-white text-[11px] font-bold flex items-center justify-center">
+                    {unreadMessages}
+                  </span>
+                ) : (
+                  <span className="text-xs text-neutral-300">لا توجد رسائل جديدة</span>
+                )}
+              </Link>
+            )}
             <div className="px-4 py-3 border-b border-sand-100">
               <div className="flex items-center gap-2 text-xs text-neutral-500 mb-2">
                 <Wallet size={14} />

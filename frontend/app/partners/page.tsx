@@ -19,7 +19,7 @@ import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import {
   Plus, Pencil, Trash2, TrendingUp, TrendingDown, Scale, UserRoundPlus,
-  FileText, Download, Receipt, Wallet, Sparkles, Percent, ArrowRightLeft, Users,
+  FileText, Download, Receipt, Wallet, Sparkles, Percent, ArrowRightLeft, Users, Printer,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Partner, PartnerOperation, Paginated, PartnerOperationType, PartnerPaymentMethod, PartnerOperationsSummary, PartnerDistributionResult } from '@/types';
@@ -167,7 +167,7 @@ export default function PartnersPage() {
   const fetchDistribution = () => {
     let cancelled = false;
     setDistributionLoading(true);
-    getPartnerDistribution()
+    getPartnerDistribution({ date_from: from, date_to: to })
       .then((res) => { if (!cancelled) setDistribution(res); })
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setDistributionLoading(false); });
@@ -182,7 +182,7 @@ export default function PartnersPage() {
 
   useEffect(() => {
     if (tab === 'distribution') return fetchDistribution();
-  }, [tab]);
+  }, [tab, from, to]);
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 
@@ -194,7 +194,71 @@ export default function PartnersPage() {
     return `${API_URL}/partner-operations/?${p.toString()}`;
   }, [from, to]);
 
-  const distributionExportUrl = `${API_URL}/partners/distribution/?export=xlsx`;
+  const distributionExportUrl = useMemo(() => {
+    const p = new URLSearchParams();
+    p.append('export', 'xlsx');
+    if (from) p.append('date_from', from);
+    if (to) p.append('date_to', to);
+    return `${API_URL}/partners/distribution/?${p.toString()}`;
+  }, [from, to]);
+
+  const printDistribution = () => {
+    if (!distribution) return;
+    const periodTitle = from || to
+      ? `الفترة: ${formatDate(from)} إلى ${formatDate(to)}`
+      : 'كل الفترات';
+    const rows = distribution.items.map((it) => `
+      <tr>
+        <td>${it.name}</td>
+        <td>${it.share_percent}%</td>
+        <td>${formatCurrency(it.total_support)}</td>
+        <td>${formatCurrency(it.total_withdraw)}</td>
+        <td>${formatCurrency(it.actual_net)}</td>
+        <td>${formatCurrency(it.theoretical_share)}</td>
+        <td>${it.difference > 0.005 ? '+' : ''}${formatCurrency(it.difference)}</td>
+        <td>${it.settlement === 'balanced' ? 'متوازن' : it.settlement === 'add' ? 'إضافة (دعم)' : 'سحب من الرصيد'}</td>
+      </tr>`).join('');
+    const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/>
+      <title>تقرير حصص الشركاء</title>
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 32px; color: #1a1a1a; }
+        h1 { font-size: 20px; margin-bottom: 4px; }
+        p { color: #555; margin: 2px 0; font-size: 13px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: right; }
+        th { background: #f1f1e9; }
+        tfoot td { font-weight: bold; background: #f7f7ef; }
+      </style></head><body>
+      <h1>تقرير حصة كل شريك مع احتساب التوزيع والإطفاء</h1>
+      <p>${periodTitle}</p>
+      <table>
+        <thead><tr>
+          <th>الشريك</th><th>نسبة المشاركة</th><th>الدعم</th><th>السحب</th>
+          <th>الصافي الفعلي</th><th>النصيب النظري</th><th>الفرق</th><th>التسوية</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr>
+          <td>الإجمالي</td>
+          <td>${distribution.items.reduce((s, it) => s + it.share_percent, 0)}%</td>
+          <td>${formatCurrency(distribution.total_support)}</td>
+          <td>${formatCurrency(distribution.total_withdraw)}</td>
+          <td>${formatCurrency(distribution.total_net)}</td>
+          <td>${formatCurrency(distribution.total_net)}</td>
+          <td>0.00</td>
+          <td>متوازن</td>
+        </tr></tfoot>
+      </table>
+      <script>setTimeout(() => window.print(), 200);</script>
+    </body></html>`;
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) {
+      toast('error', 'الرجاء السماح بالنوافذ المنبثقة للطباعة');
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  };
 
   const totalNetForBars = partners.reduce((s, p) => s + Math.max(p.net_balance || 0, 0), 0);
 
@@ -303,12 +367,6 @@ export default function PartnersPage() {
     }
   };
 
-  const diffBadge = (diff: number) => {
-    if (Math.abs(diff) < 0.005) return <Badge variant="success">مطابق لنسبته</Badge>;
-    if (diff > 0) return <Badge variant="warning">أقل من نصيبه</Badge>;
-    return <Badge variant="danger">أعلى من نصيبه</Badge>;
-  };
-
   const opsTotal = data?.results.reduce((s, op) => s + op.amount, 0) ?? 0;
 
   return (
@@ -329,12 +387,18 @@ export default function PartnersPage() {
               </a>
             )}
             {tab === 'distribution' && (
-              <a href={distributionExportUrl} target="_blank" rel="noreferrer">
-                <Button variant="secondary" type="button">
-                  <Download size={16} />
-                  تصدير التوزيع
+              <>
+                <a href={distributionExportUrl} target="_blank" rel="noreferrer">
+                  <Button variant="secondary" type="button">
+                    <Download size={16} />
+                    تصدير التوزيع
+                  </Button>
+                </a>
+                <Button variant="secondary" type="button" onClick={printDistribution}>
+                  <Printer size={16} />
+                  طباعة / PDF
                 </Button>
-              </a>
+              </>
             )}
             <Button variant="secondary" onClick={() => openPartnerModal()}>
               <UserRoundPlus size={18} />
@@ -554,10 +618,12 @@ export default function PartnersPage() {
                     <tr>
                       <Th>الشريك</Th>
                       <Th>نسبة المشاركة</Th>
+                      <Th>الدعم</Th>
+                      <Th>السحب</Th>
                       <Th>الصافي الفعلي</Th>
                       <Th>النصيب النظري</Th>
                       <Th>الفرق</Th>
-                      <Th>الحالة</Th>
+                      <Th>التسوية المطلوبة</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -565,12 +631,22 @@ export default function PartnersPage() {
                       <Tr key={it.id}>
                         <Td className="font-medium">{it.name}</Td>
                         <Td className="tabular-nums">{it.share_percent}%</Td>
+                        <Td className="tabular-nums text-emerald-600">{formatCurrency(it.total_support)}</Td>
+                        <Td className="tabular-nums text-red-500">{formatCurrency(it.total_withdraw)}</Td>
                         <Td className="tabular-nums">{formatCurrency(it.actual_net)}</Td>
                         <Td className="tabular-nums">{formatCurrency(it.theoretical_share)}</Td>
                         <Td className={`tabular-nums font-medium ${it.difference > 0.005 ? 'text-amber-600' : it.difference < -0.005 ? 'text-red-500' : ''}`}>
                           {it.difference > 0.005 ? '+' : ''}{formatCurrency(it.difference)}
                         </Td>
-                        <Td>{diffBadge(it.difference)}</Td>
+                        <Td>
+                          {it.settlement === 'balanced' ? (
+                            <Badge variant="success">متوازن</Badge>
+                          ) : it.settlement === 'add' ? (
+                            <Badge variant="warning">يجب دعم {formatCurrency(it.settlement_amount)}</Badge>
+                          ) : (
+                            <Badge variant="danger">يستحق سحب {formatCurrency(it.settlement_amount)}</Badge>
+                          )}
+                        </Td>
                       </Tr>
                     ))}
                   </tbody>
@@ -578,6 +654,8 @@ export default function PartnersPage() {
                     <tr className="bg-sand-100 font-semibold">
                       <Td className="font-bold">الإجمالي</Td>
                       <Td className="tabular-nums">{distribution.items.reduce((s, it) => s + it.share_percent, 0)}%</Td>
+                      <Td className="tabular-nums">{formatCurrency(distribution.total_support)}</Td>
+                      <Td className="tabular-nums">{formatCurrency(distribution.total_withdraw)}</Td>
                       <Td className="tabular-nums">{formatCurrency(distribution.total_net)}</Td>
                       <Td className="tabular-nums">{formatCurrency(distribution.total_net)}</Td>
                       <Td className="tabular-nums">0.00</Td>
@@ -594,8 +672,8 @@ export default function PartnersPage() {
             <Card className="!p-4">
               <p className="flex items-start gap-2 text-sm text-neutral-500">
                 <Sparkles size={16} className="mt-0.5 text-brand-500 shrink-0" />
-                «النصيب النظري» = إجمالي صافي رأس المال × نسبة مشاركة الشريك ÷ 100. «الفرق» يوضّح انحراف رصيد كل شريك عن نصيبه النظري،
-                ليتمكن الشركاء من تسوية الحسابات (دعم أو سحب) للوصول إلى توزيع عادل للأرباح.
+                «النصيب النظري» = إجمالي صافي الفترة × نسبة مشاركة الشريك ÷ 100. «الفرق» يوضّح انحراف رصيد كل شريك عن نصيبه النظري،
+                و«التسوية المطلوبة» (الإطفاء) تحدد الإجراء الموصى به — دعم إضافي أو سحب رصيد — لضبط الحسابات إلى توزيع عادل خلال الفترة المحددة.
               </p>
             </Card>
           </div>
@@ -638,7 +716,7 @@ export default function PartnersPage() {
               step="0.01"
               value={opForm.amount}
               onChange={(e) => setOpForm({ ...opForm, amount: e.target.value })}
-              placeholder="0.00"
+              placeholder=""
             />
             <Input
               label="السبب"

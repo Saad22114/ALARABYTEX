@@ -59,3 +59,40 @@ class Expense(TimeStampedModel):
 
     def __str__(self):
         return f"{self.category.name} - {self.date} - {self.amount}"
+
+
+class ExpenseBudget(TimeStampedModel):
+    """ميزانية شهرية لمصروف فرع/تصنيف للمقارنة مع المصروف الفعلي."""
+
+    branch = models.ForeignKey(
+        "branches.Branch",
+        on_delete=models.CASCADE,
+        related_name="expense_budgets",
+        verbose_name="الفرع",
+    )
+    category = models.ForeignKey(
+        ExpenseCategory,
+        on_delete=models.CASCADE,
+        related_name="budgets",
+        verbose_name="التصنيف",
+    )
+    month = models.DateField(verbose_name="الشهر", help_text="أول يوم من الشهر")
+    amount = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="قيمة الميزانية")
+
+    class Meta:
+        verbose_name = "ميزانية شهرية"
+        verbose_name_plural = "الميزانيات الشهرية"
+        ordering = ["-month", "branch__name", "category__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["branch", "category", "month"],
+                name="uniq_expense_budget_branch_category_month",
+            )
+        ]
+        indexes = [
+            Index(fields=["branch", "month"]),
+            Index(fields=["category", "month"]),
+        ]
+
+    def __str__(self):
+        return f"{self.branch.name} - {self.category.name} - {self.month} - {self.amount}"

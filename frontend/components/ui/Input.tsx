@@ -7,7 +7,16 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: string;
 }
 
-export default function Input({ label, error, className = '', ...props }: InputProps) {
+export default function Input({ label, error, className = '', type, inputMode, pattern, onKeyDown, ...props }: InputProps) {
+  const isNumber = type === 'number';
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isNumber && e.key.length === 1 && !/[0-9.]/.test(e.key)) {
+      e.preventDefault();
+    }
+    onKeyDown?.(e);
+  };
+
   return (
     <div className="space-y-1.5">
       {label && (
@@ -15,6 +24,10 @@ export default function Input({ label, error, className = '', ...props }: InputP
       )}
       <input
         dir="rtl"
+        type={type}
+        inputMode={isNumber ? (inputMode ?? 'decimal') : inputMode}
+        pattern={isNumber ? (pattern ?? '[0-9.]*') : pattern}
+        onKeyDown={isNumber ? handleKeyDown : onKeyDown}
         className={`
           w-full rounded-xl border px-4 py-2.5 text-sm
           bg-surface text-neutral-800 placeholder:text-neutral-400

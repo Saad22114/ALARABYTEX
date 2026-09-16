@@ -243,7 +243,7 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')),
                 ('updated_at', models.DateTimeField(auto_now=True, verbose_name='آخر تحديث')),
-                ('movement_type', models.CharField(choices=[('receipt', 'استلام من مورد'), ('transfer_out', 'تحويل صادر'), ('transfer_in', 'تحويل وارد'), ('adjustment_in', 'تسوية إضافة'), ('adjustment_out', 'تسوية خصم'), ('count', 'تسوية جرد'), ('opening', 'رصيد افتتاحي')], max_length=20, verbose_name='نوع الحركة')),
+                ('movement_type', models.CharField(choices=[('receipt', 'استلام من مورد'), ('transfer_out', 'تحويل صادر'), ('transfer_in', 'تحويل ياردةد'), ('adjustment_in', 'تسوية إضافة'), ('adjustment_out', 'تسوية خصم'), ('count', 'تسوية جرد'), ('opening', 'رصيد افتتاحي')], max_length=20, verbose_name='نوع الحركة')),
                 ('quantity', models.DecimalField(decimal_places=2, max_digits=12, verbose_name='الكمية (موقّعة)')),
                 ('reference_type', models.CharField(blank=True, max_length=30, verbose_name='المرجع')),
                 ('reference_id', models.PositiveIntegerField(blank=True, null=True, verbose_name='رقم المرجع')),

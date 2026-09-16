@@ -6,12 +6,13 @@ import Button from '@/components/ui/Button';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
+import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
-import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Package, Layers } from 'lucide-react';
+import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Package, Layers, Eye, Search, Move, Eraser, TriangleAlert, Printer, FileText } from 'lucide-react';
 import {
   SaleSession, Employee, Fabric, Branch, SessionSaleItem,
   SessionSaleType, SessionPaymentMethod, SaleSessionSummary, SaleStockResult,
@@ -21,15 +22,28 @@ import {
   listSaleSessions,
   openSaleSession,
   addSessionItem,
+  addSessionItems,
   removeSessionItem,
   closeSaleSession,
+  clearSaleSession,
+  deleteSaleSession,
   getSaleSessionSummary,
 } from '@/services/sessions';
 import { listFabrics } from '@/services/fabrics';
 import { listBranches } from '@/services/branches';
 import { getSaleStock } from '@/services/sales';
 import SessionItemEditModal from '@/components/sessions/SessionItemEditModal';
+import SessionDetailsModal from '@/components/sessions/SessionDetailsModal';
+import SessionEditModal from '@/components/sessions/SessionEditModal';
+import CloseSessionModal from '@/components/sessions/CloseSessionModal';
+import MoveItemModal from '@/components/sessions/MoveItemModal';
+import SessionCustomerInvoiceModal from '@/components/sessions/SessionCustomerInvoiceModal';
+import CustomerPicker from '@/components/sessions/CustomerPicker';
+import { saveContact } from '@/lib/customerContacts';
+import { ensureCustomer } from '@/lib/registerCustomer';
+import { useSettings } from '@/components/providers/SettingsProvider';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { printSessionReceipt } from '@/lib/receipt';
 import { useToast } from '@/components/ui/Toast';
 import Link from 'next/link';
 
@@ -44,10 +58,22 @@ interface ItemForm {
   sale_type: SessionSaleType;
   quantity: string;
   unit_price: string;
+  discount: string;
   payment_method: SessionPaymentMethod;
 }
 
-const emptyItemForm = (): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '', unit_price: '', payment_method: 'cash' });
+const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '3.5', unit_price: '', discount: '', payment_method: payment || 'cash' });
+
+const defaultQuantityForType = (saleType: SessionSaleType): string => (saleType === 'roll' ? '1' : '3.5');
+
+type SessionSortKey = 'newest' | 'oldest' | 'total' | 'employee';
+
+const SORT_OPTIONS: { value: SessionSortKey; label: string }[] = [
+  { value: 'newest', label: 'الأحدث فتحاً' },
+  { value: 'oldest', label: 'الأقدم مدةً' },
+  { value: 'total', label: 'الأعلى مبيعات' },
+  { value: 'employee', label: 'باسم الموظف' },
+];
 
 function elapsedText(minutes: number | null): string {
   if (minutes == null) return '';
@@ -58,8 +84,9 @@ function elapsedText(minutes: number | null): string {
   return r === 0 ? `منذ ${formatNumber(h)} ساعة` : `منذ ${formatNumber(h)} ساعة و ${formatNumber(r)} دقيقة`;
 }
 
-export default function SessionsPanel({ onChanged }: { onChanged?: () => void }) {
+export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChanged?: () => void; onSaleGenerated?: (session: SaleSession) => void }) {
   const { toast } = useToast();
+  const { settings } = useSettings();
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
@@ -70,17 +97,32 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
   const [loading, setLoading] = useState(true);
 
   const [branchFilter, setBranchFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<SessionSortKey>('newest');
+  const [tick, setTick] = useState(() => Date.now());
   const [openingEmp, setOpeningEmp] = useState<number | null>(null);
   const [opening, setOpening] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const [form, setForm] = useState<ItemForm>(emptyItemForm());
+  const [lines, setLines] = useState<ItemForm[]>(() => [emptyItemForm(settings?.default_payment_method)]);
   const [adding, setAdding] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [invoiceSel, setInvoiceSel] = useState<number[] | null>(null);
+  const [custName, setCustName] = useState('');
+  const [custPhone, setCustPhone] = useState('');
 
   const [closing, setClosing] = useState<SaleSession | null>(null);
   const [closeLoading, setCloseLoading] = useState(false);
+  const [clearing, setClearing] = useState<SaleSession | null>(null);
+  const [clearingLoading, setClearingLoading] = useState(false);
+  const [movingItem, setMovingItem] = useState<{ session: SaleSession; item: SessionSaleItem } | null>(null);
   const [editingItem, setEditingItem] = useState<{ session: SaleSession; item: SessionSaleItem } | null>(null);
+  const [viewing, setViewing] = useState<SaleSession | null>(null);
+  const [editingSession, setEditingSession] = useState<SaleSession | null>(null);
+  const [deletingSession, setDeletingSession] = useState<SaleSession | null>(null);
+  const [deleteSessionLoading, setDeleteSessionLoading] = useState(false);
 
   const fetchSessions = useCallback((silent = false) => {
     let cancelled = false;
@@ -132,6 +174,60 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
   const selected = useMemo(() => sessions.find((s) => s.id === selectedId) || null, [sessions, selectedId]);
 
   useEffect(() => {
+    setChecked(new Set());
+  }, [selectedId]);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const liveMinutes = (s: SaleSession) => Math.floor((tick - new Date(s.opened_at).getTime()) / 60000);
+  const warnMinutes = (settings?.session_warn_hours ?? 2) * 60;
+  const dangerMinutes = (settings?.session_danger_hours ?? 4) * 60;
+  const agingLevel = (m: number) => (m >= dangerMinutes ? 'danger' : m >= warnMinutes ? 'warn' : 'ok');
+
+  const filteredSessions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q
+      ? sessions.filter(
+          (s) =>
+            s.employee_name.toLowerCase().includes(q) ||
+            s.branch_name.toLowerCase().includes(q) ||
+            String(s.id).includes(q)
+        )
+      : [...sessions];
+    const sorted = [...list];
+    switch (sortBy) {
+      case 'employee':
+        sorted.sort((a, b) => a.employee_name.localeCompare(b.employee_name, 'ar'));
+        break;
+      case 'total':
+        sorted.sort((a, b) => b.totals.total - a.totals.total);
+        break;
+      case 'oldest':
+        sorted.sort((a, b) => liveMinutes(b) - liveMinutes(a));
+        break;
+      default:
+        sorted.sort((a, b) => liveMinutes(a) - liveMinutes(b));
+    }
+    return sorted;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, search, sortBy]);
+
+  const paymentParts = [
+    { label: 'كاش', value: selected?.totals.cash ?? 0, cls: 'bg-emerald-500' },
+    { label: 'تحويل', value: selected?.totals.transfer ?? 0, cls: 'bg-neutral-400' },
+    { label: 'ماكينة', value: selected?.totals.card ?? 0, cls: 'bg-amber-500' },
+  ];
+  const paymentTotal = paymentParts.reduce((acc, p) => acc + p.value, 0);
+  const paymentBar = paymentParts.filter((p) => p.value > 0).map((p) => ({
+    ...p,
+    pct: paymentTotal > 0 ? (p.value / paymentTotal) * 100 : 0,
+  }));
+  const selectedDiscount = selected?.items.reduce((acc, it) => acc + (it.discount_amount || 0), 0) ?? 0;
+
+  useEffect(() => {
     let cancelled = false;
     if (!selected) { setStock(null); return; }
     getSaleStock(selected.branch)
@@ -140,32 +236,43 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
     return () => { cancelled = true; };
   }, [selected]);
 
-  const fabricAutoPrice = () => {
-    const fabric = fabrics.find((f) => f.id === form.fabric);
+  const fabricAutoPrice = (line: ItemForm): number => {
+    const fabric = fabrics.find((f) => f.id === line.fabric);
     if (!fabric) return 0;
     const base = Number(fabric.sale_price_yard) || 0;
-    if (form.sale_type === 'roll') {
+    if (line.sale_type === 'roll') {
       if (fabric.sale_price_roll != null) return Number(fabric.sale_price_roll) || 0;
       return base * (Number(fabric.yards_per_roll) || 0);
     }
     return base;
   };
 
-  const availableYards = form.fabric != null ? stock?.items.find((i) => i.fabric === form.fabric)?.yards : undefined;
-  const selectedFabric = form.fabric != null ? fabrics.find((f) => f.id === form.fabric) : undefined;
-  const yardsPerRoll = Number(selectedFabric?.yards_per_roll) || 0;
-  const availableUnit =
-    availableYards === undefined
-      ? null
-      : form.sale_type === 'roll'
-        ? yardsPerRoll > 0
-          ? availableYards / yardsPerRoll
-          : null
-        : availableYards;
-  const quantityNum = parseFloat(form.quantity);
-  const priceNum = form.unit_price !== '' && !isNaN(parseFloat(form.unit_price)) ? parseFloat(form.unit_price) : 0;
-  const subtotal = form.quantity.trim() !== '' && quantityNum > 0 && priceNum >= 0 ? quantityNum * priceNum : null;
-  const quantityExceeds = availableUnit !== null && !isNaN(quantityNum) && quantityNum > availableUnit;
+  const lineCalc = (line: ItemForm) => {
+    const availableYards = line.fabric != null ? stock?.items.find((i) => i.fabric === line.fabric)?.yards : undefined;
+    const selectedFabric = line.fabric != null ? fabrics.find((f) => f.id === line.fabric) : undefined;
+    const yardsPerRoll = Number(selectedFabric?.yards_per_roll) || 0;
+    const availableUnit =
+      availableYards === undefined
+        ? null
+        : line.sale_type === 'roll'
+          ? yardsPerRoll > 0
+            ? availableYards / yardsPerRoll
+            : null
+          : availableYards;
+    const quantityNum = parseFloat(line.quantity);
+    const priceNum = line.unit_price !== '' && !isNaN(parseFloat(line.unit_price)) ? parseFloat(line.unit_price) : 0;
+    const subtotal = line.quantity.trim() !== '' && quantityNum > 0 && priceNum >= 0 ? quantityNum * priceNum : null;
+    const discountNum = line.discount.trim() !== '' && !isNaN(parseFloat(line.discount)) ? parseFloat(line.discount) : 0;
+    const netTotal = subtotal != null ? Math.max(0, subtotal - discountNum) : null;
+    const discountExceeds = subtotal != null && discountNum > subtotal;
+    const quantityExceeds = availableUnit !== null && !isNaN(quantityNum) && quantityNum > availableUnit;
+    return { selectedFabric, availableUnit, quantityNum, priceNum, subtotal, discountNum, netTotal, discountExceeds, quantityExceeds };
+  };
+
+  const linesTotal = lines.reduce((sum, l) => {
+    const c = lineCalc(l);
+    return sum + (c.netTotal ?? 0);
+  }, 0);
 
   const manualRefresh = async () => {
     setRefreshing(true);
@@ -194,69 +301,106 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
     }
   };
 
-  const changeFabricOrType = (patch: Partial<ItemForm>) => {
-    const next = { ...form, ...patch };
-    const candidate = fabrics.find((f) => f.id === next.fabric);
-    if (candidate) {
-      const base = Number(candidate.sale_price_yard) || 0;
-      let price = base;
-      if (next.sale_type === 'roll') {
-        price = candidate.sale_price_roll != null ? (Number(candidate.sale_price_roll) || 0) : base * (Number(candidate.yards_per_roll) || 0);
-      }
-      next.unit_price = String(price);
-    }
-    setForm(next);
+  const changeFabricOrType = (idx: number, patch: Partial<ItemForm>) => {
+    setLines((cur) =>
+      cur.map((line, i) => {
+        if (i !== idx) return line;
+        const next = { ...line, ...patch };
+        if ('sale_type' in patch && patch.sale_type) {
+          next.quantity = defaultQuantityForType(patch.sale_type);
+        }
+        const candidate = fabrics.find((f) => f.id === next.fabric);
+        if (candidate) {
+          const base = Number(candidate.sale_price_yard) || 0;
+          let price = base;
+          if (next.sale_type === 'roll') {
+            price = candidate.sale_price_roll != null ? (Number(candidate.sale_price_roll) || 0) : base * (Number(candidate.yards_per_roll) || 0);
+          }
+          next.unit_price = String(price);
+        }
+        return next;
+      })
+    );
+  };
+
+  const addLine = () => {
+    const payment = lines[0]?.payment_method || 'cash';
+    setLines((cur) => [...cur, emptyItemForm(payment)]);
+  };
+
+  const removeLine = (idx: number) => {
+    setLines((cur) => (cur.length > 1 ? cur.filter((_, i) => i !== idx) : [emptyItemForm(cur[0]?.payment_method || 'cash')]));
+  };
+
+  const updateLine = (idx: number, patch: Partial<ItemForm>) => {
+    setLines((cur) => cur.map((line, i) => (i === idx ? { ...line, ...patch } : line)));
   };
 
   const handleAddItem = async () => {
     if (!selected) return;
-    if (!form.fabric) {
-      toast('error', 'اختر القماش');
-      return;
-    }
-    const quantity = parseFloat(form.quantity);
-    const price = parseFloat(form.unit_price);
-    if (!quantity || quantity <= 0) {
-      toast('error', 'أدخل كمية صحيحة أكبر من صفر');
-      return;
-    }
-    if (isNaN(price) || price < 0) {
-      toast('error', 'أدخل سعر وحدة صحيح');
-      return;
-    }
-    if (form.sale_type === 'roll') {
-      const fabric = fabrics.find((f) => f.id === form.fabric);
-      if (fabric && !fabric.yards_per_roll) {
-        toast('error', `القماش «${fabric.name}» لا توجد له ياردات اللفة`);
+    for (const line of lines) {
+      if (!line.fabric) {
+        toast('error', 'اختر القماش لكل الأصناف قبل الإضافة');
         return;
       }
-    }
-    if (selectedFabric && stock) {
-      const entry = stock.items.find((i) => i.fabric === form.fabric);
-      const avail = entry ? entry.yards : 0;
-      const need = form.sale_type === 'roll'
-        ? quantity * (Number(selectedFabric.yards_per_roll) || 0)
-        : quantity;
-      if (avail <= 0) {
-        toast('error', `القماش «${selectedFabric.name}» غير متوفر في مخزون الفرع`);
+      const quantity = parseFloat(line.quantity);
+      const price = parseFloat(line.unit_price);
+      if (!quantity || quantity <= 0) {
+        toast('error', 'أدخل كمية صحيحة أكبر من صفر لكل الأصناف');
         return;
       }
-      if (need > avail) {
-        toast('error', `الكمية غير متوفرة في مخزون الفرع — المتوفر ${formatNumber(avail)} ياردة فقط`);
+      if (isNaN(price) || price < 0) {
+        toast('error', 'أدخل سعر وحدة صحيح لكل الأصناف');
         return;
+      }
+      const calc = lineCalc(line);
+      if (calc.discountNum > (calc.subtotal ?? 0)) {
+        toast('error', 'قيمة الخصم أكبر من إجمالي أحد الأصناف');
+        return;
+      }
+      if (line.sale_type === 'roll') {
+        const fabric = fabrics.find((f) => f.id === line.fabric);
+        if (fabric && !fabric.yards_per_roll) {
+          toast('error', `القماش «${fabric.name}» لا توجد له ياردات اللفة`);
+          return;
+        }
+      }
+      if (line.fabric && stock) {
+        const entry = stock.items.find((i) => i.fabric === line.fabric);
+        const avail = entry ? entry.yards : 0;
+        const need = line.sale_type === 'roll'
+          ? quantity * (Number(fabrics.find((f) => f.id === line.fabric)?.yards_per_roll) || 0)
+          : quantity;
+        if (avail <= 0) {
+          toast('error', `قماش من الأصناف غير متوفر في مخزون الفرع`);
+          return;
+        }
+        if (need > avail) {
+          toast('error', `الكمية غير متوفرة في مخزون الفرع — المتوفر ${formatNumber(avail)} ياردة فقط`);
+          return;
+        }
       }
     }
     setAdding(true);
     try {
-      await addSessionItem(selected.id, {
-        fabric: form.fabric,
-        sale_type: form.sale_type,
-        quantity,
-        unit_price: price,
-        payment_method: form.payment_method,
+      const payload = lines.map((line) => {
+        const calc = lineCalc(line);
+        return {
+          fabric: line.fabric as number,
+          sale_type: line.sale_type,
+          quantity: parseFloat(line.quantity),
+          unit_price: parseFloat(line.unit_price),
+          discount_amount: calc.discountNum,
+          payment_method: line.payment_method,
+        };
       });
-      toast('success', 'تمت إضافة البند');
-      setForm((cur) => ({ ...cur, quantity: '', unit_price: String(fabricAutoPrice()) }));
+      const created = await addSessionItems(selected.id, payload);
+      toast('success', `تمت إضافة ${created.length > 1 ? `${created.length} أصناف` : 'البند'} — المجموع ${formatCurrency(linesTotal)}`);
+      if (custPhone.trim()) {
+        saveContact(custPhone, custName);
+        void ensureCustomer(custName, custPhone);
+      }
+      setLines([emptyItemForm(payload[0]?.payment_method || 'cash')]);
       fetchSessions();
       fetchSummary();
     } catch (err: any) {
@@ -289,10 +433,51 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
       fetchSessions();
       fetchSummary();
       onChanged?.();
+      onSaleGenerated?.(s);
     } catch (err: any) {
       toast('error', err.message);
     } finally {
       setCloseLoading(false);
+    }
+  };
+
+  const handlePrint = () => {
+    if (!selected) return;
+    const ok = printSessionReceipt(selected, settings || null, 'إيصال وردية بيع');
+    if (!ok) toast('error', 'الرجاء السماح بالنوافذ المنبثقة للطباعة');
+  };
+
+  const handleClear = async () => {
+    if (!clearing) return;
+    setClearingLoading(true);
+    try {
+      const s = await clearSaleSession(clearing.id);
+      toast('success', `تم إفراغ كل بنود الوردية (${s.totals.total} إجمالي)`);
+      setClearing(null);
+      fetchSessions();
+      fetchSummary();
+      onChanged?.();
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setClearingLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async () => {
+    if (!deletingSession) return;
+    setDeleteSessionLoading(true);
+    try {
+      await deleteSaleSession(deletingSession.id);
+      toast('success', 'تم حذف الوردية');
+      setDeletingSession(null);
+      fetchSessions();
+      fetchSummary();
+      onChanged?.();
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setDeleteSessionLoading(false);
     }
   };
 
@@ -323,7 +508,7 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
           icon={<Layers size={20} />}
           iconBg="bg-emerald-50 text-emerald-600"
           label="الكمية المعلّقة"
-          value={summary ? `${formatNumber(summary.yards)} ياردة` : '—'}
+          value={summary ? `${formatNumber(summary.yards)} وار` : '—'}
           sub="ياردات فعالة بالبنود"
         />
         <StatCard
@@ -369,13 +554,31 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
 
       <Card>
         <div className="border-b border-sand-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-semibold">الورديات المفتوحة ({sessions.length})</h2>
-          <Select
-            value={branchFilter}
-            onChange={(e) => setBranchFilter(e.target.value)}
-            options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
-            className="w-44"
-          />
+          <h2 className="font-semibold">الورديات المفتوحة ({filteredSessions.length})</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                dir="rtl"
+                placeholder="بحث بالموظف أو الفرع..."
+                className="w-52 rounded-xl border border-sand-300 bg-surface pr-8 pl-3 py-2 text-sm placeholder:text-neutral-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 outline-none transition-colors"
+              />
+            </div>
+            <Select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SessionSortKey)}
+              options={SORT_OPTIONS}
+              className="w-44"
+            />
+            <Select
+              value={branchFilter}
+              onChange={(e) => setBranchFilter(e.target.value)}
+              options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+              className="w-44"
+            />
+          </div>
         </div>
         {loading ? (
           <div className="flex justify-center py-12"><Spinner size={32} /></div>
@@ -384,25 +587,41 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
             title="لا توجد ورديات مفتوحة"
             description="افتح وردية لموظف من القسم أعلاه لبدء تسجيل بيوعات الوردية"
           />
+        ) : filteredSessions.length === 0 ? (
+          <EmptyState
+            title="لا توجد نتائج مطابقة"
+            description="جرّب تغيير كلمة البحث أو خيارات الترتيب"
+          />
         ) : (
           <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-            {sessions.map((s) => (
-              <button
+            {filteredSessions.map((s) => {
+              const live = liveMinutes(s);
+              const aging = agingLevel(live);
+              return (
+              <div
                 key={s.id}
                 onClick={() => setSelectedId(s.id)}
-                className={`text-right rounded-xl border p-4 transition-colors ${
+                className={`text-right rounded-xl border p-4 transition-colors cursor-pointer ${
                   selectedId === s.id
                     ? 'border-brand-500 ring-2 ring-brand-100'
                     : 'border-sand-300 hover:border-brand-300'
-                }`}
+                } ${aging === 'danger' ? 'border-red-200' : aging === 'warn' ? 'border-amber-200' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold">{s.employee_name}</span>
-                  <Badge variant="success">مفتوحة</Badge>
+                  <span className="flex items-center gap-1.5">
+                    <Badge variant="success">مفتوحة</Badge>
+                    {aging === 'warn' && (
+                      <Badge variant="warning"><TriangleAlert size={11} /> ساعتان</Badge>
+                    )}
+                    {aging === 'danger' && (
+                      <Badge variant="danger"><TriangleAlert size={11} /> طويلة</Badge>
+                    )}
+                  </span>
                 </div>
                 <div className="mt-1 text-sm text-neutral-500">{s.branch_name}</div>
                 <div className="mt-2 text-xs text-neutral-400">
-                  فُتحت {formatDate(s.opened_at)} {new Date(s.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(s.elapsed_minutes)}
+                  فُتحت {formatDate(s.opened_at)} {new Date(s.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(live)}
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                   <div>
@@ -414,8 +633,23 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
                     <div className="text-xs text-neutral-400">{s.items.reduce((acc, it) => acc + (it.payment_method === 'card' ? it.total : 0), 0) > 0 ? 'يشمل ماكينة' : 'كله بطرق أخرى'}</div>
                   </div>
                 </div>
-              </button>
-            ))}
+                <div className="mt-3 flex items-center gap-1.5 border-t border-sand-100 pt-3" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => setViewing(s)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-500/15 transition-colors" title="مشاهدة الوردية">
+                    <Eye size={14} />
+                    مشاهدة
+                  </button>
+                  <button onClick={() => setEditingSession(s)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-500/15 transition-colors" title="تعديل الوردية">
+                    <Pencil size={14} />
+                    تعديل
+                  </button>
+                  <button onClick={() => setDeletingSession(s)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/15 transition-colors" title="حذف الوردية">
+                    <Trash2 size={14} />
+                    حذف
+                  </button>
+                </div>
+              </div>
+              );
+            })}
           </div>
         )}
       </Card>
@@ -426,110 +660,61 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
             <div>
               <h2 className="font-semibold">وردية {selected.employee_name} — {selected.branch_name}</h2>
               <p className="text-sm text-neutral-500">
-                فُتحت {formatDate(selected.opened_at)} {new Date(selected.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(selected.elapsed_minutes)}
+                فُتحت {formatDate(selected.opened_at)} {new Date(selected.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(liveMinutes(selected))}
               </p>
+              {selectedDiscount > 0 && (
+                <p className="text-xs text-red-500 mt-1">إجمالي الخصومات المطبقة: {formatCurrency(selectedDiscount)}</p>
+              )}
             </div>
-            <Button variant="danger" onClick={() => setClosing(selected)}>
-              <CircleDollarSign size={18} />
-              إغلاق الوردية وتسجيل البيع
-            </Button>
-          </div>
-
-          <div className="grid gap-4 rounded-xl border border-sand-300 p-4 sm:grid-cols-2 lg:grid-cols-6">
-            <Select
-              label="القماش"
-              value={form.fabric ?? ''}
-              onChange={(e) => changeFabricOrType({ fabric: Number(e.target.value) })}
-              options={fabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
-              placeholder="اختر القماش"
-            />
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1.5">نوع البيع</label>
-              <div className="flex rounded-xl border border-sand-300 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => changeFabricOrType({ sale_type: 'yard' })}
-                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${form.sale_type === 'yard' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
-                >
-                  ياردة
-                </button>
-                <button
-                  type="button"
-                  onClick={() => changeFabricOrType({ sale_type: 'roll' })}
-                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${form.sale_type === 'roll' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
-                >
-                  لفة (بالطاقة)
-                </button>
-              </div>
-            </div>
-            <Input
-              label={form.sale_type === 'roll' ? 'عدد اللفات' : 'الكمية (ياردات)'}
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.quantity}
-              onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-              placeholder="0"
-              className={quantityExceeds ? 'border-red-400 ring-2 ring-red-200' : ''}
-            />
-            <Input
-              label="سعر الوحدة"
-              type="number"
-              min="0"
-              step="0.001"
-              value={form.unit_price}
-              onChange={(e) => setForm({ ...form, unit_price: e.target.value })}
-              placeholder={String(fabricAutoPrice()) || '0'}
-            />
-            <Select
-              label="طريقة الدفع"
-              value={form.payment_method}
-              onChange={(e) => setForm({ ...form, payment_method: e.target.value as SessionPaymentMethod })}
-              options={PAYMENT_OPTIONS}
-            />
-            <div className="flex items-end">
-              <Button onClick={handleAddItem} loading={adding} className="w-full">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => { setLines([emptyItemForm(settings?.default_payment_method)]); setAddOpen(true); }}>
                 <Plus size={18} />
-                إضافة
+                إضافة بيع
+              </Button>
+              {selected.items.length > 0 && (
+                <Button variant="secondary" onClick={handlePrint}>
+                  <Printer size={18} />
+                  طباعة الإيصال
+                </Button>
+              )}
+              {selected.items.length > 0 && (
+                <Button variant="secondary" onClick={() => setClearing(selected)}>
+                  <Eraser size={18} />
+                  إفراغ البنود
+                </Button>
+              )}
+              <Button variant="danger" onClick={() => setClosing(selected)}>
+                <CircleDollarSign size={18} />
+                إغلاق الوردية وتسجيل البيع
               </Button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-sand-50 border border-sand-200 px-4 py-3">
-            <span className="text-sm text-neutral-600">إجمالي البند قبل الحفظ ({form.sale_type === 'roll' ? `${form.quantity || '0'} لفة × ${formatCurrency(priceNum)}` : `${form.quantity || '0'} ياردة × ${formatCurrency(priceNum)}`}):</span>
-            <span className="text-xl font-bold tabular-nums text-brand-700">
-              {subtotal != null ? formatCurrency(subtotal) : '—'}
-            </span>
-          </div>
-
-          <div className="space-y-1.5">
-            <p className="text-xs text-neutral-400">
-              السعر التلقائي يُؤخذ من ملف القماش (ياردات × سعر الياردة = سعر اللفة) — لا يمكن البيع بأقل من الحد الأدنى المحدد لكل قماش.
-            </p>
-            {stock && availableUnit !== null && (
-              <p className={`text-xs ${quantityExceeds ? 'text-red-500 font-medium' : 'text-neutral-400'}`}>
-                المتوفر في مخزون الفرع ({stock.warehouse_name}): {formatNumber(availableUnit)} {form.sale_type === 'roll' ? 'لفة' : 'ياردة'}
-                {quantityExceeds ? ' — الكمية تتجاوز المتوفر' : ''}
-              </p>
-            )}
-            {selectedFabric && form.sale_type === 'roll' && !selectedFabric.yards_per_roll && (
-              <p className="text-xs text-amber-600 font-medium">هذا القماش لا يملك ياردات اللفة — لا يمكن بيعه باللفة</p>
-            )}
-          </div>
-
           {selected.items.length === 0 ? (
-            <EmptyState title="لا توجد بنود بعد" description="أضف أول بند من النموذج أعلاه" />
+            <EmptyState title="لا توجد بنود بعد" description="اضغط «إضافة بيع» لإضافة أول بند" />
           ) : (
             <>
               <div className="overflow-x-auto">
                 <Table>
                   <thead>
                     <tr>
+                      <Th>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-sand-300 accent-brand-600"
+                          checked={selected.items.length > 0 && selected.items.every((i) => checked.has(i.id))}
+                          onChange={(e) =>
+                            setChecked(e.target.checked ? new Set(selected.items.map((i) => i.id)) : new Set())
+                          }
+                          title="تحديد كل البنود"
+                        />
+                      </Th>
                       <Th>القماش</Th>
                       <Th>النوع</Th>
                       <Th>الكمية</Th>
                       <Th>الياردات الفعلية</Th>
                       <Th>سعر الوحدة</Th>
+                      <Th>الخصم</Th>
                       <Th>طريقة الدفع</Th>
                       <Th>الإجمالي</Th>
                       <Th>تاريخ البيع</Th>
@@ -539,11 +724,27 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
                   <tbody>
                     {selected.items.map((item) => (
                       <Tr key={item.id}>
+                        <Td>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-sand-300 accent-brand-600"
+                            checked={checked.has(item.id)}
+                            onChange={(e) => {
+                              const next = new Set(checked);
+                              if (e.target.checked) next.add(item.id);
+                              else next.delete(item.id);
+                              setChecked(next);
+                            }}
+                          />
+                        </Td>
                         <Td className="font-medium">{item.fabric_name}</Td>
                         <Td><Badge variant="neutral">{item.sale_type_label}</Badge></Td>
                         <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'لفة' : 'يارد'}</Td>
                         <Td className="tabular-nums text-neutral-500">{formatNumber(item.yards_effective)} ياردة</Td>
                         <Td className="tabular-nums">{formatCurrency(item.unit_price)}</Td>
+                        <Td className={`tabular-nums ${item.discount_amount > 0 ? 'text-red-500' : 'text-neutral-400'}`}>
+                          {item.discount_amount > 0 ? formatCurrency(item.discount_amount) : '—'}
+                        </Td>
                         <Td>
                           <Badge variant={item.payment_method === 'card' ? 'warning' : item.payment_method === 'transfer' ? 'neutral' : 'success'}>
                             {item.payment_method_label}
@@ -553,6 +754,9 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
                         <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)}</Td>
                         <Td>
                           <div className="flex items-center gap-1.5">
+                            <button onClick={() => setMovingItem({ session: selected, item })} className="p-1.5 rounded-lg hover:bg-sky-50 text-sky-600 dark:hover:bg-sky-500/15 dark:text-sky-400 transition-colors" title="نقل البند إلى وردية أخرى">
+                              <Move size={15} />
+                            </button>
                             <button onClick={() => setEditingItem({ session: selected, item })} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل البيع">
                               <Pencil size={15} />
                             </button>
@@ -568,31 +772,246 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-sand-200 pt-4">
-                <span className="flex items-center gap-2 text-sm">
+                <span className="flex flex-wrap items-center gap-2 text-sm">
                   <Badge variant="success">كاش {formatCurrency(selected.totals.cash)}</Badge>
                   <Badge variant="neutral">تحويل {formatCurrency(selected.totals.transfer)}</Badge>
                   <Badge variant="warning">ماكينة {formatCurrency(selected.totals.card)}</Badge>
                   <Badge variant="neutral">{formatNumber(selected.totals.yards)} ياردة</Badge>
                 </span>
-                <span className="text-lg font-bold tabular-nums">{formatCurrency(selected.totals.total)}</span>
+                <span className="flex flex-wrap items-center gap-2">
+                  {(() => {
+                    const selList = selected.items.filter((i) => checked.has(i.id));
+                    const selTotal = selList.reduce((s, i) => s + Number(i.total), 0);
+                    return (
+                      <>
+                        {selList.length > 0 && (
+                          <Badge variant="neutral">
+                            المحدد: {selList.length}/{selected.items.length} — {formatCurrency(selTotal)}
+                          </Badge>
+                        )}
+                        <Button onClick={() => setInvoiceSel(selList.map((i) => i.id))} disabled={selList.length === 0}>
+                          <FileText size={18} />
+                          فاتورة الزبون
+                        </Button>
+                      </>
+                    );
+                  })()}
+                  <span className="text-lg font-bold tabular-nums">{formatCurrency(selected.totals.total)}</span>
+                </span>
               </div>
+
+              {paymentBar.length > 0 && (
+                <div className="rounded-xl border border-sand-200 p-3">
+                  <div className="flex h-3 w-full overflow-hidden rounded-full bg-sand-200">
+                    {paymentBar.map((p) => (
+                      <div key={p.label} className={`${p.cls} h-full`} style={{ width: `${p.pct}%` }} title={`${p.label}: ${formatCurrency(p.value)}`} />
+                    ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
+                    {paymentBar.map((p) => (
+                      <span key={p.label} className="flex items-center gap-1.5">
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${p.cls}`} />
+                        {p.label} {formatCurrency(p.value)} ({formatNumber(p.pct)}%)
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </Card>
       )}
 
-      <ConfirmDialog
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title={`إضافة بيع — ${selected ? `${selected.employee_name} · ${selected.branch_name}` : ''}`}
+        maxWidth="max-w-3xl"
+        footer={
+          <>
+            <Button onClick={handleAddItem} loading={adding}>
+              <Plus size={18} />
+              إضافة البيع
+            </Button>
+            <Button variant="ghost" onClick={() => setAddOpen(false)}>
+              إغلاق
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <CustomerPicker
+            name={custName}
+            onChangeName={setCustName}
+            phone={custPhone}
+            onChangePhone={setCustPhone}
+            compact
+          />
+
+          <div className="space-y-3">
+            {lines.map((line, idx) => {
+              const calc = lineCalc(line);
+              const overStock = calc.quantityExceeds;
+              return (
+                <div key={idx} className="rounded-xl border border-sand-300 bg-surface p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-neutral-500">الصنف {idx + 1}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="!h-7 !w-7 !p-0 !text-red-500"
+                      onClick={() => removeLine(idx)}
+                      title="حذف الصنف"
+                    >
+                      <Trash2 size={15} />
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Select
+                      label="القماش"
+                      value={line.fabric ?? ''}
+                      onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
+                      options={fabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
+                      placeholder="اختر القماش"
+                    />
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 mb-1.5">نوع البيع</label>
+                      <div className="flex rounded-xl border border-sand-300 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => changeFabricOrType(idx, { sale_type: 'yard' })}
+                          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${line.sale_type === 'yard' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
+                        >
+                          ياردة
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => changeFabricOrType(idx, { sale_type: 'roll' })}
+                          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${line.sale_type === 'roll' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
+                        >
+                          لفة (بالطاقة)
+                        </button>
+                      </div>
+                    </div>
+                    <Select
+                      label="طريقة الدفع"
+                      value={line.payment_method}
+                      onChange={(e) => updateLine(idx, { payment_method: e.target.value as SessionPaymentMethod })}
+                      options={PAYMENT_OPTIONS}
+                    />
+                    <Input
+                      label={line.sale_type === 'roll' ? 'عدد اللفات' : 'الكمية (ياردات)'}
+                      type="number"
+                      min="0"
+                      step={line.sale_type === 'roll' ? '1' : '0.25'}
+                      value={line.quantity}
+                      onChange={(e) => updateLine(idx, { quantity: e.target.value })}
+                      placeholder=""
+                      className={overStock ? 'border-red-400 ring-2 ring-red-200' : ''}
+                    />
+                    <Input
+                      label="سعر الوحدة"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={line.unit_price}
+                      onChange={(e) => updateLine(idx, { unit_price: e.target.value })}
+                      placeholder={String(fabricAutoPrice(line))}
+                    />
+                    <Input
+                      label="قيمة الخصم"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.discount}
+                      onChange={(e) => updateLine(idx, { discount: e.target.value })}
+                      placeholder=""
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-sand-50 border border-sand-200 px-4 py-2.5">
+                    <span className="text-sm text-neutral-600">
+                      إجمالي الصنف ({line.sale_type === 'roll' ? `${line.quantity || '0'} لفة × ${formatCurrency(calc.priceNum)}` : `${line.quantity || '0'} ياردة × ${formatCurrency(calc.priceNum)}`})
+                      {calc.discountNum > 0 ? ` - خصم ${formatCurrency(calc.discountNum)}` : ''}:
+                    </span>
+                    <span className={`text-lg font-bold tabular-nums ${calc.discountExceeds ? 'text-red-500' : 'text-brand-700'}`}>
+                      {calc.netTotal != null ? formatCurrency(calc.netTotal) : '—'}
+                    </span>
+                  </div>
+
+                  {stock && calc.availableUnit !== null && (
+                    <p className={`text-xs ${overStock ? 'text-red-500 font-medium' : 'text-neutral-400'}`}>
+                      المتوفر في مخزون الفرع ({stock.warehouse_name}): {formatNumber(calc.availableUnit)} {line.sale_type === 'roll' ? 'لفة' : 'ياردة'}
+                      {overStock ? ' — الكمية تتجاوز المتوفر' : ''}
+                    </p>
+                  )}
+                  {calc.selectedFabric && line.sale_type === 'roll' && !calc.selectedFabric.yards_per_roll && (
+                    <p className="text-xs text-amber-600 font-medium">هذا القماش لا يملك ياردات اللفة — لا يمكن بيعه باللفة</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <Button variant="secondary" onClick={addLine}>
+            <Plus size={16} />
+            إضافة صنف آخر
+          </Button>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-sand-50 border border-sand-200 px-4 py-3">
+            <span className="text-sm text-neutral-600">إجمالي البيعة (المجموع الموحد):</span>
+            <span className="text-xl font-bold tabular-nums text-brand-700">{formatCurrency(linesTotal)}</span>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="text-xs text-neutral-400">
+              يمكن إضافة أكثر من صنف في البيعة الواحدة بزر «إضافة صنف آخر» — تُضاف الأصناف معاً في عملية واحدة وتصبح بيعة واحدة بمجموع موحد. السعر التلقائي يُؤخذ من ملف القماش (ياردات × سعر الياردة = سعر اللفة) — لا يمكن البيع بأقل من الحد الأدنى المحدد لكل قماش.
+            </p>
+          </div>
+        </div>
+      </Modal>
+
+      <SessionCustomerInvoiceModal
+        open={invoiceSel !== null}
+        onClose={() => setInvoiceSel(null)}
+        session={selected}
+        itemIds={invoiceSel ?? []}
+        settings={settings}
+      />
+
+      <CloseSessionModal
         open={!!closing}
+        session={closing}
+        loading={closeLoading}
         onClose={() => setClosing(null)}
         onConfirm={handleClose}
-        loading={closeLoading}
-        title="إغلاق الوردية"
-        confirmLabel="حفظ وإغلاق"
+      />
+
+      <ConfirmDialog
+        open={!!clearing}
+        onClose={() => setClearing(null)}
+        onConfirm={handleClear}
+        loading={clearingLoading}
+        title="إفراغ بنود الوردية"
+        confirmLabel="إفراغ البنود"
         message={
-          closing
-            ? `هل أنت متأكد من إغلاق وردية ${closing.employee_name}؟ سيتم تسجيل المبيعات في قيود اليوم وخصم الكميات من مخزون الفرع (${closing.items.length} بند — إجمالي ${formatCurrency(closing.totals.total)}: كاش ${formatCurrency(closing.totals.cash)}، تحويل ${formatCurrency(closing.totals.transfer)}، ماكينة ${formatCurrency(closing.totals.card)}).`
+          clearing
+            ? `هل أنت متأكد من حذف كل بنود وردية ${clearing.employee_name} (${clearing.items.length} بند — إجمالي ${formatCurrency(clearing.totals.total)})؟ لا يمكن التراجع عن هذا الإجراء.`
             : ''
         }
+      />
+
+      <MoveItemModal
+        open={!!movingItem}
+        session={movingItem?.session ?? null}
+        item={movingItem?.item ?? null}
+        sessions={sessions}
+        onClose={() => setMovingItem(null)}
+        onMoved={() => {
+          fetchSessions();
+          fetchSummary();
+          onChanged?.();
+        }}
       />
 
       <SessionItemEditModal
@@ -606,6 +1025,38 @@ export default function SessionsPanel({ onChanged }: { onChanged?: () => void })
           fetchSummary();
           onChanged?.();
         }}
+      />
+
+      <SessionDetailsModal
+        open={!!viewing}
+        session={viewing}
+        onClose={() => setViewing(null)}
+      />
+
+      <SessionEditModal
+        open={!!editingSession}
+        session={editingSession}
+        employees={employees}
+        branches={branches}
+        onClose={() => setEditingSession(null)}
+        onSaved={() => {
+          fetchSessions();
+          fetchSummary();
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!deletingSession}
+        onClose={() => setDeletingSession(null)}
+        onConfirm={handleDeleteSession}
+        loading={deleteSessionLoading}
+        title="حذف الوردية"
+        confirmLabel="حذف الوردية"
+        message={
+          deletingSession
+            ? `هل أنت متأكد من حذف وردية ${deletingSession.employee_name} (${deletingSession.items.length} بند — إجمالي ${formatCurrency(deletingSession.totals.total)})؟ سيتم إلغاء الوردية وبنودها.`
+            : ''
+        }
       />
     </div>
   );

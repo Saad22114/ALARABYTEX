@@ -10,20 +10,22 @@ import DateRangePicker from '@/components/ui/DateRangePicker';
 import Spinner from '@/components/ui/Spinner';
 import EmptyState from '@/components/ui/EmptyState';
 import { Download } from 'lucide-react';
-import { Branch, SalesReportData, ExpensesReportData, NetDailyReportData, BranchesReportData, SuppliersReportData, InventoryReportRow, InventoryMovementReportRow, Warehouse, CogsReportRow, ProfitLossReportResult, JournalReportRow } from '@/types';
+import { Branch, SalesReportData, ExpensesReportData, ExpenseBudgetReportRow, CommissionReportRow, NetDailyReportData, BranchesReportData, SuppliersReportData, InventoryReportRow, InventoryMovementReportRow, Warehouse, CogsReportRow, ProfitLossReportResult, JournalReportRow } from '@/types';
 import { listBranches } from '@/services/branches';
 import { listWarehouses } from '@/services/warehouses';
-import { getSalesReport, getExpensesReport, getNetDailyReport, getSuppliersReport, getBranchesReport, getInventoryReport, getInventoryMovementsReport, getCogsReport, getProfitLossReport, getJournalReport } from '@/services/reports';
+import { getSalesReport, getExpensesReport, getExpensesBudgetReport, getCommissionsReport, getNetDailyReport, getSuppliersReport, getBranchesReport, getInventoryReport, getInventoryMovementsReport, getCogsReport, getProfitLossReport, getJournalReport } from '@/services/reports';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 
-type Tab = 'sales' | 'expenses' | 'net' | 'suppliers' | 'branches' | 'inventory' | 'inventory-movements' | 'profit-loss' | 'cogs' | 'journal';
+type Tab = 'sales' | 'expenses' | 'budget' | 'commissions' | 'net' | 'suppliers' | 'branches' | 'inventory' | 'inventory-movements' | 'profit-loss' | 'cogs' | 'journal';
 
 const tabs: { value: Tab; label: string }[] = [
   { value: 'sales', label: 'تقرير المبيعات' },
   { value: 'expenses', label: 'تقرير المصاريف' },
+  { value: 'budget', label: 'المصاريف مقابل الميزانية' },
+  { value: 'commissions', label: 'عمولات المبيعات' },
   { value: 'net', label: 'صافي النتيجة اليومي' },
   { value: 'profit-loss', label: 'الربح والخسارة' },
   { value: 'cogs', label: 'تكلفة البضاعة المباعة' },
@@ -37,7 +39,7 @@ const tabs: { value: Tab; label: string }[] = [
 const MOVEMENT_TYPE_OPTIONS = [
   { value: 'receipt', label: 'استلام من مورد' },
   { value: 'transfer_out', label: 'تحويل صادر' },
-  { value: 'transfer_in', label: 'تحويل وارد' },
+  { value: 'transfer_in', label: 'تحويل ياردةد' },
   { value: 'adjustment_in', label: 'تسوية إضافة' },
   { value: 'adjustment_out', label: 'تسوية خصم' },
   { value: 'count', label: 'فارق جرد' },
@@ -62,6 +64,12 @@ export default function ReportsPage() {
 
   const [salesData, setSalesData] = useState<SalesReportData[]>([]);
   const [expensesData, setExpensesData] = useState<ExpensesReportData[]>([]);
+  const [budgetData, setBudgetData] = useState<ExpenseBudgetReportRow[]>([]);
+  const [budgetTotals, setBudgetTotals] = useState<{ budget: number; spent: number; remaining: number; rows: number } | null>(null);
+  const [budgetMonth, setBudgetMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [commissionData, setCommissionData] = useState<CommissionReportRow[]>([]);
+  const [commissionTotals, setCommissionTotals] = useState<{ sessions: number; sales: number; commission: number; employees: number } | null>(null);
+  const [commissionMonth, setCommissionMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [netData, setNetData] = useState<NetDailyReportData[]>([]);
   const [suppliersData, setSuppliersData] = useState<SuppliersReportData[]>([]);
   const [branchesData, setBranchesData] = useState<BranchesReportData[]>([]);
@@ -120,6 +128,24 @@ export default function ReportsPage() {
           const expRes = await getExpensesReport(params);
           setExpensesData(expRes.expenses || []);
           break;
+        case 'budget':
+          const budParams: Record<string, string | number | undefined | null> = {
+            month: budgetMonth || undefined,
+            branch: filterBranch || undefined,
+          };
+          const budRes = await getExpensesBudgetReport(budParams);
+          setBudgetData(budRes.items || []);
+          setBudgetTotals(budRes.totals || null);
+          break;
+        case 'commissions':
+          const comParams: Record<string, string | number | undefined | null> = {
+            month: commissionMonth || undefined,
+            branch: filterBranch || undefined,
+          };
+          const comRes = await getCommissionsReport(comParams);
+          setCommissionData(comRes.items || []);
+          setCommissionTotals(comRes.totals || null);
+          break;
         case 'net':
           const netRes = await getNetDailyReport(params);
           setNetData(netRes.chart_data || []);
@@ -176,12 +202,26 @@ export default function ReportsPage() {
 
   useEffect(() => {
     loadTab(activeTab);
-  }, [activeTab, dateFrom, dateTo, filterBranch, filterWarehouse, filterMovementType, filterSearch]);
+  }, [activeTab, dateFrom, dateTo, filterBranch, filterWarehouse, filterMovementType, filterSearch, budgetMonth, commissionMonth]);
 
   const getExportUrl = () => {
     switch (activeTab) {
       case 'sales': return buildExportUrl('/reports/sales/');
       case 'expenses': return buildExportUrl('/reports/expenses/');
+      case 'budget': {
+        const budParams = new URLSearchParams();
+        if (budgetMonth) budParams.append('month', budgetMonth);
+        if (filterBranch) budParams.append('branch', filterBranch);
+        budParams.append('export', 'xlsx');
+        return `${API_URL}/reports/expenses-budget/?${budParams.toString()}`;
+      }
+      case 'commissions': {
+        const comParams = new URLSearchParams();
+        if (commissionMonth) comParams.append('month', commissionMonth);
+        if (filterBranch) comParams.append('branch', filterBranch);
+        comParams.append('export', 'xlsx');
+        return `${API_URL}/reports/commissions/?${comParams.toString()}`;
+      }
       case 'net': return buildExportUrl('/reports/net-daily/');
       case 'suppliers': return buildExportUrl('/reports/suppliers/');
       case 'branches': return buildExportUrl('/reports/branches/');
@@ -217,7 +257,22 @@ export default function ReportsPage() {
               onChangeFrom={setDateFrom}
               onChangeTo={setDateTo}
             />
-            {(activeTab === 'sales' || activeTab === 'expenses' || activeTab === 'net' || activeTab === 'profit-loss' || activeTab === 'journal') && (
+            {(activeTab === 'budget' || activeTab === 'commissions') && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-neutral-500">الشهر</label>
+                <input
+                  type="month"
+                  value={activeTab === 'budget' ? budgetMonth : commissionMonth}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (activeTab === 'budget') setBudgetMonth(v);
+                    else setCommissionMonth(v);
+                  }}
+                  className="rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                />
+              </div>
+            )}
+            {(activeTab === 'sales' || activeTab === 'expenses' || activeTab === 'budget' || activeTab === 'commissions' || activeTab === 'net' || activeTab === 'profit-loss' || activeTab === 'journal') && (
               <Select
                 value={filterBranch}
                 onChange={(e) => setFilterBranch(e.target.value)}
@@ -374,6 +429,109 @@ export default function ReportsPage() {
                           <Td></Td>
                         </tr>
                       </tfoot>
+                    </Table>
+                  </>
+                )
+              )}
+
+              {/* Budget Tab */}
+              {activeTab === 'budget' && (
+                budgetData.length === 0 ? (
+                  <EmptyState title="لا توجد بيانات" description="لا توجد ميزانيات أو مصاريف في هذا الشهر" />
+                ) : (
+                  <>
+                    <Table>
+                      <thead>
+                        <tr>
+                          <Th>الفرع</Th>
+                          <Th>التصنيف</Th>
+                          <Th>الميزانية</Th>
+                          <Th>المنصرف</Th>
+                          <Th>المتبقي</Th>
+                          <Th>نسبة الاستهلاك</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {budgetData.map((r, i) => {
+                          const over = r.spent > r.budget && r.budget > 0;
+                          const high = r.used_pct >= 80;
+                          return (
+                            <Tr key={i}>
+                              <Td className="font-medium">{r.branch_name}</Td>
+                              <Td>{r.category_name}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.budget)}</Td>
+                              <Td className={`tabular-nums font-medium ${over ? 'text-red-600 dark:text-red-400' : 'text-neutral-800'}`}>{formatCurrency(r.spent)}</Td>
+                              <Td className={`tabular-nums ${r.remaining < 0 ? 'text-red-600 dark:text-red-400' : 'text-neutral-600'}`}>{formatCurrency(r.remaining)}</Td>
+                              <Td>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-24 h-2 rounded-full bg-sand-200 overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${over || high ? 'bg-red-500' : 'bg-brand-500'}`}
+                                      style={{ width: `${Math.min(r.used_pct, 100)}%` }}
+                                    />
+                                  </div>
+                                  <span className={`text-xs font-medium tabular-nums ${over || high ? 'text-red-600 dark:text-red-400' : 'text-neutral-600'}`}>
+                                    {r.used_pct}%
+                                  </span>
+                                </div>
+                              </Td>
+                            </Tr>
+                          );
+                        })}
+                      </tbody>
+                      {budgetTotals && budgetTotals.rows > 0 && (
+                        <tfoot>
+                          <tr className="bg-sand-100 font-semibold">
+                            <Td colSpan={2}>الإجمالي</Td>
+                            <Td className="tabular-nums">{formatCurrency(budgetTotals.budget)}</Td>
+                            <Td className="tabular-nums">{formatCurrency(budgetTotals.spent)}</Td>
+                            <Td className={`tabular-nums ${budgetTotals.remaining < 0 ? 'text-red-600 dark:text-red-400' : 'text-neutral-800'}`}>{formatCurrency(budgetTotals.remaining)}</Td>
+                            <Td></Td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </Table>
+                  </>
+                )
+              )}
+
+              {/* Commissions Tab */}
+              {activeTab === 'commissions' && (
+                commissionData.length === 0 ? (
+                  <EmptyState title="لا توجد بيانات" description="لا توجد ورديات مغلقة في هذا الشهر" />
+                ) : (
+                  <>
+                    <Table>
+                      <thead>
+                        <tr>
+                          <Th>الموظف</Th>
+                          <Th>الفرع</Th>
+                          <Th>عدد الورديات</Th>
+                          <Th>إجمالي المبيعات</Th>
+                          <Th>العمولة</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {commissionData.map((r, i) => (
+                          <Tr key={i}>
+                            <Td className="font-medium">{r.employee_name}</Td>
+                            <Td>{r.branch_name}</Td>
+                            <Td className="tabular-nums">{r.sessions_count}</Td>
+                            <Td className="tabular-nums">{formatCurrency(r.total_sales)}</Td>
+                            <Td className={`tabular-nums font-medium ${r.total_commission > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-neutral-500'}`}>{formatCurrency(r.total_commission)}</Td>
+                          </Tr>
+                        ))}
+                      </tbody>
+                      {commissionTotals && commissionTotals.employees > 0 && (
+                        <tfoot>
+                          <tr className="bg-sand-100 font-semibold">
+                            <Td colSpan={2}>الإجمالي</Td>
+                            <Td className="tabular-nums">{commissionTotals.sessions}</Td>
+                            <Td className="tabular-nums">{formatCurrency(commissionTotals.sales)}</Td>
+                            <Td className="tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(commissionTotals.commission)}</Td>
+                          </tr>
+                        </tfoot>
+                      )}
                     </Table>
                   </>
                 )

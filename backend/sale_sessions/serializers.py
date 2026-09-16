@@ -4,6 +4,7 @@ from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
 
+from branches.models import FabricBranchPrice
 from suppliers.models import Fabric
 from warehouses.models import FabricRoll, Warehouse
 
@@ -15,14 +16,48 @@ PAYMENT_METHODS = {m for m, _ in SaleSessionItem.PaymentMethod.choices}
 
 class EmployeeSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
+    role_label = serializers.CharField(source="get_role_display", read_only=True)
 
     class Meta:
         model = Employee
         fields = [
             "id", "name", "phone", "branch", "branch_name",
-            "notes", "is_active", "created_at", "updated_at",
+            "notes", "is_active", "role", "role_label",
+            "permissions", "hidden_sections",
+            "commission_active", "commission_percent",
+            "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def create(self, validated_data):
+        role = validated_data.pop("role", Employee.Role.ADMIN)
+        permissions = validated_data.pop("permissions", None)
+        hidden_sections = validated_data.pop("hidden_sections", None)
+        employee = Employee(**validated_data)
+        if permissions is not None and hidden_sections is not None:
+            employee.role = role
+            employee.permissions = permissions
+            employee.hidden_sections = hidden_sections
+        else:
+            employee.apply_role_preset(role)
+        employee.save()
+        return employee
+
+    def update(self, instance, validated_data):
+        role = validated_data.pop("role", None)
+        has_custom = "permissions" in validated_data or "hidden_sections" in validated_data
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if role is not None and not has_custom:
+            instance.apply_role_preset(role)
+        elif role is not None:
+            instance.role = role
+        if "permissions" in validated_data:
+            instance.permissions = validated_data["permissions"]
+        if "hidden_sections" in validated_data:
+            instance.hidden_sections = validated_data["hidden_sections"]
+        instance.save()
+        return instance
 
 
 class SaleSessionItemSerializer(serializers.ModelSerializer):
@@ -38,9 +73,41 @@ class SaleSessionItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "fabric", "fabric_name", "fabric_code", "fabric_unit",
             "sale_type", "sale_type_label",
-            "quantity", "unit_price", "payment_method", "payment_method_label",
+            "quantity", "unit_price", "discount_amount", "payment_method", "payment_method_label",
             "total", "sale_date", "yards_effective",
         ]
+
+
+class SaleSessionUpdateSerializer(serializers.ModelSerializer):
+    """تعديل بيانات الوردية: الموظف، الفرع، الملاحظات."""
+
+    class Meta:
+        model = SaleSession
+        fields = ["employee", "branch", "notes"]
+
+    def validate(self, attrs):
+        employee = attrs.get("employee") or getattr(self.instance, "employee", None)
+        branch = attrs.get("branch") or getattr(self.instance, "branch", None)
+        if employee and branch and employee.branch_id != branch.id:
+            raise serializers.ValidationError(
+                {"employee": "الموظف لا يتبع فرع الوردية — لا يمكن ربط موظف بفرع غير فرعه"}
+            )
+        return attrs
+
+    def validate_branch(self, branch):
+        session = self.instance
+        if session and session.status == SaleSession.Status.CLOSED and branch.pk != session.branch_id:
+            raise serializers.ValidationError("لا يمكن تغيير فرع وردية مغلقة")
+        return branch
+
+    def validate_employee(self, employee):
+        session = self.instance
+        qs = SaleSession.objects.filter(employee=employee, status=SaleSession.Status.OPEN)
+        if session:
+            qs = qs.exclude(pk=session.pk)
+        if qs.exists():
+            raise serializers.ValidationError("لهذا الموظف وردية مفتوحة بالفعل")
+        return employee
 
 
 class SaleSessionReadSerializer(serializers.ModelSerializer):
@@ -56,7 +123,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
         fields = [
             "id", "employee", "employee_name", "branch", "branch_name",
             "status", "status_label", "opened_at", "closed_at", "notes",
-            "elapsed_minutes", "items", "totals",
+            "commission_amount", "elapsed_minutes", "items", "totals",
         ]
 
     def get_elapsed_minutes(self, obj):
@@ -106,6 +173,9 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
     )
     quantity = serializers.DecimalField(max_digits=12, decimal_places=2)
     unit_price = serializers.DecimalField(max_digits=12, decimal_places=3, required=False)
+    discount_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, default=Decimal("0")
+    )
     payment_method = serializers.ChoiceField(
         choices=SaleSessionItem.PaymentMethod.choices,
         default=SaleSessionItem.PaymentMethod.CASH,
@@ -122,47 +192,71 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 {"detail": f"القماش «{fabric.name}» لا توجد له ياردات اللفة — حدّدها في ملف القماش قبل البيع باللفة"}
             )
 
-        auto = Decimal(str(fabric.sale_price_yard if fabric.sale_price_yard is not None else 0))
+        session = self.context["session"]
+        branch_price = FabricBranchPrice.objects.filter(
+            branch=session.branch_id, fabric=fabric
+        ).first()
+
+        global_yard = Decimal(str(fabric.sale_price_yard if fabric.sale_price_yard is not None else 0))
+        global_roll = (
+            Decimal(str(fabric.sale_price_roll))
+            if fabric.sale_price_roll is not None
+            else None
+        )
+        bp_yard = branch_price.sale_price_yard if branch_price else None
+        bp_roll = branch_price.sale_price_roll if branch_price else None
+
+        auto_yard = Decimal(str(bp_yard)) if bp_yard else global_yard
         if sale_type == SaleSessionItem.SaleType.ROLL:
             auto = (
-                Decimal(str(fabric.sale_price_roll))
-                if fabric.sale_price_roll is not None
-                else auto * Decimal(str(fabric.yards_per_roll))
+                Decimal(str(bp_roll))
+                if bp_roll is not None
+                else (
+                    global_roll
+                    if global_roll is not None
+                    else auto_yard * Decimal(str(fabric.yards_per_roll))
+                )
             )
+        else:
+            auto = auto_yard
         if "unit_price" not in attrs or attrs.get("unit_price") is None:
             attrs["unit_price"] = auto
         unit_price = Decimal(str(attrs["unit_price"]))
         if unit_price < 0:
             raise serializers.ValidationError({"unit_price": "سعر الوحدة لا يمكن أن يكون سالباً"})
 
+        bp_min_yard = branch_price.min_sale_yard if branch_price else None
+        bp_min_roll = branch_price.min_sale_roll if branch_price else None
         min_price = None
         if sale_type == SaleSessionItem.SaleType.ROLL:
-            min_price = (
-                fabric.min_sale_roll
-                if fabric.min_sale_roll is not None
-                else (
-                    (Decimal(str(fabric.min_sale_yard or 0)) * Decimal(str(fabric.yards_per_roll)))
-                    if fabric.min_sale_yard and fabric.yards_per_roll
-                    else None
-                )
-            )
-        elif fabric.min_sale_yard:
-            min_price = Decimal(str(fabric.min_sale_yard))
+            if bp_min_roll is not None:
+                min_price = Decimal(str(bp_min_roll))
+            elif bp_min_yard and fabric.yards_per_roll:
+                min_price = Decimal(str(bp_min_yard)) * Decimal(str(fabric.yards_per_roll))
+            elif fabric.min_sale_roll is not None:
+                min_price = Decimal(str(fabric.min_sale_roll))
+            elif fabric.min_sale_yard and fabric.yards_per_roll:
+                min_price = Decimal(str(fabric.min_sale_yard)) * Decimal(str(fabric.yards_per_roll))
+        else:
+            if bp_min_yard:
+                min_price = Decimal(str(bp_min_yard))
+            elif fabric.min_sale_yard:
+                min_price = Decimal(str(fabric.min_sale_yard))
         if (
             min_price
             and min_price > 0
             and unit_price < min_price
-            and self.context["session"].status != SaleSession.Status.CLOSED
+            and session.status != SaleSession.Status.CLOSED
         ):
             raise serializers.ValidationError(
                 {
                     "unit_price": (
-                        f"السعر أقل من الحد الأدنى للبيع ({min_price}) — حدّده في ملف القماش"
+                        f"السعر أقل من الحد الأدنى للبيع ({min_price}) — حدّده في ملف القماش أو أسعار الفرع"
                     )
                 }
             )
 
-        warehouse = Warehouse.for_branch(self.context["session"].branch)
+        warehouse = Warehouse.for_branch(session.branch)
         available = Decimal("0")
         if warehouse is not None:
             available = (
@@ -178,7 +272,7 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
             yards_need = quantity * (fabric.yards_per_roll or Decimal("0"))
         else:
             yards_need = quantity
-        if self.context["session"].status != SaleSession.Status.CLOSED and available < yards_need:
+        if session.status != SaleSession.Status.CLOSED and available < yards_need:
             raise serializers.ValidationError(
                 {
                     "detail": (
@@ -189,6 +283,24 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
             )
 
         attrs["total"] = Decimal(str(quantity)) * unit_price
+        discount = Decimal(str(attrs.get("discount_amount") or Decimal("0")))
+        from appsettings.models import AppSettings
+
+        settings = AppSettings.load()
+        max_discount = attrs["total"] * (settings.discount_max_percent / Decimal("100"))
+        if discount > max_discount:
+            raise serializers.ValidationError(
+                {
+                    "discount_amount": (
+                        "الخصم يتجاوز الحد الأقصى المسموح "
+                        f"({settings.discount_max_percent}% من الإجمالي)"
+                    )
+                }
+            )
+        if discount < 0:
+            raise serializers.ValidationError({"discount_amount": "الخصم لا يمكن أن يكون سالباً"})
+        attrs["discount_amount"] = discount
+        attrs["total"] -= discount
         attrs["sale_date"] = effective_sale_date()
         return attrs
 
@@ -208,6 +320,8 @@ class SaleSessionItemEditSerializer(SaleSessionItemCreateSerializer):
             attrs["quantity"] = item.quantity
         if "unit_price" not in attrs:
             attrs["unit_price"] = item.unit_price
+        if "discount_amount" not in attrs:
+            attrs["discount_amount"] = item.discount_amount
         if "payment_method" not in attrs:
             attrs["payment_method"] = item.payment_method
         attrs = super().validate(attrs)

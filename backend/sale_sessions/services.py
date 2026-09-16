@@ -12,10 +12,28 @@ from warehouses.services import reverse_sale_consumption, sell_from_branch
 from .models import SaleSession, SaleSessionItem
 
 
+def _unpost_session(session):
+    try:
+        from accounting.models import JournalEntry
+        from accounting.services import unpost_source
+        unpost_source(JournalEntry.Source.SESSION, session.pk)
+    except Exception:
+        pass
+
+
+def _post_session(session):
+    try:
+        from accounting.services import post_session_close
+        post_session_close(session)
+    except Exception:
+        pass
+
+
 def effective_sale_date(now=None):
-    """التاريخ الفعلي للبيع: حتى الساعة 2 صباحاً يُعامل البيع كأنه لليوم السابق."""
+    """التاريخ الفعلي للبيع: قبل ساعة بداية اليوم المحاسبي يُعتبر البيع لليوم السابق."""
     now = now or timezone.localtime()
-    if now.hour < 2:
+    cutoff = AppSettings.load().previous_day_cutoff_hour
+    if now.hour < cutoff:
         return now.date() - timedelta(days=1)
     return now.date()
 
@@ -24,6 +42,18 @@ def _item_yards(item):
     if item.sale_type == SaleSessionItem.SaleType.ROLL:
         return item.quantity * (item.fabric.yards_per_roll or Decimal("0"))
     return item.quantity
+
+
+def recompute_commission(session):
+    """إعادة حساب عمولة الموظف على إجمالي الوردية حسب نسبة عمولته."""
+    total = sum(r.total for r in session.items.all())
+    employee = session.employee
+    if employee.commission_active:
+        percent = Decimal(str(employee.commission_percent or "0"))
+        session.commission_amount = (total * percent / Decimal("100")).quantize(Decimal("0.01"))
+    else:
+        session.commission_amount = Decimal("0")
+    return session.commission_amount
 
 
 def close_session(session):
@@ -49,6 +79,7 @@ def close_session(session):
             if sale is None:
                 sale = DailySale.objects.create(
                     branch=session.branch,
+                    employee=session.employee,
                     date=sale_date,
                     total_sales=total_all,
                     cash_amount=totals["cash"],
@@ -78,7 +109,9 @@ def close_session(session):
 
         session.status = SaleSession.Status.CLOSED
         session.closed_at = timezone.now()
-        session.save(update_fields=["status", "closed_at"])
+        recompute_commission(session)
+        session.save(update_fields=["status", "closed_at", "commission_amount"])
+        _post_session(session)
     return session
 
 
@@ -126,6 +159,78 @@ def _cleanup_sale(sale, allow_negative):
         _rebuild_stock(sale, allow_negative)
 
 
+def _reverse_closed_items(session):
+    """عكس استهلاك الوردية المغلق من السجلات اليومية والمخزون."""
+    allow_negative = AppSettings.load().allow_negative_stock
+    rows = list(session.items.select_related("fabric"))
+    for item in rows:
+        sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
+        if sale:
+            _subtract_item(sale, item)
+            _cleanup_sale(sale, allow_negative)
+
+
+@transaction.atomic
+def delete_session(session):
+    """حذف وردية كاملة وإرجاع المخزون والسجلات اليومية للورديات المغلقة."""
+    if session.status == SaleSession.Status.CLOSED:
+        _unpost_session(session)
+        _reverse_closed_items(session)
+    session.items.all().delete()
+    session.delete()
+
+
+@transaction.atomic
+def reopen_session(session):
+    """إعادة فتح وردية مغلقة: عكس المبيعات اليومية والمخزون، ثم فتح الوردية."""
+    if session.status != SaleSession.Status.CLOSED:
+        raise ValueError("لا يمكن إعادة فتح وردية مفتوحة")
+    _unpost_session(session)
+    _reverse_closed_items(session)
+    session.status = SaleSession.Status.OPEN
+    session.closed_at = None
+    session.commission_amount = Decimal("0")
+    session.save(update_fields=["status", "closed_at", "commission_amount"])
+
+
+@transaction.atomic
+def move_session_item(source_session, item, target_session):
+    """نقل بند من وردية مفتوحة إلى وردية مفتوحة أخرى مع إعادة التحقق من المتاح."""
+    if source_session.status != SaleSession.Status.OPEN or target_session.status != SaleSession.Status.OPEN:
+        raise ValueError("يمكن نقل البنود بين ورديات مفتوحة فقط")
+    if source_session.pk == target_session.pk:
+        raise ValueError("لا يمكن نقل البند إلى نفس الوردية")
+    if item.session_id != source_session.pk:
+        raise ValueError("البند لا ينتمي إلى هذه الوردية")
+
+    from .serializers import SaleSessionItemCreateSerializer
+
+    check = SaleSessionItemCreateSerializer(
+        data={
+            "fabric": item.fabric_id,
+            "sale_type": item.sale_type,
+            "quantity": item.quantity,
+            "unit_price": item.unit_price,
+            "discount_amount": item.discount_amount,
+            "payment_method": item.payment_method,
+        },
+        context={"session": target_session},
+    )
+    check.is_valid(raise_exception=True)
+    item.session = target_session
+    item.sale_date = effective_sale_date()
+    item.save(update_fields=["session", "sale_date"])
+    return item
+
+
+@transaction.atomic
+def clear_session_items(session):
+    """إفراغ كل بنود وردية مفتوحة دفعة واحدة."""
+    if session.status == SaleSession.Status.CLOSED:
+        raise ValueError("لا يمكن إفراغ وردية مغلقة")
+    session.items.all().delete()
+
+
 @transaction.atomic
 def delete_session_item(session, item):
     allow_negative = AppSettings.load().allow_negative_stock
@@ -135,6 +240,10 @@ def delete_session_item(session, item):
             _subtract_item(sale, item)
             _cleanup_sale(sale, allow_negative)
     item.delete()
+    if session.status == SaleSession.Status.CLOSED:
+        recompute_commission(session)
+        session.save(update_fields=["commission_amount"])
+        _post_session(session)
 
 
 @transaction.atomic
@@ -145,7 +254,7 @@ def update_session_item(session, item, attrs):
         current_sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if current_sale:
             _subtract_item(current_sale, item)
-    for field in ("fabric", "sale_type", "quantity", "unit_price", "payment_method"):
+    for field in ("fabric", "sale_type", "quantity", "unit_price", "payment_method", "discount_amount"):
         if field in attrs:
             setattr(item, field, attrs[field])
     item.total = attrs.get("total", item.total)
@@ -155,6 +264,7 @@ def update_session_item(session, item, attrs):
         if target_sale is None:
             target_sale = DailySale.objects.create(
                 branch=session.branch,
+                employee=session.employee,
                 date=item.sale_date,
                 total_sales=Decimal("0"),
                 cash_amount=Decimal("0"),
@@ -168,4 +278,7 @@ def update_session_item(session, item, attrs):
             _cleanup_sale(current_sale, allow_negative)
         if target_sale.pk:
             _rebuild_stock(target_sale, allow_negative)
+        recompute_commission(session)
+        session.save(update_fields=["commission_amount"])
+        _post_session(session)
     return item

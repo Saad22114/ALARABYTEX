@@ -9,6 +9,28 @@ export interface Branch {
   is_active: boolean;
   sales_count: number;
   expenses_count: number;
+  monthly_sales_target: number;
+  monthly_sales: number;
+  target_progress_pct: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FabricBranchPrice {
+  id: number;
+  branch: number;
+  branch_name: string;
+  fabric: number;
+  fabric_name: string;
+  fabric_code: string;
+  fabric_unit: FabricUnit;
+  yards_per_roll: number | null;
+  global_sale_price_yard: number;
+  global_sale_price_roll: number | null;
+  sale_price_yard: number;
+  sale_price_roll: number | null;
+  min_sale_yard: number;
+  min_sale_roll: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -28,6 +50,25 @@ export interface Supplier {
   current_balance: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface Customer {
+  id: number;
+  name: string;
+  phone: string | null;
+  email: string;
+  address: string;
+  notes: string;
+  branch: number | null;
+  branch_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerLookupResult {
+  found: boolean;
+  customer: Customer | null;
 }
 
 export type FabricUnit = 'yard' | 'meter' | 'roll';
@@ -187,12 +228,18 @@ export interface PartnerDistributionItem {
   id: number;
   name: string;
   share_percent: number;
+  total_support: number;
+  total_withdraw: number;
   actual_net: number;
   theoretical_share: number;
   difference: number;
+  settlement: 'balanced' | 'add' | 'withdraw';
+  settlement_amount: number;
 }
 
 export interface PartnerDistributionResult {
+  date_from: string | null;
+  date_to: string | null;
   total_support: number;
   total_withdraw: number;
   total_net: number;
@@ -211,6 +258,12 @@ export interface LedgerItem {
   rolls: number;
   unit_price: number;
   total: number;
+  warehouse?: number | null;
+  warehouse_name?: string | null;
+  branch?: number | null;
+  branch_name?: string | null;
+  destination_type?: 'warehouse' | 'branch' | '' | 'mixed';
+  destination_name?: string | null;
 }
 
 export interface LedgerEntry {
@@ -234,7 +287,7 @@ export interface LedgerEntry {
   warehouse_name: string | null;
   branch: number | null;
   branch_name: string | null;
-  destination_type: 'warehouse' | 'branch' | null;
+  destination_type: 'warehouse' | 'branch' | 'mixed' | null;
   destination_name: string | null;
   goods_receipt_number: string | null;
   goods_receipt_status: string | null;
@@ -265,7 +318,14 @@ export interface CreateLedgerEntry {
   notes?: string;
   warehouse?: number | null;
   branch?: number | null;
-  items?: Array<{ fabric: number; quantity_yards?: number; rolls?: number; unit_price?: number }>;
+  items?: Array<{
+    fabric: number;
+    quantity_yards?: number;
+    rolls?: number;
+    unit_price?: number;
+    warehouse?: number | null;
+    branch?: number | null;
+  }>;
 }
 
 export type PaymentMethod = 'cash' | 'transfer' | 'card' | 'other';
@@ -303,11 +363,13 @@ export interface DailySaleItem {
   fabric_name: string;
   fabric_unit: string;
   yards: number;
+  unit_price: number | null;
 }
 
 export interface DailySaleItemWrite {
   fabric: number;
   yards: number;
+  unit_price?: number;
 }
 
 export type SaleWritePayload = Omit<Partial<DailySale>, 'items'> & { items?: DailySaleItemWrite[] };
@@ -359,6 +421,18 @@ export interface ExpenseCategory {
   updated_at: string;
 }
 
+export interface ExpenseBudget {
+  id: number;
+  branch: number;
+  branch_name: string;
+  category: number;
+  category_name: string;
+  month: string;
+  amount: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Paginated<T> {
   count: number;
   next: string | null;
@@ -366,20 +440,57 @@ export interface Paginated<T> {
   results: T[];
 }
 
+export interface SuppliersOverview {
+  total_suppliers: number;
+  active_count: number;
+  total_purchases: number;
+  purchases_count: number;
+  total_payments: number;
+  payments_count: number;
+  total_returns: number;
+  returns_count: number;
+  outstanding_debit: number;
+  owing_count: number;
+  top_suppliers: { id: number; name: string; company_name: string; balance: number }[];
+}
+
 export interface DashboardChartPoint {
   date: string;
   sales: number;
   expenses: number;
   net: number;
+  cogs: number;
+  gross_profit: number;
+}
+
+export interface TopFabricProfit {
+  fabric: number;
+  fabric_name: string;
+  fabric_code: string;
+  yards_sold: number;
+  unit_cost: number;
+  revenue: number;
+  cogs: number;
+  profit: number;
 }
 
 export interface DashboardSummary {
   total_sales: number;
   total_expenses: number;
   net: number;
+  gross_profit: number;
+  margin_pct: number;
   branches_count: number;
   suppliers_count: number;
   chart_data: DashboardChartPoint[];
+  chart_previous: DashboardChartPoint[];
+  previous_sales: number;
+  previous_expenses: number;
+  previous_net: number;
+  sales_delta_pct: number | null;
+  expenses_delta_pct: number | null;
+  net_delta_pct: number | null;
+  top_fabrics: TopFabricProfit[];
   period: string;
   start_date: string;
   end_date: string;
@@ -402,6 +513,27 @@ export interface ExpensesReportData {
   amount: number;
   payment_method: string;
   description: string;
+}
+
+export interface ExpenseBudgetReportRow {
+  branch: number;
+  branch_name: string;
+  category: number;
+  category_name: string;
+  budget: number;
+  spent: number;
+  remaining: number;
+  used_pct: number;
+}
+
+export interface CommissionReportRow {
+  employee: number;
+  employee_name: string;
+  branch: number;
+  branch_name: string;
+  sessions_count: number;
+  total_sales: number;
+  total_commission: number;
 }
 
 export interface NetDailyReportData {
@@ -434,16 +566,36 @@ export interface SuppliersReportData {
 export interface AppSettings {
   pk: number;
   business_name: string;
+  trade_name: string;
+  commercial_registration: string;
   business_phone: string;
   business_address: string;
   tax_number: string;
+  business_email: string;
   currency_symbol: string;
   currency_code: string;
   decimal_places: number;
+  currency_position: 'after' | 'before';
   default_period: 'today' | 'week' | 'month';
   default_page_size: number;
   allow_negative_stock: boolean;
   hidden_sections: string[];
+  low_stock_threshold: number;
+  low_stock_alert_enabled: boolean;
+  date_format: string;
+  default_theme: string;
+  receipt_footer: string;
+  invoice_notes: string;
+  invoice_prefix: string;
+  tax_rate: number;
+  previous_day_cutoff_hour: number;
+  session_warn_hours: number;
+  session_danger_hours: number;
+  default_payment_method: SessionPaymentMethod;
+  discount_max_percent: number;
+  receipt_show_tax: boolean;
+  receipt_show_phone: boolean;
+  logo: string;
   created_at: string;
   updated_at: string;
 }
@@ -858,12 +1010,54 @@ export interface DashboardAlertsResult {
   date: string;
   low_stock: LowStockAlert[];
   low_stock_count: number;
+  open_sessions: OpenSessionAlert[];
+  open_sessions_count: number;
+  pending_receipts: PendingReceiptAlert[];
+  pending_receipts_count: number;
   today: {
     sales: number;
     expenses: number;
     support: number;
     withdraw: number;
     net: number;
+  };
+}
+
+export interface OpenSessionAlert {
+  id: number;
+  employee_name: string;
+  branch_name: string;
+  opened_at: string;
+}
+
+export interface PendingReceiptAlert {
+  id: number;
+  supplier: number;
+  supplier_name: string;
+  receipt_no: string;
+  date: string;
+  amount: number;
+  destination: string;
+}
+
+export interface DashboardActivityItem {
+  type: 'sale' | 'purchase' | 'payment' | 'expense';
+  id: number;
+  title: string;
+  amount: number;
+  date: string;
+  created_at: string;
+  link: string;
+}
+
+export type EmployeeRole = 'admin' | 'supervisor' | 'sales' | 'viewer' | 'custom';
+
+export interface EmployeePermissions {
+  [sectionKey: string]: {
+    view: boolean;
+    create: boolean;
+    edit: boolean;
+    delete: boolean;
   };
 }
 
@@ -875,8 +1069,33 @@ export interface Employee {
   branch_name: string;
   notes: string;
   is_active: boolean;
+  role: EmployeeRole;
+  role_label: string;
+  permissions: EmployeePermissions;
+  hidden_sections: string[];
+  commission_active: boolean;
+  commission_percent: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface AppSection {
+  key: string;
+  label: string;
+  fixed: boolean;
+  actions: string[];
+}
+
+export interface RolePreset {
+  label: string;
+  description: string;
+  permissions: EmployeePermissions;
+  hidden_sections: string[];
+}
+
+export interface SectionsInfo {
+  sections: AppSection[];
+  roles: Record<string, RolePreset>;
 }
 
 export type SessionSaleType = 'yard' | 'roll';
@@ -892,6 +1111,7 @@ export interface SessionSaleItem {
   sale_type_label: string;
   quantity: number;
   unit_price: number;
+  discount_amount: number;
   payment_method: SessionPaymentMethod;
   payment_method_label: string;
   total: number;
@@ -904,6 +1124,7 @@ export interface SessionSaleItemWrite {
   sale_type: SessionSaleType;
   quantity: number;
   unit_price?: number;
+  discount_amount?: number;
   payment_method: SessionPaymentMethod;
 }
 
@@ -928,6 +1149,7 @@ export interface SaleSession {
   opened_at: string;
   closed_at: string | null;
   notes: string;
+  commission_amount: number;
   elapsed_minutes: number | null;
   items: SessionSaleItem[];
   totals: SessionTotals;
@@ -943,4 +1165,184 @@ export interface SaleSessionSummary {
   cash: number;
   transfer: number;
   card: number;
+}
+
+export type AccountType = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+
+export interface Account {
+  id: number;
+  code: string;
+  name: string;
+  type: AccountType;
+  type_label: string;
+  parent: number | null;
+  is_active: boolean;
+  is_system: boolean;
+  children_count: number;
+}
+
+export type JournalSource = 'manual' | 'session' | 'purchase' | 'expense' | 'partner' | 'closing';
+
+export interface JournalLine {
+  id: number;
+  account: number;
+  account_code: string;
+  account_name: string;
+  debit: number;
+  credit: number;
+  description: string;
+}
+
+export interface JournalEntry {
+  id: number;
+  number: string;
+  date: string;
+  description: string;
+  source: JournalSource;
+  source_label: string;
+  source_id: number | null;
+  created_by: number | null;
+  created_by_name: string;
+  created_at: string;
+  reversed_at: string | null;
+  lines: JournalLine[];
+  total_debit: number;
+  total_credit: number;
+}
+
+export interface TrialBalanceRow {
+  id: number;
+  code: string;
+  name: string;
+  type: AccountType;
+  type_label: string;
+  parent_id: number | null;
+  debit: number;
+  credit: number;
+}
+
+export interface TrialBalance {
+  date_to: string | null;
+  rows: TrialBalanceRow[];
+  totals: { debit: number; credit: number };
+  balanced: boolean;
+}
+
+export interface IncomeStatementRow {
+  code: string;
+  name: string;
+  amount: number;
+}
+
+export interface IncomeStatement {
+  date_from: string | null;
+  date_to: string | null;
+  income_rows: IncomeStatementRow[];
+  expense_rows: IncomeStatementRow[];
+  total_income: number;
+  total_expenses: number;
+  net_profit: number;
+}
+
+export interface BalanceSheetRow {
+  code: string;
+  name: string;
+  amount: number;
+}
+
+export interface BalanceSheet {
+  date_to: string | null;
+  asset_rows: BalanceSheetRow[];
+  liability_rows: BalanceSheetRow[];
+  equity_rows: BalanceSheetRow[];
+  total_assets: number;
+  total_liabilities: number;
+  total_equity: number;
+  difference: number;
+  balanced: boolean;
+}
+
+export interface CashFlowRow {
+  source: JournalSource;
+  label: string;
+  in: number;
+  out: number;
+  net: number;
+}
+
+export interface CashFlow {
+  date_from: string | null;
+  date_to: string | null;
+  rows: CashFlowRow[];
+  totals: { in: number; out: number; net: number };
+}
+
+export interface CashBoxRow {
+  source: JournalSource;
+  label: string;
+  in: number;
+  out: number;
+}
+
+export interface CashBox {
+  date: string;
+  opening: number;
+  rows: CashBoxRow[];
+  totals: { in: number; out: number };
+  closing: number;
+}
+
+export interface ClosedPeriod {
+  id: number;
+  period_end: string;
+  description: string;
+  net_profit: number;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  sender: number;
+  sender_name: string;
+  receiver: number;
+  receiver_name: string;
+  body: string;
+  read_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  is_deleted: boolean;
+  reply_to_id: number | null;
+  reply_to_body: string;
+  reply_from_name: string;
+  created_at: string;
+}
+
+export interface ChatContactSummary {
+  employee: {
+    id: number;
+    name: string;
+    phone: string;
+    role_label: string;
+    branch_name: string;
+  };
+  last_message: string;
+  last_message_from_me: boolean;
+  last_at: string;
+  unread: number;
+}
+
+export interface ConversationsResult {
+  me: { id: number; name: string };
+  conversations: ChatContactSummary[];
+  unread_total: number;
+}
+
+export interface MessageThreadResult {
+  with_employee: {
+    id: number;
+    name: string;
+    branch_name: string;
+    role_label: string;
+  };
+  messages: ChatMessage[];
 }

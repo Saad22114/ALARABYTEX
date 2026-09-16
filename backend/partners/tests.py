@@ -372,3 +372,50 @@ class PartnerDistributionTests(APITestCase):
         resp = self.client.get("/api/partners/distribution/?export=xlsx")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("spreadsheetml.sheet", resp.headers["Content-Type"])
+
+    def test_distribution_includes_settlement_fields(self):
+        self._op(self.p1, "support", 9000)
+        self._op(self.p2, "support", 1000)
+        resp = self.client.get("/api/partners/distribution/")
+        self.assertEqual(resp.status_code, 200)
+        items = {it["id"]: it for it in resp.data["items"]}
+        p1 = items[self.p1.id]
+        p2 = items[self.p2.id]
+        self.assertEqual(p1["total_support"], 9000.0)
+        self.assertEqual(p1["total_withdraw"], 0.0)
+        self.assertEqual(p1["settlement"], "withdraw")
+        self.assertEqual(p1["settlement_amount"], 3000.0)
+        self.assertEqual(p2["total_support"], 1000.0)
+        self.assertEqual(p2["settlement"], "add")
+        self.assertEqual(p2["settlement_amount"], 3000.0)
+
+    def test_distribution_balanced_settlement(self):
+        self._op(self.p1, "support", 6000)
+        self._op(self.p2, "support", 4000)
+        resp = self.client.get("/api/partners/distribution/")
+        items = {it["id"]: it for it in resp.data["items"]}
+        self.assertEqual(items[self.p1.id]["settlement"], "balanced")
+        self.assertEqual(items[self.p2.id]["settlement"], "balanced")
+        self.assertEqual(float(items[self.p1.id]["settlement_amount"]), 0.0)
+
+    def test_distribution_date_range(self):
+        old = date.today() - timedelta(days=30)
+        self._op(self.p1, "support", 6000)
+        self._op(self.p2, "support", 4000)
+        r1 = self.client.post(
+            "/api/partner-operations/",
+            {
+                "partner": self.p2.id,
+                "date": str(old),
+                "operation_type": "support",
+                "amount": 1000,
+            },
+            format="json",
+        )
+        self.assertEqual(r1.status_code, 201, r1.content)
+        resp = self.client.get(f"/api/partners/distribution/?date_from={old}&date_to={date.today()}")
+        self.assertEqual(resp.status_code, 200)
+        items = {it["id"]: it for it in resp.data["items"]}
+        self.assertEqual(float(resp.data["total_net"]), 11000.0)
+        self.assertEqual(float(items[self.p1.id]["total_support"]), 6000.0)
+        self.assertEqual(float(items[self.p2.id]["total_support"]), 5000.0)

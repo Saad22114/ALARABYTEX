@@ -5,17 +5,21 @@ import { Menu, Sun, Moon } from 'lucide-react';
 import { formatArabicDate } from '@/lib/format';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import NotificationsBell from './NotificationsBell';
+import { useEffect, useState } from 'react';
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
   '/': { title: 'الرئيسية', subtitle: 'لوحة التحكم' },
   '/branches': { title: 'الفروع', subtitle: 'إدارة الفروع' },
   '/suppliers': { title: 'الموردون', subtitle: 'إدارة الموردين' },
+  '/customers': { title: 'الزبائن', subtitle: 'تسجيل بيانات الزبائن والبحث بالهاتف' },
   '/fabrics': { title: 'الأقمشة', subtitle: 'ملف الأقمشة' },
   '/sales': { title: 'المبيعات', subtitle: 'تسجيل المبيعات وورديات البيع' },
   '/employees': { title: 'الموظفون', subtitle: 'إدارة الموظفين وربطهم بالفروع' },
   '/warehouses': { title: 'المخازن', subtitle: 'إدارة المخازن والأقمشة والمخزون' },
   '/expenses': { title: 'المصاريف', subtitle: 'تسجيل ومتابعة المصاريف' },
   '/reports': { title: 'التقارير', subtitle: 'التقارير المالية والإدارية' },
+  '/accounting': { title: 'المحاسبة', subtitle: 'الدفاتر والقوائم المالية والخزينة' },
+  '/messages': { title: 'التواصل', subtitle: 'الرسائل المباشرة بين الموظفين' },
   '/settings': { title: 'الإعدادات', subtitle: 'إعدادات النظام' },
 };
 
@@ -25,8 +29,13 @@ interface HeaderProps {
 
 export default function Header({ onMenuClick }: HeaderProps) {
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
   const today = formatArabicDate(new Date());
   const { dark, toggleDark } = useTheme();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   let match = titles[pathname];
   if (!match) {
@@ -62,7 +71,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
             {dark ? <Sun size={20} /> : <Moon size={20} />}
           </button>
           <NotificationsBell />
-          <span className="hidden md:inline text-sm text-neutral-500">{today}</span>
+          {mounted && <span className="hidden md:inline text-sm text-neutral-500">{today}</span>}
           <div className="hidden md:block w-px h-6 bg-sand-200" />
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center">

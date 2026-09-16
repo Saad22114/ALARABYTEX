@@ -4,8 +4,18 @@ from django.db import models
 
 from core.models import TimeStampedModel, ActiveModel
 
+from .sections import ROLE_CHOICES, PERMISSION_ACTIONS
+
 
 class Employee(TimeStampedModel, ActiveModel):
+    class Role(models.TextChoices):
+        ADMIN = "admin", "مدير النظام"
+        SUPERVISOR = "supervisor", "مشرف"
+        SALES = "sales", "مندوب مبيعات"
+        ACCOUNTANT = "accountant", "محاسب"
+        VIEWER = "viewer", "مشاهد"
+        CUSTOM = "custom", "مخصص"
+
     name = models.CharField(max_length=150, unique=True, verbose_name="اسم الموظف")
     phone = models.CharField(max_length=30, blank=True, verbose_name="رقم الهاتف")
     branch = models.ForeignKey(
@@ -15,6 +25,16 @@ class Employee(TimeStampedModel, ActiveModel):
         verbose_name="الفرع",
     )
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
+    role = models.CharField(
+        max_length=20, choices=Role.choices, default=Role.ADMIN, verbose_name="الدور"
+    )
+    permissions = models.JSONField(default=dict, blank=True, verbose_name="الصلاحيات")
+    hidden_sections = models.JSONField(default=list, blank=True, verbose_name="الأقسام المخفية")
+    commission_active = models.BooleanField(default=False, verbose_name="تفعيل العمولة")
+    commission_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("0"),
+        verbose_name="نسبة العمولة (%)",
+    )
 
     class Meta:
         verbose_name = "موظف"
@@ -23,6 +43,25 @@ class Employee(TimeStampedModel, ActiveModel):
 
     def __str__(self):
         return self.name
+
+    def apply_role_preset(self, role):
+        """يعيد بناء الصلاحيات حسب الدور."""
+
+        from .sections import ROLE_PRESETS
+
+        preset = ROLE_PRESETS.get(role, ROLE_PRESETS["custom"])
+        self.role = role
+        self.permissions = preset["permissions"]
+        self.hidden_sections = preset["hidden_sections"]
+
+    def has_permission(self, section_key, action="view"):
+        try:
+            return bool(self.permissions[section_key].get(action))
+        except (KeyError, AttributeError, TypeError):
+            return False
+
+    def section_is_hidden(self, section_key):
+        return section_key in (self.hidden_sections or [])
 
 
 class SaleSession(TimeStampedModel):
@@ -40,6 +79,10 @@ class SaleSession(TimeStampedModel):
     closed_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الإغلاق")
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.OPEN, verbose_name="الحالة"
+    )
+    commission_amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal("0"),
+        verbose_name="قيمة العمولة",
     )
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
 
@@ -76,6 +119,9 @@ class SaleSessionItem(TimeStampedModel):
     )
     quantity = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="الكمية")
     unit_price = models.DecimalField(max_digits=12, decimal_places=3, verbose_name="سعر الوحدة")
+    discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0"), verbose_name="قيمة الخصم"
+    )
     payment_method = models.CharField(
         max_length=10,
         choices=PaymentMethod.choices,

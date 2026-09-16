@@ -18,6 +18,7 @@ import Switch from '@/components/ui/Switch';
 import { Plus, Eye, Pencil, Trash2 } from 'lucide-react';
 import { Branch, Paginated } from '@/types';
 import { listBranches, createBranch, updateBranch, deleteBranch } from '@/services/branches';
+import { formatCurrency } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 
@@ -122,6 +123,7 @@ export default function BranchesPage() {
                     <Th>الهاتف</Th>
                     <Th>عدد المبيعات</Th>
                     <Th>عدد المصاريف</Th>
+                    <Th>الهدف الشهري</Th>
                     <Th>الحالة</Th>
                     <Th>إجراءات</Th>
                   </tr>
@@ -135,6 +137,28 @@ export default function BranchesPage() {
                       <Td dir="ltr" className="text-left">{b.phone || '-'}</Td>
                       <Td className="tabular-nums">{b.sales_count}</Td>
                       <Td className="tabular-nums">{b.expenses_count}</Td>
+                      <Td>
+                        {b.target_progress_pct !== null && b.target_progress_pct !== undefined ? (
+                          <div className="w-36">
+                            <div className="flex items-center justify-between text-xs mb-1">
+                              <span className="text-neutral-500 tabular-nums">
+                                {formatCurrency(b.monthly_sales)} / {formatCurrency(b.monthly_sales_target)}
+                              </span>
+                              <span className={`font-semibold tabular-nums ${b.target_progress_pct >= 100 ? 'text-emerald-600' : 'text-neutral-600'}`}>
+                                {b.target_progress_pct}%
+                              </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-sand-100 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${b.target_progress_pct >= 100 ? 'bg-emerald-500' : 'bg-brand-500'}`}
+                                style={{ width: `${Math.min(100, b.target_progress_pct)}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-neutral-300">—</span>
+                        )}
+                      </Td>
                       <Td>
                         <div className="flex items-center gap-2">
                           <Switch

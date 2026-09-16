@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Store,
   Truck,
+  ContactRound,
   Banknote,
   ReceiptText,
   BarChart3,
@@ -16,13 +17,17 @@ import {
   Tags,
   Users,
   UserCog,
+  Calculator,
+  MessageSquareText,
 } from 'lucide-react';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { logoUrl } from '@/services/settings';
 
 const navItems = [
   { key: 'dashboard', href: '/', label: 'الرئيسية', icon: LayoutDashboard },
   { key: 'branches', href: '/branches', label: 'الفروع', icon: Store },
   { key: 'suppliers', href: '/suppliers', label: 'الموردون', icon: Truck },
+  { key: 'customers', href: '/customers', label: 'الزبائن', icon: ContactRound },
   { key: 'partners', href: '/partners', label: 'الشركاء', icon: Users },
   { key: 'fabrics', href: '/fabrics', label: 'الأقمشة', icon: Tags },
   { key: 'sales', href: '/sales', label: 'المبيعات', icon: Banknote },
@@ -30,6 +35,8 @@ const navItems = [
   { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Boxes },
   { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText },
   { key: 'reports', href: '/reports', label: 'التقارير', icon: BarChart3 },
+  { key: 'accounting', href: '/accounting', label: 'المحاسبة', icon: Calculator },
+  { key: 'messages', href: '/messages', label: 'التواصل', icon: MessageSquareText },
   { key: 'settings', href: '/settings', label: 'الإعدادات', icon: Settings },
 ];
 
@@ -70,15 +77,23 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       >
         <div className="px-6 py-6 border-b border-white/10">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-gold-500/20">
-                <Layers size={24} className="text-gold-400" />
+              <div className="flex items-center gap-3">
+                {logoUrl(settings?.logo) ? (
+                  <img
+                    src={logoUrl(settings?.logo)}
+                    alt="شعار الموقع"
+                    className="w-9 h-9 rounded-xl object-contain bg-white p-0.5"
+                  />
+                ) : (
+                  <div className="p-2 rounded-xl bg-gold-500/20">
+                    <Layers size={24} className="text-gold-400" />
+                  </div>
+                )}
+                <div>
+                  <h1 className="text-xl font-bold text-white">{settings?.business_name || 'القماش العربي'}</h1>
+                  <p className="text-xs text-[#d9d3c6]/60">نظام إدارة أعمال الأقمشة</p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-white">{settings?.business_name || 'القماش العربي'}</h1>
-                <p className="text-xs text-[#d9d3c6]/60">نظام إدارة أعمال الأقمشة</p>
-              </div>
-            </div>
             <button
               onClick={onClose}
               className="lg:hidden p-2 rounded-xl hover:bg-white/10 text-[#e8e4db] transition-colors"

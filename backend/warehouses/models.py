@@ -384,7 +384,7 @@ class StockMovement(TimeStampedModel):
     class Type(models.TextChoices):
         RECEIPT = "receipt", "استلام من مورد"
         TRANSFER_OUT = "transfer_out", "تحويل صادر"
-        TRANSFER_IN = "transfer_in", "تحويل وارد"
+        TRANSFER_IN = "transfer_in", "تحويل ياردةد"
         ADJUSTMENT_IN = "adjustment_in", "تسوية إضافة"
         ADJUSTMENT_OUT = "adjustment_out", "تسوية خصم"
         COUNT = "count", "تسوية جرد"

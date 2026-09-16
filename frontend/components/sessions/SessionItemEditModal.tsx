@@ -11,6 +11,7 @@ import {
 import { updateSessionItem } from '@/services/sessions';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
+import { useSettings } from '@/components/providers/SettingsProvider';
 
 const PAYMENT_OPTIONS = [
   { value: 'cash', label: 'كاش' },
@@ -29,11 +30,13 @@ interface Props {
 
 export default function SessionItemEditModal({ open, session, item, fabrics, onClose, onSaved }: Props) {
   const { toast } = useToast();
+  const { settings } = useSettings();
   const [fabric, setFabric] = useState<number | null>(null);
   const [saleType, setSaleType] = useState<SessionSaleType>('yard');
   const [quantity, setQuantity] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<SessionPaymentMethod>('cash');
+  const [discount, setDiscount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<SessionPaymentMethod>(settings?.default_payment_method || 'cash');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -42,6 +45,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
       setSaleType(item.sale_type);
       setQuantity(String(item.quantity));
       setUnitPrice(String(item.unit_price));
+      setDiscount(item.discount_amount > 0 ? String(item.discount_amount) : '');
       setPaymentMethod(item.payment_method);
     }
   }, [open, item]);
@@ -74,7 +78,9 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
 
   const qtyNum = parseFloat(quantity);
   const priceNum = parseFloat(unitPrice);
+  const discountNum = discount.trim() !== '' && !isNaN(parseFloat(discount)) ? parseFloat(discount) : 0;
   const subtotal = quantity.trim() !== '' && qtyNum > 0 && priceNum >= 0 ? qtyNum * priceNum : null;
+  const netTotal = subtotal != null ? Math.max(0, subtotal - discountNum) : null;
 
   const handleSave = async () => {
     if (!session || !item) return;
@@ -104,6 +110,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
         sale_type: saleType,
         quantity: qtyNum,
         unit_price: priceNum,
+        discount_amount: discountNum,
         payment_method: paymentMethod,
       });
       toast('success', 'تم تعديل البيع بنجاح');
@@ -150,19 +157,28 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
             label={saleType === 'roll' ? 'عدد اللفات' : 'الكمية (ياردات)'}
             type="number"
             min="0"
-            step="0.01"
+            step={saleType === 'roll' ? '1' : '0.25'}
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
-            placeholder="0"
+            placeholder=""
           />
           <Input
             label="سعر الوحدة"
             type="number"
             min="0"
-            step="0.001"
+            step="0.1"
             value={unitPrice}
             onChange={(e) => setUnitPrice(e.target.value)}
-            placeholder={String(autoPrice()) || '0'}
+            placeholder={String(autoPrice())}
+          />
+          <Input
+            label="قيمة الخصم"
+            type="number"
+            min="0"
+            step="0.01"
+            value={discount}
+            onChange={(e) => setDiscount(e.target.value)}
+            placeholder=""
           />
           <Select
             label="طريقة الدفع"
@@ -174,10 +190,11 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-sand-50 border border-sand-200 px-4 py-3">
           <span className="text-sm text-neutral-600">
-            الإجمالي ({saleType === 'roll' ? `${quantity || '0'} لفة` : `${quantity || '0'} ياردة`} × {formatCurrency(priceNum)}):
+            الإجمالي ({saleType === 'roll' ? `${quantity || '0'} لفة` : `${quantity || '0'} ياردة`} × {formatCurrency(priceNum)})
+            {discountNum > 0 ? ` - خصم ${formatCurrency(discountNum)}` : ''}:
           </span>
           <span className="text-xl font-bold tabular-nums text-brand-700">
-            {subtotal != null ? formatCurrency(subtotal) : '—'}
+            {netTotal != null ? formatCurrency(netTotal) : '—'}
           </span>
         </div>
 

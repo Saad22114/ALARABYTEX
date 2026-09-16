@@ -13,10 +13,13 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import SupplierForm from '@/components/forms/SupplierForm';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, Eye, Pencil, Trash2, BookOpen } from 'lucide-react';
-import { Supplier, Paginated } from '@/types';
-import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from '@/services/suppliers';
+import StatCard from '@/components/ui/StatCard';
+import Badge from '@/components/ui/Badge';
+import { Plus, Eye, Pencil, Trash2, BookOpen, Users, ShoppingBag, Wallet, Undo2, Scale, ChevronLeft, Printer, Share2 } from 'lucide-react';
+import { Supplier, Paginated, SuppliersOverview } from '@/types';
+import { listSuppliers, createSupplier, updateSupplier, deleteSupplier, getSuppliersOverview } from '@/services/suppliers';
 import { formatCurrency } from '@/lib/format';
+import { openSuppliersOverviewReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 
@@ -25,6 +28,7 @@ export default function SuppliersPage() {
   const { settings } = useSettings();
   const pageSize = settings?.default_page_size ?? 10;
   const [data, setData] = useState<Paginated<Supplier> | null>(null);
+  const [overview, setOverview] = useState<SuppliersOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -32,6 +36,23 @@ export default function SuppliersPage() {
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [deleting, setDeleting] = useState<Supplier | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const openReport = async (autoPrint: boolean) => {
+    if (!overview) return;
+    setReportLoading(true);
+    try {
+      const all = await listSuppliers({ page: 1, page_size: 200, search: search || undefined });
+      openSuppliersOverviewReport(overview, all.results, settings, {
+        title: 'تقرير الموردين',
+        autoPrint,
+      });
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
   const fetchData = () => {
     let cancelled = false;
@@ -45,6 +66,14 @@ export default function SuppliersPage() {
   };
 
   useEffect(() => fetchData(), [page, search, settings?.default_page_size]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSuppliersOverview()
+      .then((res) => { if (!cancelled) setOverview(res); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 
@@ -82,12 +111,85 @@ export default function SuppliersPage() {
     <AppShell>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} />
-          <Button onClick={() => setModalOpen(true)}>
-            <Plus size={18} />
-            إضافة مورد
-          </Button>
-        </div>
+            <div className="flex items-center gap-3">
+              <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} />
+              <Button variant="secondary" loading={reportLoading} onClick={() => openReport(false)} title="مشاركة تقرير الموردين كملف PDF">
+                <Share2 size={16} />
+                مشاركة التقرير
+              </Button>
+              <Button variant="secondary" loading={reportLoading} onClick={() => openReport(true)} title="طباعة تقرير الموردين">
+                <Printer size={16} />
+                طباعة التقرير
+              </Button>
+            </div>
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus size={18} />
+              إضافة مورد
+            </Button>
+          </div>
+
+        {overview && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <StatCard
+                icon={<Users size={22} />}
+                iconBg="bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"
+                label="إجمالي الموردين"
+                value={overview.total_suppliers}
+                sub={`${overview.active_count} نشط`}
+              />
+              <StatCard
+                icon={<ShoppingBag size={22} />}
+                iconBg="bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
+                label="إجمالي المشتريات"
+                value={formatCurrency(overview.total_purchases)}
+                sub={`${overview.purchases_count} فاتورة`}
+              />
+              <StatCard
+                icon={<Wallet size={22} />}
+                iconBg="bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400"
+                label="إجمالي المدفوعات"
+                value={formatCurrency(overview.total_payments)}
+                sub={`${overview.payments_count} دفعة`}
+              />
+              <StatCard
+                icon={<Undo2 size={22} />}
+                iconBg="bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400"
+                label="المرتجعات"
+                value={formatCurrency(overview.total_returns)}
+                sub={`${overview.returns_count} مرتجع`}
+              />
+              <StatCard
+                icon={<Scale size={22} />}
+                iconBg="bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400"
+                label="المستحق للموردين"
+                value={formatCurrency(overview.outstanding_debit)}
+                sub={`${overview.owing_count} مورد بمديونية`}
+              />
+            </div>
+
+            {overview.top_suppliers.length > 0 && (
+              <Card title="أعلى الموردين رصيداً" subtitle="الموردون الأكثر استحقاقاً">
+                <ul className="divide-y divide-sand-100">
+                  {overview.top_suppliers.map((t) => (
+                    <li key={t.id}>
+                      <Link href={`/suppliers/${t.id}?tab=ledger`} className="flex items-center justify-between gap-3 px-2 py-2.5 rounded-lg hover:bg-sand-50 transition-colors">
+                        <span className="flex flex-col min-w-0">
+                          <span className="font-medium text-sm text-neutral-800 truncate">{t.name}</span>
+                          {t.company_name && <span className="text-xs text-neutral-400 truncate">{t.company_name}</span>}
+                        </span>
+                        <span className="flex items-center gap-2 shrink-0">
+                          <Badge variant="danger">{formatCurrency(t.balance)}</Badge>
+                          <ChevronLeft size={15} className="text-neutral-300" />
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+          </>
+        )}
 
         <Card>
           {loading ? (

@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 
@@ -13,4 +15,10 @@ urlpatterns = [
     path("api/", include("warehouses.urls")),
     path("api/", include("partners.urls")),
     path("api/", include("sale_sessions.urls")),
+    path("api/", include("customers.urls")),
+    path("api/", include("accounting.urls")),
+    path("api/", include("messaging.urls")),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

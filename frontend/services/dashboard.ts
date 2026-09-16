@@ -1,5 +1,5 @@
 import { apiRequest, buildQuery } from './api';
-import { DashboardAlertsResult, DashboardSummary } from '@/types';
+import { DashboardActivityItem, DashboardAlertsResult, DashboardSummary } from '@/types';
 
 export async function getDashboardSummary(
   params?: Record<string, string | number | undefined | null>
@@ -10,4 +10,8 @@ export async function getDashboardSummary(
 
 export async function getDashboardAlerts(): Promise<DashboardAlertsResult> {
   return apiRequest<DashboardAlertsResult>('/dashboard/alerts/');
+}
+
+export async function getDashboardActivity(): Promise<{ activities: DashboardActivityItem[] }> {
+  return apiRequest<{ activities: DashboardActivityItem[] }>('/dashboard/activity/');
 }

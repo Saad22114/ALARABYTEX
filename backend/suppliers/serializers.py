@@ -4,7 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 from branches.models import Branch
 from warehouses.models import Warehouse
-from warehouses.services import create_receipt_from_purchase
+from warehouses.services import create_purchase_receipts
 
 from .models import Fabric, LedgerEntry, PurchaseItem, Supplier
 
@@ -130,14 +130,18 @@ class FabricSerializer(serializers.ModelSerializer):
 class PurchaseItemSerializer(serializers.ModelSerializer):
     fabric_name = serializers.CharField(source="fabric.name", read_only=True)
     fabric_unit = serializers.CharField(source="fabric.unit", read_only=True)
+    warehouse_name = serializers.CharField(source="warehouse.name", read_only=True, default="")
+    branch_name = serializers.CharField(source="branch.name", read_only=True, default="")
 
     class Meta:
         model = PurchaseItem
         fields = [
             "id", "fabric", "fabric_name", "fabric_unit",
             "quantity_yards", "rolls", "unit_price", "total",
+            "warehouse", "warehouse_name", "branch", "branch_name",
+            "destination_type", "destination_name",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "destination_type", "destination_name"]
 
 
 class LedgerEntrySerializer(serializers.ModelSerializer):
@@ -149,6 +153,8 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
     items = PurchaseItemSerializer(many=True, read_only=True)
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True, default="")
     branch_name = serializers.CharField(source="branch.name", read_only=True, default="")
+    destination_name = serializers.SerializerMethodField()
+    destination_type = serializers.SerializerMethodField()
     goods_receipt_number = serializers.SerializerMethodField()
     goods_receipt_status = serializers.SerializerMethodField()
 
@@ -180,13 +186,47 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
     def get_running_balance(self, obj):
         return getattr(obj, "running_balance", None)
 
+    def _item_destinations(self, obj):
+        return obj.items.select_related("warehouse", "branch").all()
+
+    def get_destination_name(self, obj):
+        if obj.warehouse_id:
+            return obj.warehouse.name
+        if obj.branch_id:
+            return obj.branch.name
+        seen = set()
+        names = []
+        for it in self._item_destinations(obj):
+            name = it.destination_name
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+        return "، ".join(names)
+
+    def get_destination_type(self, obj):
+        if obj.warehouse_id:
+            return "warehouse"
+        if obj.branch_id:
+            return "branch"
+        types = set()
+        for it in self._item_destinations(obj):
+            if it.destination_type:
+                types.add(it.destination_type)
+        if len(types) == 1:
+            return types.pop()
+        return "mixed" if types else ""
+
     def get_goods_receipt_number(self, obj):
-        gr = obj.goods_receipts.first()
-        return gr.number if gr else ""
+        numbers = [gr.number for gr in obj.goods_receipts.all()]
+        return "، ".join(numbers)
 
     def get_goods_receipt_status(self, obj):
-        gr = obj.goods_receipts.first()
-        return gr.status if gr else ""
+        grs = list(obj.goods_receipts.all())
+        if not grs:
+            return ""
+        if all(gr.status == "posted" for gr in grs):
+            return "posted"
+        return grs[0].status
 
 
 class PurchaseItemInputSerializer(serializers.Serializer):
@@ -199,6 +239,10 @@ class PurchaseItemInputSerializer(serializers.Serializer):
     )
     unit_price = serializers.DecimalField(max_digits=12, decimal_places=3, required=False)
     total = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    warehouse = serializers.PrimaryKeyRelatedField(
+        queryset=Warehouse.objects.filter(is_active=True), required=False, allow_null=True
+    )
+    branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False, allow_null=True)
 
 
 class LedgerEntryCreateSerializer(serializers.Serializer):
@@ -246,6 +290,11 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
         immediate_payment = None
 
         if entry_type == LedgerEntry.EntryType.PURCHASE:
+            for item in items:
+                if item.get("warehouse") is not None and item.get("branch") is not None:
+                    raise serializers.ValidationError(
+                        "حدد وجهة واحدة لكل بند: مخزن أو فرع — ولا يمكن تحديدهما معاً"
+                    )
             if total_override is not None:
                 total = total_override
             elif items:
@@ -316,6 +365,11 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
                 total = item.get("total")
                 if total is None:
                     total = quantity_yards * unit_price
+                item_warehouse = item.get("warehouse")
+                item_branch = item.get("branch")
+                if entry_type != LedgerEntry.EntryType.PURCHASE:
+                    item_warehouse = None
+                    item_branch = None
                 PurchaseItem.objects.create(
                     entry=entry,
                     fabric=fabric,
@@ -323,6 +377,8 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
                     rolls=rolls,
                     unit_price=unit_price,
                     total=total,
+                    warehouse=item_warehouse,
+                    branch=item_branch,
                 )
                 if unit_price > 0 and fabric.purchase_price != unit_price:
                     fabric.purchase_price = unit_price
@@ -341,13 +397,11 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
                     receiver_name=validated_data.get("receiver_name", ""),
                 )
 
-            # توريد البضاعة المشتراة تلقائياً إلى الوجهة (مخزن أو فرع) وإنشاء اللفات
-            if warehouse or branch:
+            # توريد البضاعة المشتراة تلقائياً إلى وجهة كل بند (مخزن أو فرع) وإنشاء اللفات
+            if entry_type == LedgerEntry.EntryType.PURCHASE:
                 try:
-                    create_receipt_from_purchase(
-                        entry, warehouse=warehouse, branch=branch, date=entry.date
-                    )
+                    create_purchase_receipts(entry, date=entry.date)
                 except Exception as exc:
-                    raise serializers.ValidationError(f"تعذر توريد البضاعة للمخزن: {exc}")
+                    raise serializers.ValidationError(f"تعذر توريد البضاعة: {exc}")
 
             return entry

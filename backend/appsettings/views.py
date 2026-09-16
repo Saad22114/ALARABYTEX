@@ -16,6 +16,22 @@ from .models import AppSettings
 from .serializers import AppSettingsSerializer
 
 
+class LogoUploadView(APIView):
+    """الشعار ثابت: لا يمكن استبداله أو حذفه."""
+
+    def post(self, request):
+        return Response(
+            {"detail": "شعار الموقع ثابت ولا يمكن استبداله"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    def delete(self, request):
+        return Response(
+            {"detail": "شعار الموقع ثابت ولا يمكن حذفه"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
 class AppSettingsView(APIView):
     """GET returns the singleton settings; PATCH partially updates them."""
 

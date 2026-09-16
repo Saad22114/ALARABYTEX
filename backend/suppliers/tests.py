@@ -419,6 +419,95 @@ class SupplierLedgerAPITest(TestCase):
         self.assertEqual(GoodsReceipt.objects.count(), 0)
         self.assertEqual(FabricRoll.objects.count(), 0)
 
+    def test_purchase_item_warehouse_destination(self):
+        wh = Warehouse.objects.create(name="مخزن المواد", code="WH-M")
+        r = self._ledger({
+            "entry_type": "purchase",
+            "date": self.today,
+            "items": [
+                {
+                    "fabric": self.f1.id, "quantity_yards": 10, "rolls": 1,
+                    "unit_price": 3, "warehouse": wh.id,
+                }
+            ],
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        item = r.data["items"][0]
+        self.assertEqual(item["warehouse_name"], "مخزن المواد")
+        self.assertEqual(item["destination_type"], "warehouse")
+        self.assertEqual(r.data["destination_name"], "مخزن المواد")
+        gr = GoodsReceipt.objects.get()
+        self.assertEqual(gr.warehouse_id, wh.id)
+        self.assertEqual(gr.status, "posted")
+        self.assertEqual(sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=wh, fabric=self.f1)), 10)
+
+    def test_purchase_item_branch_destination(self):
+        br = Branch.objects.create(name="فرع السيب", code="BX-S")
+        r = self._ledger({
+            "entry_type": "purchase",
+            "date": self.today,
+            "items": [
+                {
+                    "fabric": self.f1.id, "quantity_yards": 20, "rolls": 1,
+                    "unit_price": 3, "branch": br.id,
+                }
+            ],
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        item = r.data["items"][0]
+        self.assertEqual(item["branch_name"], "فرع السيب")
+        self.assertEqual(item["destination_type"], "branch")
+        bwh = Warehouse.objects.get(branch=br)
+        self.assertEqual(sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=bwh, fabric=self.f1)), 20)
+
+    def test_purchase_items_split_across_destinations(self):
+        wh = Warehouse.objects.create(name="مخزن المواد", code="WH-M")
+        br = Branch.objects.create(name="فرع السيب", code="BX-S")
+        r = self._ledger({
+            "entry_type": "purchase",
+            "date": self.today,
+            "items": [
+                {
+                    "fabric": self.f1.id, "quantity_yards": 10, "rolls": 1,
+                    "unit_price": 3, "warehouse": wh.id,
+                },
+                {
+                    "fabric": self.f1.id, "quantity_yards": 10, "rolls": 1,
+                    "unit_price": 3, "branch": br.id,
+                },
+                {
+                    "fabric": self.f2.id, "quantity_yards": 5, "rolls": 1,
+                    "unit_price": 4,
+                },
+            ],
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(GoodsReceipt.objects.count(), 2)
+        bwh = Warehouse.objects.get(branch=br)
+        self.assertEqual(sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=wh, fabric=self.f1)), 10)
+        self.assertEqual(sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=bwh, fabric=self.f1)), 10)
+        self.assertEqual(
+            FabricRoll.objects.filter(fabric=self.f2, warehouse__isnull=False).count(), 0
+        )
+        self.assertNotEqual(r.data["destination_type"], "")
+        self.assertEqual(r.data["destination_name"], "مخزن المواد، فرع السيب")
+
+    def test_purchase_item_two_destinations_rejected(self):
+        wh = Warehouse.objects.create(name="مخزن أ", code="WH-A")
+        br = Branch.objects.create(name="فرع الاختبار", code="BX-1")
+        r = self._ledger({
+            "entry_type": "purchase",
+            "date": self.today,
+            "items": [
+                {
+                    "fabric": self.f1.id, "quantity_yards": 10, "unit_price": 3,
+                    "warehouse": wh.id, "branch": br.id,
+                }
+            ],
+        })
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(GoodsReceipt.objects.count(), 0)
+
     def test_receive_action_creates_receipt(self):
         wh = Warehouse.objects.create(name="مخزن أ", code="WH-A")
         entry = LedgerEntry.objects.create(
@@ -450,3 +539,29 @@ class SupplierLedgerAPITest(TestCase):
         r = self.c.post(f"/api/suppliers/{self.supplier.id}/ledger/{entry.id}/receive/")
         self.assertEqual(r.status_code, 400)
         self.assertEqual(GoodsReceipt.objects.count(), 0)
+
+    def test_overview_summary(self):
+        s2 = Supplier.objects.create(name="مورد آخر", is_active=False)
+        self._ledger({
+            "entry_type": "purchase", "date": self.today,
+            "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
+        })
+        self._ledger({
+            "entry_type": "payment", "date": self.today,
+            "amount": 20, "payment_method": "cash",
+        })
+        LedgerEntry.objects.create(
+            supplier=s2, date=date.today(), entry_type="opening", amount=50,
+        )
+        r = self.c.get("/api/suppliers/summary/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["total_suppliers"], 2)
+        self.assertEqual(r.data["active_count"], 1)
+        self.assertEqual(r.data["total_purchases"], 50.0)
+        self.assertEqual(r.data["total_payments"], 20.0)
+        self.assertEqual(r.data["purchases_count"], 1)
+        self.assertEqual(r.data["payments_count"], 1)
+        self.assertEqual(r.data["outstanding_debit"], 80.0)
+        self.assertEqual(r.data["owing_count"], 2)
+        self.assertEqual(len(r.data["top_suppliers"]), 2)
+        self.assertEqual(r.data["top_suppliers"][0]["name"], "مورد آخر")

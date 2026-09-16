@@ -16,10 +16,11 @@ import EmptyState from '@/components/ui/EmptyState';
 import StatCard from '@/components/ui/StatCard';
 import SalesChart from '@/components/dashboard/SalesChart';
 import DateRangeToolbar, { currentMonthRange, toISODate } from '@/components/ui/DateRangeToolbar';
+import BranchPricingPanel from '@/components/branches/BranchPricingPanel';
 import {
   ArrowRight, Pencil, Store, Power, PowerOff, LayoutDashboard, Boxes, Users,
   Receipt, CalendarDays, BarChart3, AlertTriangle, Download, Printer, TrendingUp,
-  TrendingDown, CalendarCheck, CalendarX2, Sparkles, ArrowUpDown, ArrowDownToLine, ArrowUpFromLine,
+  TrendingDown, CalendarCheck, CalendarX2, Sparkles, ArrowUpDown, ArrowDownToLine, ArrowUpFromLine, Tags,
 } from 'lucide-react';
 import { Branch, DailySale, Expense, Employee, SaleStockResult, DashboardSummary, SalesReportData, InventoryReportRow, StockBalanceResult, InventoryMovementReportRow, SalesByEmployeeResult } from '@/types';
 import { getBranch, updateBranch } from '@/services/branches';
@@ -36,11 +37,12 @@ import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 
-type Tab = 'dashboard' | 'stock' | 'employees' | 'expenses' | 'sales' | 'sales-employees' | 'movements' | 'reports';
+type Tab = 'dashboard' | 'stock' | 'employees' | 'expenses' | 'sales' | 'sales-employees' | 'movements' | 'reports' | 'pricing';
 
 const tabs: { value: Tab; label: string; icon: React.ReactNode }[] = [
   { value: 'dashboard', label: 'نظرة عامة', icon: <LayoutDashboard size={16} /> },
   { value: 'stock', label: 'المخزون', icon: <Boxes size={16} /> },
+  { value: 'pricing', label: 'أسعار الفرع', icon: <Tags size={16} /> },
   { value: 'employees', label: 'الموظفون', icon: <Users size={16} /> },
   { value: 'expenses', label: 'المصاريف', icon: <Receipt size={16} /> },
   { value: 'sales', label: 'المبيعات باليوم', icon: <CalendarDays size={16} /> },
@@ -468,6 +470,41 @@ export default function BranchDetailPage() {
                       </div>
                     </Card>
                   )}
+                  {branch.monthly_sales_target > 0 && (() => {
+                    const pct = branch.target_progress_pct ?? 0;
+                    const remaining = branch.monthly_sales_target - branch.monthly_sales;
+                    return (
+                      <Card title="الهدف الشهري للمبيعات" subtitle="الكوتة المحددة لهذا الفرع">
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <div className="flex-1 min-w-[220px]">
+                            <div className="flex items-center justify-between text-sm mb-2">
+                              <span className="text-neutral-500">التحصيل هذا الشهر</span>
+                              <span className="font-semibold tabular-nums">
+                                {formatCurrency(branch.monthly_sales)} / {formatCurrency(branch.monthly_sales_target)}
+                              </span>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-sand-100 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-emerald-500' : 'bg-brand-500'}`}
+                                style={{ width: `${Math.min(100, pct)}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-neutral-400 mt-2">
+                              {pct >= 100
+                                ? `تم تجاوز الهدف بـ ${formatCurrency(-remaining)}`
+                                : `المتبقي لتحقيق الهدف: ${formatCurrency(remaining)}`}
+                            </p>
+                          </div>
+                          <div className="text-center px-4 shrink-0">
+                            <p className={`text-2xl font-bold tabular-nums ${pct >= 100 ? 'text-emerald-600' : 'text-neutral-800'}`}>
+                              {pct.toFixed(1)}%
+                            </p>
+                            <p className="text-xs text-neutral-400">من الهدف</p>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })()}
                   <Card title="المبيعات والمصاريف اليومية">
                     <SalesChart data={summary.chart_data} />
                   </Card>
@@ -742,7 +779,7 @@ export default function BranchDetailPage() {
             </Card>
             {movementsTotals && (
               <div className="grid grid-cols-3 gap-4">
-                <StatCard icon={<ArrowDownToLine size={20} />} iconBg="bg-emerald-50 text-emerald-600" label="وارد" value={formatNumber(movementsTotals.in)} />
+                <StatCard icon={<ArrowDownToLine size={20} />} iconBg="bg-emerald-50 text-emerald-600" label="ياردةد" value={formatNumber(movementsTotals.in)} />
                 <StatCard icon={<ArrowUpFromLine size={20} />} iconBg="bg-red-50 text-red-600" label="صادر" value={formatNumber(movementsTotals.out)} />
                 <StatCard icon={<ArrowUpDown size={20} />} label="عدد الحركات" value={movementsTotals.count} />
               </div>
@@ -786,6 +823,10 @@ export default function BranchDetailPage() {
               )}
             </Card>
           </div>
+        )}
+
+        {tab === 'pricing' && (
+          <BranchPricingPanel branchId={id} />
         )}
 
         {tab === 'reports' && (

@@ -35,6 +35,9 @@ INSTALLED_APPS = [
     "warehouses",
     "partners",
     "sale_sessions",
+    "customers",
+    "accounting",
+    "messaging",
 ]
 
 MIDDLEWARE = [
@@ -89,6 +92,9 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS
@@ -99,6 +105,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://localhost:9005",
     "http://127.0.0.1:9005",
+    "http://localhost:9012",
+    "http://127.0.0.1:9012",
 ]
 _frontend = os.getenv("FRONTEND_URL")
 if _frontend:

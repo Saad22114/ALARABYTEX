@@ -1,12 +1,32 @@
-import { apiRequest } from './api';
+import { apiRequest, API_URL } from './api';
 import { AppSettings } from '@/types';
 
-export async function getSettings(): Promise<AppSettings> {
+export function getSettings(): Promise<AppSettings> {
   return apiRequest<AppSettings>('/settings/');
 }
 
 export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   return apiRequest<AppSettings>('/settings/', { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+function mediaBase(): string {
+  return API_URL.replace(/\/?api\/?$/, '');
+}
+
+export function logoUrl(path?: string | null): string {
+  if (!path) return '';
+  if (/^https?:\/\//.test(path)) return path;
+  return `${mediaBase()}/${path.replace(/^\/+/, '')}`;
+}
+
+export async function uploadLogo(file: File): Promise<AppSettings> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiRequest<AppSettings>('/settings/logo/', { method: 'POST', body: form });
+}
+
+export async function removeLogo(): Promise<AppSettings> {
+  return apiRequest<AppSettings>('/settings/logo/', { method: 'DELETE' });
 }
 
 export function backupUrl(): string {

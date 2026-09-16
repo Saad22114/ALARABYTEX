@@ -19,7 +19,7 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 const TYPE_META: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'neutral' }> = {
   receipt: { label: 'استلام من مورد', variant: 'success' },
   transfer_out: { label: 'تحويل صادر', variant: 'warning' },
-  transfer_in: { label: 'تحويل وارد', variant: 'success' },
+  transfer_in: { label: 'تحويل ياردةد', variant: 'success' },
   adjustment_in: { label: 'تسوية إضافة', variant: 'success' },
   adjustment_out: { label: 'تسوية خصم', variant: 'danger' },
   count: { label: 'فارق جرد', variant: 'warning' },

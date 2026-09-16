@@ -200,6 +200,38 @@ class PurchaseItem(TimeStampedModel):
     )
     unit_price = models.DecimalField(max_digits=12, decimal_places=3, verbose_name="سعر الياردة")
     total = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="الإجمالي")
+    warehouse = models.ForeignKey(
+        "warehouses.Warehouse",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_items",
+        verbose_name="مخزن توريد البند",
+    )
+    branch = models.ForeignKey(
+        "branches.Branch",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_items",
+        verbose_name="فرع توريد البند",
+    )
+
+    @property
+    def destination_type(self):
+        if self.branch_id:
+            return "branch"
+        if self.warehouse_id:
+            return "warehouse"
+        return ""
+
+    @property
+    def destination_name(self):
+        if self.branch_id:
+            return self.branch.name
+        if self.warehouse_id:
+            return self.warehouse.name
+        return ""
 
     class Meta:
         verbose_name = "صنف شراء"

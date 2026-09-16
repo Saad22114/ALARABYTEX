@@ -38,7 +38,7 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 const MOVEMENT_LABEL: Record<string, string> = {
   receipt: 'استلام',
   transfer_out: 'تحويل صادر',
-  transfer_in: 'تحويل وارد',
+  transfer_in: 'تحويل ياردةد',
   adjustment_in: 'تسوية إضافة',
   adjustment_out: 'تسوية خصم',
   count: 'فارق جرد',

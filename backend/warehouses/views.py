@@ -401,12 +401,14 @@ class StockBalanceView(APIView):
             .annotate(total_yards=Sum("remaining_yards"), rolls_available=Count("id"))
             .order_by("fabric_id")
         )
-        last_dates = dict(
-            StockMovement.objects.filter(movement_type=StockMovement.Type.RECEIPT)
-            .values("warehouse_id", "fabric_id")
-            .annotate(last_date=Max("date"))
-            .values_list("warehouse_id", "fabric_id", "last_date")
-        )
+        last_dates = {
+            (row["warehouse_id"], row["fabric_id"]): row["last_date"]
+            for row in (
+                StockMovement.objects.filter(movement_type=StockMovement.Type.RECEIPT)
+                .values("warehouse_id", "fabric_id")
+                .annotate(last_date=Max("date"))
+            )
+        }
 
         by_fabric = {}
         for r in agg:

@@ -1,12 +1,17 @@
 from datetime import date
+import struct
+import tempfile
 
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
 from sales.models import DailySale
 from suppliers.models import Supplier
+
+from .models import AppSettings
 
 
 class SettingsAPITest(TestCase):
@@ -20,6 +25,20 @@ class SettingsAPITest(TestCase):
         self.assertEqual(r.data["currency_symbol"], "ر.ع")
         self.assertEqual(r.data["currency_code"], "OMR")
         self.assertEqual(r.data["decimal_places"], 2)
+        self.assertEqual(r.data["trade_name"], "")
+        self.assertEqual(r.data["commercial_registration"], "")
+        self.assertEqual(r.data["invoice_notes"], "")
+
+    def test_patch_invoice_registration_fields(self):
+        r = self.c.patch("/api/settings/", {
+            "trade_name": "مؤسسة الأقمشة العربية",
+            "commercial_registration": "100987654",
+            "invoice_notes": "تُسلم البضاعة حسب المواصفات المتفق عليها",
+        }, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["trade_name"], "مؤسسة الأقمشة العربية")
+        self.assertEqual(r.data["commercial_registration"], "100987654")
+        self.assertEqual(r.data["invoice_notes"], "تُسلم البضاعة حسب المواصفات المتفق عليها")
 
     def test_patch_updates_business_name_and_decimal_places(self):
         r = self.c.patch("/api/settings/", {
@@ -37,6 +56,73 @@ class SettingsAPITest(TestCase):
     def test_patch_invalid_decimal_places_returns_400(self):
         r = self.c.patch("/api/settings/", {"decimal_places": 99}, format="json")
         self.assertEqual(r.status_code, 400)
+
+    def test_get_settings_returns_professional_defaults(self):
+        r = self.c.get("/api/settings/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["default_theme"], "green")
+        self.assertEqual(r.data["date_format"], "YYYY-MM-DD")
+        self.assertEqual(r.data["low_stock_threshold"], "50.00")
+        self.assertEqual(r.data.get("business_email"), "")
+        self.assertEqual(r.data.get("receipt_footer"), "")
+
+    def test_patch_new_professional_fields(self):
+        r = self.c.patch("/api/settings/", {
+            "business_email": "info@example.com",
+            "low_stock_threshold": 100,
+            "date_format": "DD/MM/YYYY",
+            "default_theme": "amber",
+            "receipt_footer": "شكراً لتعاملكم معنا",
+        }, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["business_email"], "info@example.com")
+        self.assertEqual(r.data["low_stock_threshold"], "100.00")
+        self.assertEqual(r.data["date_format"], "DD/MM/YYYY")
+        self.assertEqual(r.data["default_theme"], "amber")
+        self.assertEqual(r.data["receipt_footer"], "شكراً لتعاملكم معنا")
+
+    def test_patch_invalid_email_returns_400(self):
+        r = self.c.patch("/api/settings/", {"business_email": "not-an-email"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_patch_control_fields(self):
+        r = self.c.patch("/api/settings/", {
+            "invoice_prefix": "INV-",
+            "tax_rate": 5,
+            "currency_position": "before",
+            "previous_day_cutoff_hour": 5,
+            "low_stock_alert_enabled": False,
+            "session_warn_hours": 3,
+            "session_danger_hours": 8,
+            "default_payment_method": "card",
+            "discount_max_percent": 50,
+            "receipt_show_tax": True,
+            "receipt_show_phone": False,
+        }, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["invoice_prefix"], "INV-")
+        self.assertEqual(r.data["tax_rate"], "5.000")
+        self.assertEqual(r.data["currency_position"], "before")
+        self.assertEqual(r.data["previous_day_cutoff_hour"], 5)
+        self.assertEqual(r.data["low_stock_alert_enabled"], False)
+        self.assertEqual(r.data["session_warn_hours"], 3)
+        self.assertEqual(r.data["session_danger_hours"], 8)
+        self.assertEqual(r.data["default_payment_method"], "card")
+        self.assertEqual(r.data["discount_max_percent"], "50.00")
+        self.assertEqual(r.data["receipt_show_tax"], True)
+        self.assertEqual(r.data["receipt_show_phone"], False)
+
+    def test_patch_invalid_control_fields_returns_400(self):
+        for patch in (
+            {"tax_rate": 150},
+            {"currency_position": "inside"},
+            {"previous_day_cutoff_hour": 30},
+            {"discount_max_percent": 101},
+            {"default_payment_method": "gold"},
+            {"session_warn_hours": 0},
+        ):
+            r = self.c.patch("/api/settings/", patch, format="json")
+            self.assertEqual(r.status_code, 400, patch)
 
 
 class BackupRestoreTest(TestCase):
@@ -148,3 +234,47 @@ class BackupRestoreTest(TestCase):
         self.assertEqual(Branch.objects.count(), 0)
         self.assertEqual(Supplier.objects.count(), 0)
         self.assertEqual(ExpenseCategory.objects.count(), 0)
+
+
+def _png_bytes(width=64, height=64):
+    def _chunk(tag, payload):
+        return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", 0)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", b"") + _chunk(b"IEND", b"")
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class LogoUploadAPITest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+
+    def _png(self):
+        return SimpleUploadedFile("site.png", _png_bytes(), content_type="image/png")
+
+    def test_upload_is_rejected_logo_is_fixed(self):
+        r = self.c.post("/api/settings/logo/", {"file": self._png()}, format="multipart")
+        self.assertEqual(r.status_code, 403, r.data)
+        self.assertIn("ثابت", r.data["detail"])
+
+    def test_upload_requires_file_field_unchanged(self):
+        r = self.c.post("/api/settings/logo/", {}, format="multipart")
+        self.assertEqual(r.status_code, 403)
+
+    def test_delete_is_rejected_logo_is_fixed(self):
+        r = self.c.delete("/api/settings/logo/")
+        self.assertEqual(r.status_code, 403, r.data)
+        self.assertIn("ثابت", r.data["detail"])
+
+    def test_logo_kept_when_upload_rejected(self):
+        s = AppSettings.load()
+        s.logo = "media/logos/logo_keep.png"
+        s.save(update_fields=["logo"])
+        self.c.post("/api/settings/logo/", {"file": self._png()}, format="multipart")
+        s.refresh_from_db()
+        self.assertEqual(s.logo, "media/logos/logo_keep.png")
+
+    def test_logo_field_in_settings_payload(self):
+        r = self.c.get("/api/settings/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("logo", r.data)

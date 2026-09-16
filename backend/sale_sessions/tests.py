@@ -1,11 +1,12 @@
 from datetime import date, time, timedelta
 from decimal import Decimal
 
+from django.db.models import Sum
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from branches.models import Branch
+from branches.models import Branch, FabricBranchPrice
 from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric
 from warehouses.models import FabricRoll, StockMovement, Warehouse
@@ -29,6 +30,18 @@ class EffectiveDateTest(TestCase):
         d = date(2026, 9, 12)
         now = timezone.make_aware(timezone.datetime.combine(d, time(14, 0)))
         self.assertEqual(effective_sale_date(now), d)
+
+    def test_configurable_cutoff_hour(self):
+        from appsettings.models import AppSettings
+
+        settings = AppSettings.load()
+        settings.previous_day_cutoff_hour = 5
+        settings.save(update_fields=["previous_day_cutoff_hour"])
+        d = date(2026, 9, 12)
+        early = timezone.make_aware(timezone.datetime.combine(d, time(4, 30)))
+        late = timezone.make_aware(timezone.datetime.combine(d, time(6, 0)))
+        self.assertEqual(effective_sale_date(early), d - timedelta(days=1))
+        self.assertEqual(effective_sale_date(late), d)
 
 
 class EmployeeAPITest(TestCase):
@@ -55,6 +68,66 @@ class EmployeeAPITest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data["count"], 1)
         self.assertEqual(r.data["results"][0]["name"], "علي")
+
+    def test_create_employee_defaults_to_admin_role_with_permissions(self):
+        r = self.c.post("/api/employees/", {"name": "زينب", "branch": self.branch.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["role"], "admin")
+        self.assertTrue(r.data["permissions"]["sales"]["create"])
+        self.assertTrue(r.data["permissions"]["sales"]["delete"])
+
+    def test_create_employee_with_sales_role_gets_preset(self):
+        r = self.c.post("/api/employees/", {"name": "سارة", "branch": self.branch.id, "role": "sales"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["role"], "sales")
+        self.assertTrue(r.data["permissions"]["sales"]["view"])
+        self.assertFalse(r.data["permissions"]["settings"]["view"])
+        self.assertIn("employees", r.data["hidden_sections"])
+
+    def test_update_employee_role_reapplies_preset(self):
+        r = self.c.post("/api/employees/", {"name": "خالد", "branch": self.branch.id, "role": "sales"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        emp = r.data
+        r = self.c.patch(f"/api/employees/{emp['id']}/", {"role": "viewer"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["role"], "viewer")
+        self.assertTrue(r.data["permissions"]["sales"]["view"])
+        self.assertFalse(r.data["permissions"]["sales"]["edit"])
+
+    def test_custom_role_permissions_saved(self):
+        perms = {"sales": {"view": True, "create": False, "edit": False, "delete": False}}
+        r = self.c.post("/api/employees/", {
+            "name": "نور", "branch": self.branch.id, "role": "custom",
+            "permissions": perms, "hidden_sections": ["reports"],
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["role"], "custom")
+        self.assertTrue(r.data["permissions"]["sales"]["view"])
+        self.assertFalse(r.data["permissions"]["sales"]["edit"])
+        self.assertIn("reports", r.data["hidden_sections"])
+
+
+class SectionsAPITest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+
+    def test_sections_endpoint_returns_sections_and_roles(self):
+        r = self.c.get("/api/sections/")
+        self.assertEqual(r.status_code, 200)
+        keys = {s["key"] for s in r.data["sections"]}
+        for expect in ("sales", "warehouses", "employees", "settings", "dashboard"):
+            self.assertIn(expect, keys)
+        self.assertIn("admin", r.data["roles"])
+        self.assertIn("custom", r.data["roles"])
+
+    def test_role_presets_have_permission_fields_matching_actions(self):
+        r = self.c.get("/api/sections/")
+        actions = self.c.get("/api/sections/").data["sections"][0]["actions"]
+        for role_key, role in r.data["roles"].items():
+            for section in r.data["sections"]:
+                if section["key"] in role["permissions"]:
+                    for action in actions:
+                        self.assertIn(action, role["permissions"][section["key"]])
 
 
 class SaleSessionAPITest(TestCase):
@@ -95,6 +168,23 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(r.status_code, 201, r.data)
         self.assertEqual(Decimal(str(r.data["unit_price"])), Decimal("5"))
         self.assertEqual(Decimal(str(r.data["total"])), Decimal("50"))
+
+    def test_add_yard_item_uses_branch_price_when_set(self):
+        FabricBranchPrice.objects.create(
+            branch=self.branch, fabric=self.fabric, sale_price_yard=8, min_sale_yard=0,
+        )
+        sid = self._open_session()["id"]
+        r = self._add_item(sid, quantity=10)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(Decimal(str(r.data["unit_price"])), Decimal("8"))
+
+    def test_branch_min_price_enforced(self):
+        FabricBranchPrice.objects.create(
+            branch=self.branch, fabric=self.fabric, sale_price_yard=8, min_sale_yard=7,
+        )
+        sid = self._open_session()["id"]
+        r = self._add_item(sid, quantity=10, unit_price=6)
+        self.assertEqual(r.status_code, 400)
 
     def test_add_item_custom_price(self):
         sid = self._open_session()["id"]
@@ -199,6 +289,66 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(r.status_code, 200)
         r2 = self._add_item(sid, quantity=3)
         self.assertEqual(r2.status_code, 400)
+
+    def _bulk_items(self, sid, items):
+        return self.c.post(
+            f"/api/sale-sessions/{sid}/items/bulk/",
+            {"items": items},
+            format="json",
+        )
+
+    def test_bulk_add_items(self):
+        sid = self._open_session()["id"]
+        r = self._bulk_items(
+            sid,
+            [
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10, "payment_method": "cash"},
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card"},
+                {"fabric": self.fabric.id, "sale_type": "roll", "quantity": 1, "payment_method": "transfer"},
+            ],
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(len(r.data), 3)
+        session = SaleSession.objects.get(pk=sid)
+        self.assertEqual(session.items.count(), 3)
+        self.assertEqual(
+            Decimal(str(session.items.aggregate(total=Sum("total"))["total"])),
+            Decimal("325"),  # 10*5 + 5*5 + 1*250
+        )
+
+    def test_bulk_add_requires_items_list(self):
+        sid = self._open_session()["id"]
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/bulk/", {}, format="json")
+        self.assertEqual(r.status_code, 400)
+        r2 = self.c.post(f"/api/sale-sessions/{sid}/items/bulk/", {"items": []}, format="json")
+        self.assertEqual(r2.status_code, 400)
+
+    def test_bulk_add_all_or_nothing(self):
+        f2 = Fabric.objects.create(name="كمية قليلة", code="C9", sale_price_yard=5)
+        FabricRoll.objects.create(
+            warehouse=self.wh, fabric=f2, yards=10, remaining_yards=10
+        )
+        sid = self._open_session()["id"]
+        # البند الثاني يتجاوز المخزون المتوفر → تُرفض العملية كلها ولا يُحفظ أي بند
+        r = self._bulk_items(
+            sid,
+            [
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10, "payment_method": "cash"},
+                {"fabric": f2.id, "sale_type": "yard", "quantity": 15, "payment_method": "cash"},
+            ],
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(SaleSession.objects.get(pk=sid).items.count(), 0)
+
+    def test_bulk_add_after_close_rejected(self):
+        sid = self._open_session()["id"]
+        self._add_item(sid, quantity=5)
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        r = self._bulk_items(
+            sid,
+            [{"fabric": self.fabric.id, "sale_type": "yard", "quantity": 3, "payment_method": "cash"}],
+        )
+        self.assertEqual(r.status_code, 400)
 
     def test_remove_item(self):
         sid = self._open_session()["id"]
@@ -424,3 +574,295 @@ class ClosedSessionEditDeleteTest(TestCase):
         self.assertEqual(
             StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0
         )
+
+    def test_update_open_session_notes_and_employee(self):
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        sid = r.data["id"]
+        emp2 = Employee.objects.create(name="محمود", branch=self.branch)
+        r = self.c.patch(f"/api/sale-sessions/{sid}/",
+                         {"notes": "ثبات", "employee": emp2.id}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["notes"], "ثبات")
+        self.assertEqual(r.data["employee_name"], "محمود")
+
+    def test_update_session_employee_from_other_branch_rejected(self):
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        sid = r.data["id"]
+        branch2 = Branch.objects.create(name="فرع ثاني", code="B2")
+        emp2 = Employee.objects.create(name="محمود", branch=branch2)
+        r = self.c.patch(f"/api/sale-sessions/{sid}/", {"employee": emp2.id}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_update_close_session_branch_rejected(self):
+        sid = self._closed_session()
+        branch2 = Branch.objects.create(name="فرع ثاني", code="B2")
+        r = self.c.patch(f"/api/sale-sessions/{sid}/", {"branch": branch2.id}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_delete_closed_session_restores_daily_sale_and_stock(self):
+        sid = self._closed_session()
+        sale_date = effective_sale_date()
+        r = self.c.delete(f"/api/sale-sessions/{sid}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(SaleSession.objects.filter(pk=sid).exists())
+        self.assertFalse(DailySale.objects.filter(branch=self.branch, date=sale_date).exists())
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+        self.assertEqual(
+            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0
+        )
+
+    def test_delete_open_session_no_stock_touch(self):
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        sid = r.data["id"]
+        self.c.post(f"/api/sale-sessions/{sid}/items/",
+                    {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 20,
+                     "payment_method": "cash"}, format="json")
+        r = self.c.delete(f"/api/sale-sessions/{sid}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(SaleSession.objects.filter(pk=sid).exists())
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+        self.assertEqual(
+            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0
+        )
+
+    def test_reopen_closed_session_restores_stock(self):
+        sid = self._closed_session()
+        sale_date = effective_sale_date()
+        r = self.c.post(f"/api/sale-sessions/{sid}/reopen/")
+        self.assertEqual(r.status_code, 200, r.data)
+        session = SaleSession.objects.get(pk=sid)
+        self.assertEqual(session.status, SaleSession.Status.OPEN)
+        self.assertIsNone(session.closed_at)
+        self.assertFalse(DailySale.objects.filter(branch=self.branch, date=sale_date).exists())
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+        self.assertEqual(
+            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0
+        )
+
+    def test_reopen_then_add_item_and_close(self):
+        sid = self._closed_session()
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{sid}/reopen/").status_code, 200)
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 25,
+                         "payment_method": "cash"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        r2 = self.c.post(f"/api/sale-sessions/{sid}/close/")
+        self.assertEqual(r2.status_code, 200, r2.data)
+        sale_date = effective_sale_date()
+        sale = DailySale.objects.get(branch=self.branch, date=sale_date)
+        # القديمة 20 + 10 + الجديدة 25 = 55 * 5 = 275
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("275"))
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("445"))
+
+    def test_reopen_open_session_rejected(self):
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        sid = r.data["id"]
+        r = self.c.post(f"/api/sale-sessions/{sid}/reopen/")
+        self.assertEqual(r.status_code, 400)
+
+
+class SessionItemExtrasTest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(name="علي", branch=self.branch)
+        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        self.roll = FabricRoll.objects.create(
+            warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500
+        )
+
+    def _open(self, emp=None):
+        r = self.c.post("/api/sale-sessions/", {"employee": (emp or self.emp).id}, format="json")
+        return r.data["id"]
+
+    def test_discount_applied_on_create(self):
+        sid = self._open()
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                         "unit_price": 5, "discount_amount": 7, "payment_method": "cash"},
+                        format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(Decimal(str(r.data["total"])), Decimal("43"))
+        self.assertEqual(Decimal(str(r.data["discount_amount"])), Decimal("7"))
+
+    def test_discount_less_than_total_rejected(self):
+        sid = self._open()
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 3,
+                         "unit_price": 5, "discount_amount": 20}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_close_reflects_discount(self):
+        sid = self._open()
+        self.c.post(f"/api/sale-sessions/{sid}/items/",
+                    {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                     "unit_price": 5, "discount_amount": 5, "payment_method": "cash"}, format="json")
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        sale_date = effective_sale_date()
+        sale = DailySale.objects.get(branch=self.branch, date=sale_date)
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("45"))
+        self.assertEqual(Decimal(str(sale.cash_amount)), Decimal("45"))
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("490"))
+
+    def test_edit_adds_discount(self):
+        sid = self._open()
+        item = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                           {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                            "unit_price": 5, "payment_method": "cash"}, format="json").data
+        r = self.c.patch(f"/api/sale-sessions/{sid}/items/{item['id']}/",
+                         {"discount_amount": 8}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Decimal(str(r.data["total"])), Decimal("42"))
+
+    def test_discount_beyond_max_percent_rejected(self):
+        from appsettings.models import AppSettings
+
+        settings = AppSettings.load()
+        settings.discount_max_percent = Decimal("50")
+        settings.save(update_fields=["discount_max_percent"])
+        sid = self._open()
+        base = {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                "unit_price": 5, "payment_method": "cash"}
+        # الحد 50% من 50 = 25 — خصم 26 مرفوض و 25 مقبول
+        bad = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                          {**base, "discount_amount": 26}, format="json")
+        self.assertEqual(bad.status_code, 400)
+        ok = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                         {**base, "discount_amount": 25}, format="json")
+        self.assertEqual(ok.status_code, 201, ok.data)
+        self.assertEqual(Decimal(str(ok.data["total"])), Decimal("25"))
+
+    def test_move_item_between_sessions(self):
+        sid1 = self._open()
+        sid2 = self._open(Employee.objects.create(name="محمود", branch=self.branch))
+        item = self.c.post(f"/api/sale-sessions/{sid1}/items/",
+                           {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 6,
+                            "unit_price": 6, "payment_method": "card"}, format="json").data
+        r = self.c.post(f"/api/sale-sessions/{sid1}/move-item/{item['id']}/",
+                        {"target_session": sid2}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Decimal(str(r.data["total"])), Decimal("36"))
+        self.assertEqual(Decimal(str(r.data["discount_amount"])), Decimal("0"))
+        self.assertEqual(SaleSessionItem.objects.get(pk=item["id"]).session_id, sid2)
+        self.assertEqual(SaleSessionItem.objects.filter(session_id=sid1).count(), 0)
+        self.assertEqual(SaleSessionItem.objects.filter(session_id=sid2).count(), 1)
+
+    def test_move_item_target_closed_rejected(self):
+        sid1 = self._open()
+        item = self.c.post(f"/api/sale-sessions/{sid1}/items/",
+                           {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 6,
+                            "unit_price": 6}, format="json").data
+        emp2 = Employee.objects.create(name="محمود", branch=self.branch)
+        sid2 = self._open(emp2)
+        self.c.post(f"/api/sale-sessions/{sid2}/close/")
+        r = self.c.post(f"/api/sale-sessions/{sid1}/move-item/{item['id']}/",
+                        {"target_session": sid2}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_move_item_insufficient_stock_at_target_rejected(self):
+        branch2 = Branch.objects.create(name="فرع ثاني", code="B2")
+        Warehouse.objects.create(name="فرع: B2", code="BR-B2", branch=branch2)
+        emp2 = Employee.objects.create(name="سعيد", branch=branch2)
+        sid1 = self._open()
+        sid2 = self._open(emp2)
+        item = self.c.post(f"/api/sale-sessions/{sid1}/items/",
+                           {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 100,
+                            "unit_price": 6}, format="json").data
+        r = self.c.post(f"/api/sale-sessions/{sid1}/move-item/{item['id']}/",
+                        {"target_session": sid2}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_clear_session_items(self):
+        sid = self._open()
+        self.c.post(f"/api/sale-sessions/{sid}/items/",
+                    {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 2}, format="json")
+        self.c.post(f"/api/sale-sessions/{sid}/items/",
+                    {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 3}, format="json")
+        r = self.c.post(f"/api/sale-sessions/{sid}/clear/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(SaleSessionItem.objects.filter(session_id=sid).count(), 0)
+
+    def test_reopen_preserves_discount(self):
+        sid = self._open()
+        self.c.post(f"/api/sale-sessions/{sid}/items/",
+                    {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                     "unit_price": 5, "discount_amount": 5, "payment_method": "cash"}, format="json")
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{sid}/reopen/").status_code, 200)
+        item = SaleSessionItem.objects.get(session_id=sid)
+        self.assertEqual(Decimal(str(item.total)), Decimal("45"))
+        self.assertEqual(Decimal(str(item.discount_amount)), Decimal("5"))
+
+
+class CommissionAPITest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(
+            name="محمد", branch=self.branch,
+            commission_active=True, commission_percent=5,
+        )
+        self.fabric = Fabric.objects.create(name="قطن", code="CM1", sale_price_yard=10, yards_per_roll=50)
+        self.roll = FabricRoll.objects.create(
+            warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500
+        )
+
+    def _open(self):
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        return r.data["id"]
+
+    def _add(self, sid, qty=20):
+        return self.c.post(f"/api/sale-sessions/{sid}/items/",
+                           {"fabric": self.fabric.id, "sale_type": "yard", "quantity": qty,
+                            "payment_method": "cash"}, format="json")
+
+    def test_employee_serializer_includes_commission(self):
+        r = self.c.get(f"/api/employees/{self.emp.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(Decimal(str(r.data["commission_percent"])), Decimal("5"))
+        self.assertTrue(r.data["commission_active"])
+
+    def test_close_session_computes_commission(self):
+        sid = self._open()
+        self._add(sid, qty=20)  # 20 × 10 = 200 ثم عمولة 5% = 10
+        r = self.c.post(f"/api/sale-sessions/{sid}/close/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Decimal(str(r.data["commission_amount"])), Decimal("10.00"))
+
+    def test_no_commission_when_inactive(self):
+        emp2 = Employee.objects.create(name="سالم", branch=self.branch, commission_active=False)
+        r = self.c.post("/api/sale-sessions/", {"employee": emp2.id}, format="json")
+        sid = r.data["id"]
+        self._add(sid, qty=20)
+        r = self.c.post(f"/api/sale-sessions/{sid}/close/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Decimal(str(r.data["commission_amount"])), Decimal("0"))
+
+    def test_commission_recomputed_on_closed_edit(self):
+        sid = self._open()
+        self._add(sid, qty=20)
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        item = SaleSessionItem.objects.get(session_id=sid)
+        r = self.c.put(f"/api/sale-sessions/{sid}/items/{item.id}/",
+                       {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 40,
+                        "unit_price": 10, "payment_method": "cash"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        session = self.c.get(f"/api/sale-sessions/{sid}/").data
+        self.assertEqual(Decimal(str(session["commission_amount"])), Decimal("20.00"))
+
+    def test_reopen_resets_commission(self):
+        sid = self._open()
+        self._add(sid, qty=20)
+        r = self.c.post(f"/api/sale-sessions/{sid}/close/")
+        self.assertEqual(Decimal(str(r.data["commission_amount"])), Decimal("10.00"))
+        self.c.post(f"/api/sale-sessions/{sid}/reopen/")
+        session = self.c.get(f"/api/sale-sessions/{sid}/").data
+        self.assertEqual(Decimal(str(session["commission_amount"])), Decimal("0"))

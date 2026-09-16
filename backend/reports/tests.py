@@ -2,10 +2,12 @@ from datetime import date, timedelta
 
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from branches.models import Branch
-from expenses.models import Expense, ExpenseCategory
+from expenses.models import Expense, ExpenseBudget, ExpenseCategory
+from sale_sessions.models import Employee, SaleSession
 from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric, Supplier
 from warehouses.models import GoodsReceipt, GoodsReceiptItem, Warehouse
@@ -53,6 +55,77 @@ class ReportsAPITest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("expenses", r.data)
         self.assertEqual(r.data["count"], 1)
+
+    def test_expenses_budget_report(self):
+        month = self.today.replace(day=1)
+        ExpenseBudget.objects.create(
+            branch=self.branch, category=self.cat, month=month, amount=1000,
+        )
+        r = self.c.get("/api/reports/expenses-budget/", {
+            "month": month.strftime("%Y-%m"),
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data["items"]), 1)
+        item = r.data["items"][0]
+        self.assertEqual(item["budget"], 1000)
+        self.assertEqual(item["spent"], 300)
+        self.assertEqual(item["remaining"], 700)
+        self.assertEqual(item["used_pct"], 30.0)
+        self.assertEqual(r.data["totals"]["budget"], 1000)
+        self.assertEqual(r.data["totals"]["spent"], 300)
+
+    def test_expenses_budget_report_spent_without_budget(self):
+        month = self.today.replace(day=1)
+        r = self.c.get("/api/reports/expenses-budget/", {
+            "month": month.strftime("%Y-%m"),
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data["items"]), 1)
+        self.assertEqual(r.data["items"][0]["budget"], 0)
+        self.assertEqual(r.data["items"][0]["spent"], 300)
+
+    def test_expenses_budget_report_xlsx(self):
+        month = self.today.replace(day=1)
+        ExpenseBudget.objects.create(
+            branch=self.branch, category=self.cat, month=month, amount=1000,
+        )
+        r = self.c.get("/api/reports/expenses-budget/", {
+            "month": month.strftime("%Y-%m"),
+            "export": "xlsx",
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheet", r["Content-Type"])
+
+    def test_commissions_report(self):
+        emp = Employee.objects.create(
+            name="موظف", branch=self.branch, commission_active=True, commission_percent=5,
+        )
+        SaleSession.objects.create(
+            employee=emp, branch=self.branch,
+            status=SaleSession.Status.CLOSED,
+            closed_at=timezone.now(),
+            commission_amount=120,
+        )
+        r = self.c.get("/api/reports/commissions/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data["items"]), 1)
+        self.assertEqual(r.data["items"][0]["employee_name"], "موظف")
+        self.assertEqual(r.data["items"][0]["total_commission"], 120)
+        self.assertEqual(r.data["totals"]["commission"], 120)
+
+    def test_commissions_report_xlsx(self):
+        emp = Employee.objects.create(
+            name="موظف", branch=self.branch, commission_active=True, commission_percent=5,
+        )
+        SaleSession.objects.create(
+            employee=emp, branch=self.branch,
+            status=SaleSession.Status.CLOSED,
+            closed_at=timezone.now(),
+            commission_amount=120,
+        )
+        r = self.c.get("/api/reports/commissions/", {"export": "xlsx"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheet", r["Content-Type"])
 
     def test_net_daily_report(self):
         r = self.c.get("/api/reports/net-daily/", {

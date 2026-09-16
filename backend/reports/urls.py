@@ -2,6 +2,8 @@ from django.urls import path
 from .views import (
     BranchReportView,
     CogsReportView,
+    CommissionsReportView,
+    ExpensesBudgetReportView,
     ExpensesReportView,
     InventoryMovementsReportView,
     InventoryReportView,
@@ -15,6 +17,7 @@ from .views import (
 urlpatterns = [
     path("sales/", SalesReportView.as_view(), name="report-sales"),
     path("expenses/", ExpensesReportView.as_view(), name="report-expenses"),
+    path("expenses-budget/", ExpensesBudgetReportView.as_view(), name="report-expenses-budget"),
     path("net-daily/", NetDailyReportView.as_view(), name="report-net-daily"),
     path("suppliers/", SupplierReportView.as_view(), name="report-suppliers"),
     path("branches/", BranchReportView.as_view(), name="report-branches"),
@@ -22,5 +25,6 @@ urlpatterns = [
     path("inventory-movements/", InventoryMovementsReportView.as_view(), name="report-inventory-movements"),
     path("cogs/", CogsReportView.as_view(), name="report-cogs"),
     path("profit-loss/", ProfitLossReportView.as_view(), name="report-profit-loss"),
+    path("commissions/", CommissionsReportView.as_view(), name="report-commissions"),
     path("journal/", JournalReportView.as_view(), name="report-journal"),
 ]

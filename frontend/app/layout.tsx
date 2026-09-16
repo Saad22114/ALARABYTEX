@@ -3,6 +3,7 @@ import { Cairo } from 'next/font/google';
 import { ToastProvider } from '@/components/ui/Toast';
 import ThemeProvider from '@/components/providers/ThemeProvider';
 import SettingsProvider from '@/components/providers/SettingsProvider';
+import CurrentEmployeeProvider from '@/components/providers/CurrentEmployeeProvider';
 import './globals.css';
 
 const cairo = Cairo({
@@ -29,7 +30,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${cairo.variable} font-cairo bg-sand-50 text-neutral-800 antialiased`}>
         <ToastProvider>
           <ThemeProvider>
-            <SettingsProvider>{children}</SettingsProvider>
+            <CurrentEmployeeProvider>
+              <SettingsProvider>{children}</SettingsProvider>
+            </CurrentEmployeeProvider>
           </ThemeProvider>
         </ToastProvider>
       </body>

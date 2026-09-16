@@ -15,7 +15,7 @@ export default function Table({ children, className = '' }: TableWrapperProps) {
 
 export function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <th className={`px-4 py-3 text-right text-xs font-semibold text-neutral-500 bg-sand-100 border-b border-sand-200 ${className}`}>
+    <th className={`px-3 py-2 sm:px-4 sm:py-3 text-right text-xs font-semibold text-neutral-500 bg-sand-100 border-b border-sand-200 ${className}`}>
       {children}
     </th>
   );
@@ -23,7 +23,7 @@ export function Th({ children, className = '' }: { children: React.ReactNode; cl
 
 export function Td({ children, className = '', ...props }: { children?: React.ReactNode; className?: string } & React.TdHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <td className={`px-4 py-3 text-neutral-700 border-b border-sand-100 ${className}`} {...props}>
+    <td className={`px-3 py-2 sm:px-4 sm:py-3 text-neutral-700 border-b border-sand-100 ${className}`} {...props}>
       {children}
     </td>
   );

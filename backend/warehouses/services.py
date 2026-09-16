@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from sales.models import DailySale
+from branches.models import Branch
 from suppliers.models import Fabric
 
 from .models import (
@@ -230,35 +231,59 @@ def post_receipt(receipt: GoodsReceipt):
     return receipt
 
 
-def create_receipt_from_purchase(entry, warehouse=None, branch=None, date=None):
-    """يُنشئ ويُرحّل سند استلام تلقائياً لأصناف قيد الشراء في الوجهة المحددة."""
+def _create_receipt_for_destination(entry, wh_id, br_id, items, date=None):
+    warehouse = Warehouse.objects.filter(pk=wh_id).first() if wh_id else None
+    branch = Branch.objects.filter(pk=br_id).first() if br_id else None
+    receipt = GoodsReceipt.objects.create(
+        number=DocumentSequence.next_number("GR"),
+        warehouse=warehouse,
+        branch=branch,
+        purchase_entry=entry,
+        supplier=entry.supplier,
+        date=date or (entry.date or timezone.localdate()),
+        supplier_receipt_no=entry.receipt_no,
+        notes=f"توريد بضاعة قيد الشراء {entry.receipt_no or ''}",
+    )
+    for it in items:
+        rolls = int(it.rolls or 1)
+        if rolls < 1:
+            rolls = 1
+        GoodsReceiptItem.objects.create(
+            receipt=receipt, fabric=it.fabric, rolls_count=rolls,
+            yards=it.quantity_yards, unit_price=it.unit_price,
+            total=(it.quantity_yards * it.unit_price).quantize(Decimal("0.01")),
+        )
+    if not receipt.items.exists():
+        raise serializers.ValidationError("لا توجد أصناف شراء قابلة للتوريد")
+    post_receipt(receipt)
+    return receipt
+
+
+def create_purchase_receipts(entry, date=None):
+    """يُنشئ ويُرحّل سندات استلام حسب وجهة كل بند (مخزن/فرع اختيارياً لكل بند).
+
+    البنود بدون وجهة تُستكمل إلى وجهة القيد إن وُجدت، وإلا لا تُورَّد.
+    يُنشأ سند استلام مستقل لكل وجهة (عند توزيع البنود على أكثر من مخزن/فرع).
+    """
     items = entry.items.select_related("fabric").filter(quantity_yards__gt=0)
     if not items.exists():
         return None
+    fallback_wh = entry.warehouse_id
+    fallback_br = entry.branch_id
+    groups = {}
+    for it in items:
+        wh_id = it.warehouse_id or fallback_wh
+        br_id = it.branch_id or fallback_br
+        if wh_id is None and br_id is None:
+            continue
+        groups.setdefault((wh_id, br_id), []).append(it)
+    if not groups:
+        return None
+    receipts = []
     with transaction.atomic():
-        receipt = GoodsReceipt.objects.create(
-            number=DocumentSequence.next_number("GR"),
-            warehouse=warehouse,
-            branch=branch,
-            purchase_entry=entry,
-            supplier=entry.supplier,
-            date=date or (entry.date or timezone.localdate()),
-            supplier_receipt_no=entry.receipt_no,
-            notes=f"توريد بضاعة قيد الشراء {entry.receipt_no or ''}",
-        )
-        for it in items:
-            rolls = int(it.rolls or 1)
-            if rolls < 1:
-                rolls = 1
-            GoodsReceiptItem.objects.create(
-                receipt=receipt, fabric=it.fabric, rolls_count=rolls,
-                yards=it.quantity_yards, unit_price=it.unit_price,
-                total=(it.quantity_yards * it.unit_price).quantize(Decimal("0.01")),
-            )
-        if not receipt.items.exists():
-            raise serializers.ValidationError("لا توجد أصناف شراء قابلة للتوريد")
-        post_receipt(receipt)
-    return receipt
+        for (wh_id, br_id), group in groups.items():
+            receipts.append(_create_receipt_for_destination(entry, wh_id, br_id, group, date=date))
+    return receipts if len(receipts) > 1 else (receipts[0] if receipts else None)
 
 
 def resolve_transfer_destination(transfer):

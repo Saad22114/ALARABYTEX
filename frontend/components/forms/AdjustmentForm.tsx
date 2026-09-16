@@ -89,7 +89,7 @@ export default function AdjustmentForm({ onSubmit, onCancel, defaultType = 'adju
           value={form.amount}
           onChange={(e) => setForm({ ...form, amount: e.target.value })}
           error={errors.amount}
-          placeholder="0.00"
+          placeholder=""
         />
       </div>
       <Input

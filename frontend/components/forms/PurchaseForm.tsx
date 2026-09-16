@@ -31,9 +31,6 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
   const [fabricsLoading, setFabricsLoading] = useState(true);
   const [form, setForm] = useState({ date: todayISO(), receipt_no: '', notes: '' });
   const [items, setItems] = useState<LedgerItemRow[]>([newLedgerItemRow(1)]);
-  const [destType, setDestType] = useState<'none' | 'warehouse' | 'branch'>('none');
-  const [destWarehouse, setDestWarehouse] = useState<number | undefined>();
-  const [destBranch, setDestBranch] = useState<number | undefined>();
   const [paid, setPaid] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<SupplierPayMethod>('cash');
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -85,21 +82,10 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
           quantity_yards: r.quantity_yards ? Number(r.quantity_yards) : undefined,
           rolls: r.rolls ? Number(r.rolls) : undefined,
           unit_price: r.unit_price ? Number(r.unit_price) : undefined,
+          warehouse: r.destType === 'warehouse' ? Number(r.destId) : undefined,
+          branch: r.destType === 'branch' ? Number(r.destId) : undefined,
         })),
     };
-    if (destType === 'warehouse') {
-      if (!destWarehouse) {
-        setErrors({ destination: 'اختر وجهة التوريد' });
-        return;
-      }
-      payload.warehouse = destWarehouse;
-    } else if (destType === 'branch') {
-      if (!destBranch) {
-        setErrors({ destination: 'اختر وجهة التوريد' });
-        return;
-      }
-      payload.branch = destBranch;
-    }
     if (paid) {
       payload.payment_method = paymentMethod;
       payload.payment_amount = Number(paymentAmount) || total;
@@ -133,36 +119,6 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
         />
       </div>
 
-      <div className="border-t border-sand-100 pt-4 space-y-3">
-        <label className="block text-sm font-medium text-neutral-700">وجهة توريد البضاعة (اختياري)</label>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Select
-            value={destType}
-            onChange={(e) => setDestType(e.target.value as 'none' | 'warehouse' | 'branch')}
-            options={[
-              { value: 'none', label: 'بدون توريد (قيود فقط)' },
-              { value: 'warehouse', label: 'مخزن' },
-              { value: 'branch', label: 'فرع' },
-            ]}
-          />
-          {destType !== 'none' && (
-            <Select
-              value={destType === 'warehouse' ? (destWarehouse ?? '') : (destBranch ?? '')}
-              onChange={(e) => (destType === 'warehouse' ? setDestWarehouse(Number(e.target.value)) : setDestBranch(Number(e.target.value)))}
-              options={
-                destType === 'warehouse'
-                  ? warehouses.map((w) => ({ value: w.id, label: w.name }))
-                  : branches.map((b) => ({ value: b.id, label: b.name }))
-              }
-            />
-          )}
-        </div>
-        {errors.destination && <p className="text-xs text-red-500">{errors.destination}</p>}
-        <p className="text-xs text-neutral-500">
-          عند تحديد وجهة، تُضاف الأقمشة المشتراة تلقائياً إلى المخزن أو الفرع (يُنشأ سند استلام مرتبط).
-        </p>
-      </div>
-
       {fabricsLoading ? (
         <p className="text-sm text-neutral-400 py-3">جارٍ تحميل الأقمشة...</p>
       ) : fabrics.length === 0 ? (
@@ -179,7 +135,13 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
         </div>
       ) : (
         <div className="space-y-3">
-          <LedgerItemsFields fabrics={fabrics} items={items} onChange={setItems} />
+          <LedgerItemsFields
+            fabrics={fabrics}
+            items={items}
+            onChange={setItems}
+            destinations={{ warehouses, branches }}
+            destinationLabel="وجهة توريد البضاعة (اختياري)"
+          />
           {errors.items && <p className="text-xs text-red-500">{errors.items}</p>}
           <div className="flex items-center justify-between p-4 bg-sand-50 rounded-xl">
             <span className="text-sm font-medium text-neutral-600">إجمالي الفاتورة</span>

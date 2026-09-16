@@ -17,11 +17,14 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_URL}${path}`;
+  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
+    headers: isForm
+      ? { ...(options.headers || {}) }
+      : {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
     ...options,
   });
 
