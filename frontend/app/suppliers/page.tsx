@@ -15,13 +15,18 @@ import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import StatCard from '@/components/ui/StatCard';
 import Badge from '@/components/ui/Badge';
+import Select from '@/components/ui/Select';
+import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import { Plus, Eye, Pencil, Trash2, BookOpen, Users, ShoppingBag, Wallet, Undo2, Scale, ChevronLeft, Printer, Share2 } from 'lucide-react';
-import { Supplier, Paginated, SuppliersOverview } from '@/types';
+import { Supplier, Paginated, SuppliersOverview, Warehouse, Branch } from '@/types';
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier, getSuppliersOverview } from '@/services/suppliers';
+import { listWarehouses } from '@/services/warehouses';
+import { listBranches } from '@/services/branches';
 import { formatCurrency } from '@/lib/format';
 import { openSuppliersOverviewReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 export default function SuppliersPage() {
   const { toast } = useToast();
@@ -30,8 +35,14 @@ export default function SuppliersPage() {
   const [data, setData] = useState<Paginated<Supplier> | null>(null);
   const [overview, setOverview] = useState<SuppliersOverview | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useUrlState('q', '');
+  const [page, setPage] = useUrlState('page', 1);
+  const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
+  const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
+  const [filterWarehouse, setFilterWarehouse] = useUrlState('warehouse', '');
+  const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [deleting, setDeleting] = useState<Supplier | null>(null);
@@ -69,10 +80,20 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getSuppliersOverview()
+    getSuppliersOverview({
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+      warehouse: filterWarehouse || undefined,
+      branch: filterBranch || undefined,
+    })
       .then((res) => { if (!cancelled) setOverview(res); })
       .catch(() => {});
     return () => { cancelled = true; };
+  }, [dateFrom, dateTo, filterWarehouse, filterBranch]);
+
+  useEffect(() => {
+    listWarehouses({ page_size: 200 }).then((res) => setWarehouses(res.results)).catch(() => {});
+    listBranches({ page_size: 200 }).then((res) => setBranches(res.results)).catch(() => {});
   }, []);
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
@@ -110,6 +131,24 @@ export default function SuppliersPage() {
   return (
     <AppShell>
       <div className="space-y-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <DateRangeToolbar
+            from={dateFrom}
+            to={dateTo}
+            onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1); }}
+          />
+          <Select
+            value={filterWarehouse}
+            onChange={(e) => { setFilterWarehouse(e.target.value); setPage(1); }}
+            options={[{ value: '', label: 'كل المخازن' }, ...warehouses.map((w) => ({ value: String(w.id), label: w.name }))]}
+          />
+          <Select
+            value={filterBranch}
+            onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }}
+            options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
+          />
+        </div>
+
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} />

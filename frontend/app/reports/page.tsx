@@ -6,7 +6,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Select from '@/components/ui/Select';
-import DateRangePicker from '@/components/ui/DateRangePicker';
+import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import Spinner from '@/components/ui/Spinner';
 import EmptyState from '@/components/ui/EmptyState';
 import { Download } from 'lucide-react';
@@ -18,6 +18,7 @@ import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
+import { useUrlState } from '@/lib/useUrlState';
 
 type Tab = 'sales' | 'expenses' | 'budget' | 'commissions' | 'net' | 'suppliers' | 'branches' | 'inventory' | 'inventory-movements' | 'profit-loss' | 'cogs' | 'journal';
 
@@ -55,10 +56,10 @@ const UNIT_LABEL: Record<string, string> = {
 
 export default function ReportsPage() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<Tab>('sales');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [filterBranch, setFilterBranch] = useState('');
+  const [activeTab, setActiveTab] = useUrlState<Tab>('report', 'sales');
+  const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
+  const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
+  const [filterBranch, setFilterBranch] = useUrlState('branch', '');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -66,10 +67,10 @@ export default function ReportsPage() {
   const [expensesData, setExpensesData] = useState<ExpensesReportData[]>([]);
   const [budgetData, setBudgetData] = useState<ExpenseBudgetReportRow[]>([]);
   const [budgetTotals, setBudgetTotals] = useState<{ budget: number; spent: number; remaining: number; rows: number } | null>(null);
-  const [budgetMonth, setBudgetMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [budgetMonth, setBudgetMonth] = useUrlState('budget_month', new Date().toISOString().slice(0, 7));
   const [commissionData, setCommissionData] = useState<CommissionReportRow[]>([]);
   const [commissionTotals, setCommissionTotals] = useState<{ sessions: number; sales: number; commission: number; employees: number } | null>(null);
-  const [commissionMonth, setCommissionMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [commissionMonth, setCommissionMonth] = useUrlState('commission_month', new Date().toISOString().slice(0, 7));
   const [netData, setNetData] = useState<NetDailyReportData[]>([]);
   const [suppliersData, setSuppliersData] = useState<SuppliersReportData[]>([]);
   const [branchesData, setBranchesData] = useState<BranchesReportData[]>([]);
@@ -83,9 +84,9 @@ export default function ReportsPage() {
   const [journalData, setJournalData] = useState<JournalReportRow[]>([]);
   const [journalTotals, setJournalTotals] = useState<{ sales: number; purchases: number; expenses: number; support: number; withdraw: number; net: number } | null>(null);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [filterWarehouse, setFilterWarehouse] = useState('');
-  const [filterMovementType, setFilterMovementType] = useState('');
-  const [filterSearch, setFilterSearch] = useState('');
+  const [filterWarehouse, setFilterWarehouse] = useUrlState('warehouse', '');
+  const [filterMovementType, setFilterMovementType] = useUrlState('movement_type', '');
+  const [filterSearch, setFilterSearch] = useUrlState('q', '');
 
   useEffect(() => {
     let cancelled = false;
@@ -251,11 +252,10 @@ export default function ReportsPage() {
         {/* Filters */}
         <Card className="!p-4">
           <div className="flex flex-wrap items-end gap-4">
-            <DateRangePicker
+            <DateRangeToolbar
               from={dateFrom}
               to={dateTo}
-              onChangeFrom={setDateFrom}
-              onChangeTo={setDateTo}
+              onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
             />
             {(activeTab === 'budget' || activeTab === 'commissions') && (
               <div className="flex flex-col gap-1">

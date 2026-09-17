@@ -16,6 +16,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import SearchInput from '@/components/ui/SearchInput';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 import { Plus, Pencil, Trash2, RotateCcw, ChevronDown, Lock } from 'lucide-react';
 import {
   Account,
@@ -121,19 +122,19 @@ export default function AccountingPage() {
   const { settings } = useSettings();
   const pageSize = settings?.default_page_size ?? 10;
 
-  const [activeTab, setActiveTab] = useState<Tab>('journal');
-  const [statementTab, setStatementTab] = useState<StatementTab>('income');
+  const [activeTab, setActiveTab] = useUrlState<Tab>('tab', 'journal');
+  const [statementTab, setStatementTab] = useUrlState<StatementTab>('statement', 'income');
   const [loading, setLoading] = useState(false);
 
   // shared date filters
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useUrlState('from', '');
+  const [dateTo, setDateTo] = useUrlState('to', '');
   const today = new Date().toISOString().slice(0, 10);
 
   // journal
   const [entries, setEntries] = useState<Paginated<JournalEntry> | null>(null);
-  const [journalFilter, setJournalFilter] = useState('');
-  const [journalPage, setJournalPage] = useState(1);
+  const [journalFilter, setJournalFilter] = useUrlState('source', '');
+  const [journalPage, setJournalPage] = useUrlState('jpage', 1);
   const [entryModalOpen, setEntryModalOpen] = useState(false);
   const [entryDate, setEntryDate] = useState(today);
   const [entryDescription, setEntryDescription] = useState('');
@@ -153,14 +154,14 @@ export default function AccountingPage() {
 
   // reports
   const [trialBalance, setTrialBalance] = useState<TrialBalance | null>(null);
-  const [tbDate, setTbDate] = useState(today);
+  const [tbDate, setTbDate] = useUrlState('tb_date', today);
   const [income, setIncome] = useState<IncomeStatement | null>(null);
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlow | null>(null);
 
   // cashbox / closing
   const [cashBoxData, setCashBoxData] = useState<CashBox | null>(null);
-  const [cashBoxDate, setCashBoxDate] = useState(today);
+  const [cashBoxDate, setCashBoxDate] = useUrlState('cashbox_date', today);
   const [closedPeriods, setClosedPeriods] = useState<ClosedPeriod[]>([]);
   const [closeDate, setCloseDate] = useState(today);
   const [closeDescription, setCloseDescription] = useState('');

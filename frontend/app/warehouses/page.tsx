@@ -34,6 +34,7 @@ import {
 } from '@/services/warehouses';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 const MOVEMENT_LABEL: Record<string, string> = {
   receipt: 'استلام',
@@ -119,16 +120,16 @@ export default function WarehousesPage() {
   const pageSize = settings?.default_page_size ?? 10;
   const [data, setData] = useState<Paginated<Warehouse> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useUrlState('q', '');
+  const [page, setPage] = useUrlState('page', 1);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Warehouse | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [deleting, setDeleting] = useState<Warehouse | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [viewing, setViewing] = useState<Warehouse | null>(null);
-  const [pageTab, setPageTab] = useState<'warehouses' | 'stock'>('warehouses');
-  const [tab, setTab] = useState<'stock' | 'rolls' | 'movements'>('stock');
+  const [pageTab, setPageTab] = useUrlState<'warehouses' | 'stock'>('view', 'warehouses');
+  const [tab, setTab] = useUrlState<'stock' | 'rolls' | 'movements'>('wtab', 'stock');
   const [summary, setSummary] = useState<WarehouseBalance[]>([]);
   const [rolls, setRolls] = useState<FabricRoll[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);

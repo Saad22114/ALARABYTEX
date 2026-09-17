@@ -192,6 +192,28 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(r.status_code, 201)
         self.assertEqual(Decimal(str(r.data["total"])), Decimal("70"))
 
+    def test_item_without_price_rejected(self):
+        f2 = Fabric.objects.create(name="بلا سعر", code="C9", sale_price_yard=0)
+        FabricRoll.objects.create(warehouse=self.wh, fabric=f2, yards=50, remaining_yards=50)
+        sid = self._open_session()["id"]
+        r = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": f2.id, "sale_type": "yard", "quantity": 1, "payment_method": "cash"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_item_without_auto_price_accepts_custom_price(self):
+        f2 = Fabric.objects.create(name="بلا سعر 2", code="C10", sale_price_yard=0)
+        FabricRoll.objects.create(warehouse=self.wh, fabric=f2, yards=50, remaining_yards=50)
+        sid = self._open_session()["id"]
+        r = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": f2.id, "sale_type": "yard", "quantity": 1, "unit_price": 7, "payment_method": "cash"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+
     def test_add_roll_item(self):
         sid = self._open_session()["id"]
         r = self._add_item(sid, sale_type="roll", quantity=2)
@@ -315,6 +337,56 @@ class SaleSessionAPITest(TestCase):
             Decimal(str(session.items.aggregate(total=Sum("total"))["total"])),
             Decimal("325"),  # 10*5 + 5*5 + 1*250
         )
+
+    def test_bulk_add_stores_customer_phone(self):
+        sid = self._open_session()["id"]
+        r = self._bulk_items(
+            sid,
+            [
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10, "payment_method": "cash", "customer_name": "أحمد العلي", "customer_phone": "0501234567"},
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card"},
+            ],
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data[0]["customer_name"], "أحمد العلي")
+        self.assertEqual(r.data[0]["customer_phone"], "0501234567")
+        self.assertEqual(r.data[1]["customer_name"], "")
+        self.assertEqual(r.data[1]["customer_phone"], "")
+        # ترتيب البنود في الجلسة هو -id: first() = الأحدث id
+        items = list(SaleSession.objects.get(pk=sid).items.all())
+        self.assertEqual(items[1].customer_name, "أحمد العلي")
+        self.assertEqual(items[1].customer_phone, "0501234567")
+        self.assertEqual(items[0].customer_name, "")
+        self.assertEqual(items[0].customer_phone, "")
+
+    def test_bulk_add_shared_sale_group(self):
+        sid = self._open_session()["id"]
+        r = self._bulk_items(
+            sid,
+            [
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10, "payment_method": "cash"},
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card"},
+            ],
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        groups = {it["sale_group"] for it in r.data}
+        self.assertEqual(len(groups), 1)
+        self.assertTrue(r.data[0]["sale_group"])
+        # بنود من عمليتين منفصلتين لا تشارك نفس المعرّف
+        r2 = self._bulk_items(
+            sid,
+            [{"fabric": self.fabric.id, "sale_type": "yard", "quantity": 3, "payment_method": "cash"}],
+        )
+        self.assertEqual(r2.status_code, 201, r2.data)
+        self.assertNotEqual(r2.data[0]["sale_group"], r.data[0]["sale_group"])
+
+    def test_single_add_stores_customer_phone(self):
+        sid = self._open_session()["id"]
+        r = self._add_item(sid, quantity=5, customer_name="سارة", customer_phone="0559876543")
+        self.assertEqual(r.status_code, 201, r.data)
+        item = SaleSession.objects.get(pk=sid).items.first()
+        self.assertEqual(item.customer_name, "سارة")
+        self.assertEqual(item.customer_phone, "0559876543")
 
     def test_bulk_add_requires_items_list(self):
         sid = self._open_session()["id"]
@@ -471,6 +543,100 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(r2.data["count"], 2)
         r3 = self.c.get("/api/sale-sessions/?opened_from=2999-01-01")
         self.assertEqual(r3.data["count"], 0)
+
+
+class ManualSessionAPITest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(name="علي", branch=self.branch)
+        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        self.roll = FabricRoll.objects.create(
+            warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500
+        )
+
+    def _manual(self, **overrides):
+        data = {
+            "employee": self.emp.id,
+            "date": "2026-09-12",
+            "cash": "100.00",
+            "transfer": "50.00",
+            "card": "25.00",
+            "notes": "مجموع يدوي",
+        }
+        data.update(overrides)
+        return self.c.post("/api/sale-sessions/manual/", data, format="json")
+
+    def test_creates_closed_manual_session_and_daily_sale(self):
+        r = self._manual()
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertTrue(r.data["is_manual"])
+        self.assertEqual(r.data["status"], "closed")
+        self.assertEqual(r.data["items"], [])
+        self.assertEqual(r.data["totals"]["cash"], 100.0)
+        self.assertEqual(r.data["totals"]["transfer"], 50.0)
+        self.assertEqual(r.data["totals"]["card"], 25.0)
+        self.assertEqual(r.data["totals"]["total"], 175.0)
+        sale = DailySale.objects.get(branch=self.branch, date=date(2026, 9, 12))
+        self.assertEqual(sale.total_sales, Decimal("175.00"))
+        self.assertEqual(sale.cash_amount, Decimal("100.00"))
+        self.assertEqual(sale.transfer_amount, Decimal("50.00"))
+        self.assertEqual(sale.card_amount, Decimal("25.00"))
+
+    def test_does_not_deduct_stock(self):
+        self._manual()
+        self.roll.refresh_from_db()
+        self.assertEqual(self.roll.remaining_yards, Decimal("500"))
+        self.assertFalse(StockMovement.objects.exists())
+
+    def test_rejects_zero_total(self):
+        r = self._manual(cash="0", transfer="0", card="0")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_rejects_negative_amount(self):
+        r = self._manual(cash="-5")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_rejects_employee_of_other_branch(self):
+        branch2 = Branch.objects.create(name="B2", code="B2")
+        r = self._manual(branch=branch2.id)
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_delete_reverses_daily_sale(self):
+        sid = self._manual().data["id"]
+        r = self.c.delete(f"/api/sale-sessions/{sid}/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertFalse(DailySale.objects.filter(branch=self.branch, date=date(2026, 9, 12)).exists())
+
+    def test_cannot_reopen_manual_session(self):
+        sid = self._manual().data["id"]
+        r = self.c.post(f"/api/sale-sessions/{sid}/reopen/")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_adds_to_existing_daily_sale(self):
+        DailySale.objects.create(
+            branch=self.branch, employee=self.emp, date=date(2026, 9, 12),
+            total_sales=Decimal("30"), cash_amount=Decimal("30"),
+        )
+        self._manual(cash="20", transfer="0", card="0")
+        sale = DailySale.objects.get(branch=self.branch, date=date(2026, 9, 12))
+        self.assertEqual(sale.total_sales, Decimal("50.00"))
+        self.assertEqual(sale.cash_amount, Decimal("50.00"))
+
+    def test_manual_commission_applied(self):
+        self.emp.commission_active = True
+        self.emp.commission_percent = Decimal("10")
+        self.emp.save(update_fields=["commission_active", "commission_percent"])
+        r = self._manual()
+        self.assertEqual(Decimal(str(r.data["commission_amount"])), Decimal("17.50"))
+
+    def test_closed_range_filter_uses_manual_date(self):
+        self._manual(date="2026-09-10")
+        r = self.c.get("/api/sale-sessions/?status=closed&closed_from=2026-09-10&closed_to=2026-09-10")
+        self.assertEqual(r.data["count"], 1)
+        r2 = self.c.get("/api/sale-sessions/?status=closed&closed_from=2026-09-11&closed_to=2026-09-11")
+        self.assertEqual(r2.data["count"], 0)
 
 
 class ClosedSessionEditDeleteTest(TestCase):

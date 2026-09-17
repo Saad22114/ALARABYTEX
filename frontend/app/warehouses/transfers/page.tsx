@@ -23,6 +23,7 @@ import { listBranches } from '@/services/branches';
 import { listFabrics } from '@/services/fabrics';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 import { formatNumber } from '@/lib/format';
 
 const STATUS_VARIANT: Record<TransferStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
@@ -217,7 +218,7 @@ export default function TransfersPage() {
   const pageSize = settings?.default_page_size ?? 10;
   const [data, setData] = useState<Paginated<StockTransfer> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useUrlState('page', 1);
   const [modalOpen, setModalOpen] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);

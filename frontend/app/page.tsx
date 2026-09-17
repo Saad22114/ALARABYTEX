@@ -6,7 +6,7 @@ import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Select from '@/components/ui/Select';
-import DateRangePicker from '@/components/ui/DateRangePicker';
+import DateRangeToolbar, { getRangeForKey, DateRangeKey } from '@/components/ui/DateRangeToolbar';
 import SalesChart from '@/components/dashboard/SalesChart';
 import ProfitChart from '@/components/dashboard/ProfitChart';
 import ComparisonChart from '@/components/dashboard/ComparisonChart';
@@ -19,9 +19,9 @@ import { getDashboardActivity, getDashboardAlerts, getDashboardSummary } from '@
 import { listBranches } from '@/services/branches';
 import { Branch } from '@/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
-import { DATE_PERIODS } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 function deltaText(pct: number | null | undefined): string {
   if (pct === null || pct === undefined) return '';
@@ -32,21 +32,25 @@ function deltaText(pct: number | null | undefined): string {
 export default function DashboardPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
-  const [period, setPeriod] = useState('today');
-  const userPicked = useRef(false);
-  const [branch, setBranch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [branch, setBranch] = useUrlState('branch', '');
+  const [dateFrom, setDateFrom] = useUrlState('from', getRangeForKey('today').from);
+  const [dateTo, setDateTo] = useUrlState('to', getRangeForKey('today').to);
+  const appliedDefaultPeriod = useRef<string | null>(null);
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [alerts, setAlerts] = useState<DashboardAlertsResult | null>(null);
   const [activities, setActivities] = useState<DashboardActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    if (settings && !userPicked.current) {
-      setPeriod(settings.default_period);
-    }
+    if (!settings) return;
+    if (typeof window !== 'undefined' && (new URLSearchParams(window.location.search).has('from') || new URLSearchParams(window.location.search).has('to'))) return;
+    if (appliedDefaultPeriod.current === settings.default_period) return;
+    appliedDefaultPeriod.current = settings.default_period;
+    const range = getRangeForKey(settings.default_period as DateRangeKey);
+    setDateFrom(range.from);
+    setDateTo(range.to);
   }, [settings, settings?.default_period]);
 
   useEffect(() => {
@@ -66,47 +70,27 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const params: Record<string, string | number | undefined> = { period };
+    const params: Record<string, string | number | undefined> = {};
     if (branch) params.branch = branch;
-    if (period === 'custom') {
-      params.date_from = dateFrom;
-      params.date_to = dateTo;
-    }
+    if (dateFrom) params.date_from = dateFrom;
+    if (dateTo) params.date_to = dateTo;
     getDashboardSummary(params)
       .then((res) => { if (!cancelled) setData(res); })
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period, branch, dateFrom, dateTo]);
+  }, [branch, dateFrom, dateTo, reloadKey]);
 
   return (
     <AppShell>
       <div className="space-y-6">
         {/* Period + Branch Filter */}
         <div className="flex flex-wrap items-center gap-4">
-<div className="flex flex-wrap gap-2">
-            {DATE_PERIODS.map((p) => (
-              <button
-                key={p.value}
-                onClick={() => setPeriod(p.value)}
-                className={`px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
-                  period === p.value
-                    ? 'bg-brand-600 text-white shadow-sm'
-                    : 'bg-surface text-neutral-600 border border-sand-200 hover:bg-sand-50'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {period === 'custom' && (
-            <DateRangePicker
-              from={dateFrom}
-              to={dateTo}
-              onChangeFrom={setDateFrom}
-              onChangeTo={setDateTo}
-            />
-          )}
+          <DateRangeToolbar
+            from={dateFrom}
+            to={dateTo}
+            onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
+          />
           <Select
             value={branch}
             onChange={(e) => setBranch(e.target.value)}
@@ -226,7 +210,7 @@ export default function DashboardPage() {
         ) : (
           <div className="text-center py-20 text-neutral-400">
             <p>حدث خطأ أثناء تحميل البيانات</p>
-            <Button variant="secondary" className="mt-4" onClick={() => setPeriod(period)}>
+            <Button variant="secondary" className="mt-4" onClick={() => setReloadKey((k) => k + 1)}>
               إعادة المحاولة
             </Button>
           </div>

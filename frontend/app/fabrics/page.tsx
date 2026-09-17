@@ -28,6 +28,7 @@ import { formatCurrency, formatNumber } from '@/lib/format';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 const UNIT_LABEL: Record<string, string> = { yard: 'ياردة', meter: 'متر', roll: 'لفة' };
 
@@ -64,11 +65,11 @@ export default function FabricsPage() {
 
   const [data, setData] = useState<Paginated<Fabric> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [fabricType, setFabricType] = useState('');
-  const [unit, setUnit] = useState('');
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useUrlState('q', '');
+  const [fabricType, setFabricType] = useUrlState('type', '');
+  const [unit, setUnit] = useUrlState('unit', '');
+  const [status, setStatus] = useUrlState('status', '');
+  const [page, setPage] = useUrlState('page', 1);
 
   const [summary, setSummary] = useState<FabricSummary | null>(null);
 

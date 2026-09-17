@@ -12,6 +12,12 @@ from expenses.models import Expense, ExpenseCategory
 from sales.models import DailySale
 from suppliers.models import Supplier
 
+from .crypto import (
+    BackupCryptoError,
+    decrypt_backup,
+    encrypt_backup,
+    is_encrypted_envelope,
+)
 from .models import AppSettings
 from .serializers import AppSettingsSerializer
 
@@ -48,13 +54,14 @@ class AppSettingsView(APIView):
 
 
 class BackupView(APIView):
-    """GET exports all data as a downloadable JSON file."""
+    """GET exports all data as a downloadable file; encrypted when a password is set."""
 
     def get(self, request):
+        settings_obj = AppSettings.load()
         data = {
             "version": 1,
             "exported_at": datetime.now(timezone.utc).isoformat(),
-            "settings": AppSettingsSerializer(AppSettings.load()).data,
+            "settings": AppSettingsSerializer(settings_obj).data,
             "branches": list(Branch.objects.values()),
             "suppliers": list(Supplier.objects.values()),
             "expense_categories": list(ExpenseCategory.objects.values()),
@@ -62,6 +69,8 @@ class BackupView(APIView):
             "expenses": list(Expense.objects.values()),
         }
         content = json.dumps(data, ensure_ascii=False, indent=2, default=str)
+        if settings_obj.backup_password:
+            content = encrypt_backup(content.encode("utf-8"), settings_obj.backup_password).decode("utf-8")
         response = HttpResponse(content, content_type="application/json; charset=utf-8")
         filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -69,13 +78,33 @@ class BackupView(APIView):
 
 
 class RestoreView(APIView):
-    """POST replaces ALL data with the uploaded backup JSON (version must be 1)."""
+    """POST replaces ALL data with the uploaded backup (version must be 1).
+
+    Accepts either the parsed backup object or {"content": "<raw file text>"}.
+    Encrypted backups are decrypted using the saved backup password.
+    """
 
     def post(self, request):
-        if not isinstance(request.data, dict):
+        payload = request.data
+        if isinstance(payload, dict) and isinstance(payload.get("content"), str):
+            try:
+                payload = json.loads(payload["content"])
+            except (ValueError, TypeError):
+                return Response({"detail": "ملف النسخة الاحتياطية غير صالح"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(payload, dict):
             return Response({"detail": "البيانات المرسلة غير صالحة"}, status=status.HTTP_400_BAD_REQUEST)
-        if request.data.get("version") != 1:
+        if is_encrypted_envelope(payload):
+            settings_obj = AppSettings.load()
+            try:
+                decrypted = decrypt_backup(payload, settings_obj.backup_password)
+                payload = json.loads(decrypted.decode("utf-8"))
+            except BackupCryptoError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            except (ValueError, UnicodeDecodeError):
+                return Response({"detail": "ملف النسخة الاحتياطية غير صالح"}, status=status.HTTP_400_BAD_REQUEST)
+        if payload.get("version") != 1:
             return Response({"detail": "إصدار النسخة الاحتياطية غير مدعوم"}, status=status.HTTP_400_BAD_REQUEST)
+        request_data = payload
 
         with transaction.atomic():
             Expense.objects.all().delete()
@@ -84,18 +113,18 @@ class RestoreView(APIView):
             Supplier.objects.all().delete()
             Branch.objects.all().delete()
 
-            for row in request.data.get("expense_categories", []):
+            for row in request_data.get("expense_categories", []):
                 ExpenseCategory.objects.create(**row)
-            for row in request.data.get("branches", []):
+            for row in request_data.get("branches", []):
                 Branch.objects.create(**row)
-            for row in request.data.get("suppliers", []):
+            for row in request_data.get("suppliers", []):
                 Supplier.objects.create(**row)
-            for row in request.data.get("sales", []):
+            for row in request_data.get("sales", []):
                 DailySale.objects.create(**row)
-            for row in request.data.get("expenses", []):
+            for row in request_data.get("expenses", []):
                 Expense.objects.create(**row)
 
-            settings_data = request.data.get("settings")
+            settings_data = request_data.get("settings")
             if settings_data and isinstance(settings_data, dict):
                 ser = AppSettingsSerializer(AppSettings.load(), data=settings_data, partial=True)
                 if ser.is_valid():

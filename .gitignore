@@ -28,6 +28,7 @@ yarn-error.log*
 .next/
 out/
 .vercel
+*.tsbuildinfo
 
 # IDE / Editor
 .vscode/

@@ -173,6 +173,13 @@ class AppSettings(TimeStampedModel):
         verbose_name="شعار الموقع",
         help_text="مسار ملف صورة الشعار (PNG) داخل مجلد الوسائط",
     )
+    backup_password = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        verbose_name="كلمة مرور النسخ الاحتياطي",
+        help_text="عند ضبطها تُشفَّر النسخ الاحتياطية وتتطلب كلمة المرور نفسها للاستعادة",
+    )
 
     class Meta:
         verbose_name = "إعدادات النظام"

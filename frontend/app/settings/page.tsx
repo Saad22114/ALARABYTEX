@@ -28,6 +28,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { THEME_PRESETS } from '@/lib/themes';
+import { useUrlState } from '@/lib/useUrlState';
 import { formatCurrency } from '@/lib/format';
 
 const PERIOD_OPTIONS = [
@@ -93,7 +94,7 @@ export default function SettingsPage() {
   const { settings, loading, error, updateSettings, refreshSettings } = useSettings();
   const { theme, setTheme, dark, toggleDark } = useTheme();
 
-  const [tab, setTab] = useState('business');
+  const [tab, setTab] = useUrlState('tab', 'business');
 
   const [savingBusiness, setSavingBusiness] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
@@ -200,6 +201,8 @@ export default function SettingsPage() {
   const [restoring, setRestoring] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [backupPassword, setBackupPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
@@ -352,14 +355,28 @@ export default function SettingsPage() {
     setRestoring(true);
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text);
-      await restoreSettings(parsed);
+      JSON.parse(text);
+      await restoreSettings({ content: text });
       toast('success', 'تم استيراد النسخة الاحتياطية بنجاح');
       refreshSettings();
     } catch (err: any) {
       toast('error', err.message || 'فشل استيراد النسخة الاحتياطية');
     } finally {
       setRestoring(false);
+    }
+  };
+
+  const handleSavePassword = async () => {
+    setSavingPassword(true);
+    try {
+      await updateSettings({ backup_password: backupPassword });
+      toast('success', backupPassword ? 'تم حفظ كلمة مرور النسخة الاحتياطية' : 'تم إلغاء تشفير النسخة الاحتياطية');
+      setBackupPassword('');
+      refreshSettings();
+    } catch (err: any) {
+      toast('error', err.message || 'فشل حفظ كلمة المرور');
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -1089,6 +1106,33 @@ export default function SettingsPage() {
                 <Button variant="danger" onClick={() => setResetOpen(true)}>
                   <RotateCcw size={16} />
                   إعادة الضبط
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-6 p-4 bg-sand-50 rounded-xl">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-medium text-neutral-700">كلمة مرور تشفير النسخة الاحتياطية</p>
+                <Badge variant={settings?.has_backup_password ? 'success' : 'neutral'}>
+                  {settings?.has_backup_password ? 'مُشفّرة' : 'بدون تشفير'}
+                </Badge>
+              </div>
+              <p className="text-xs text-neutral-500 mb-3">
+                عند ضبط كلمة مرور تُصدَّر النسخة الاحتياطية مشفّرة تلقائياً، وتُطلب الكلمة نفسها للاستعادة.
+                اتركها فارغة لإلغاء التشفير.
+              </p>
+              <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
+                <div className="w-full sm:max-w-xs">
+                  <Input
+                    type="password"
+                    placeholder={settings?.has_backup_password ? 'أدخل كلمة مرور جديدة' : 'كلمة المرور'}
+                    value={backupPassword}
+                    onChange={(e) => setBackupPassword(e.target.value)}
+                  />
+                </div>
+                <Button onClick={handleSavePassword} loading={savingPassword}>
+                  <Check size={16} />
+                  حفظ كلمة المرور
                 </Button>
               </div>
             </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import DateRangePicker from './DateRangePicker';
 
 export type DateRangeKey = 'today' | 'week' | 'month' | 'last_month';
@@ -62,14 +62,21 @@ interface DateRangeToolbarProps {
 
 export default function DateRangeToolbar({ from, to, onChange, className = '' }: DateRangeToolbarProps) {
   const active = getActivePreset(from, to);
+  const [customOpen, setCustomOpen] = useState(false);
+  const showPicker = customOpen || active === null;
+
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`}>
       {RANGE_LABELS.map((r) => (
         <button
           key={r.key}
-          onClick={() => onChange(getRangeForKey(r.key).from, getRangeForKey(r.key).to)}
+          onClick={() => {
+            setCustomOpen(false);
+            const range = getRangeForKey(r.key);
+            onChange(range.from, range.to);
+          }}
           className={`px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
-            active === r.key
+            active === r.key && !customOpen
               ? 'bg-brand-600 text-white shadow-sm'
               : 'bg-surface text-neutral-600 border border-sand-200 hover:bg-sand-50'
           }`}
@@ -77,9 +84,21 @@ export default function DateRangeToolbar({ from, to, onChange, className = '' }:
           {r.label}
         </button>
       ))}
-      <div className="lg:ms-2">
-        <DateRangePicker from={from} to={to} onChangeFrom={(v) => onChange(v, to)} onChangeTo={(v) => onChange(from, v)} />
-      </div>
+      <button
+        onClick={() => setCustomOpen(true)}
+        className={`px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
+          showPicker
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'bg-surface text-neutral-600 border border-sand-200 hover:bg-sand-50'
+        }`}
+      >
+        من-إلى
+      </button>
+      {showPicker && (
+        <div className="lg:ms-2">
+          <DateRangePicker from={from} to={to} onChangeFrom={(v) => onChange(v, to)} onChangeTo={(v) => onChange(from, v)} />
+        </div>
+      )}
     </div>
   );
 }

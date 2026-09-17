@@ -1,5 +1,10 @@
 import { apiRequest, buildQuery } from './api';
-import { Customer, CustomerLookupResult, Paginated } from '@/types';
+import { Customer, CustomerLookupResult, CustomersSummary, Paginated } from '@/types';
+
+export async function getCustomersSummary(params?: Record<string, string | number | undefined | null>): Promise<CustomersSummary> {
+  const q = buildQuery(params || {});
+  return apiRequest<CustomersSummary>(`/customers/summary/${q}`);
+}
 
 export async function lookupCustomer(phone: string): Promise<CustomerLookupResult> {
   const q = buildQuery({ phone: phone || undefined });

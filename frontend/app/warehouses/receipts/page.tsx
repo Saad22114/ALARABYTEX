@@ -22,6 +22,7 @@ import { listFabrics } from '@/services/fabrics';
 import { listSuppliers } from '@/services/suppliers';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 import { formatCurrency, formatNumber } from '@/lib/format';
 
 function ReceiptForm({
@@ -147,7 +148,7 @@ export default function ReceiptsPage() {
   const pageSize = settings?.default_page_size ?? 10;
   const [data, setData] = useState<Paginated<GoodsReceipt> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useUrlState('page', 1);
   const [modalOpen, setModalOpen] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);

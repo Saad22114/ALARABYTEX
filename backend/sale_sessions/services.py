@@ -44,6 +44,85 @@ def _item_yards(item):
     return item.quantity
 
 
+def _manual_total(session):
+    return (
+        (session.manual_cash or Decimal("0"))
+        + (session.manual_transfer or Decimal("0"))
+        + (session.manual_card or Decimal("0"))
+    )
+
+
+def _apply_manual_to_daily(session, sign=1):
+    """يضيف (أو يطرح) مبالغ الوردية اليدوية على السجل اليومي للفرع/التاريخ."""
+    if session.manual_date is None:
+        return
+    cash = (session.manual_cash or Decimal("0")) * sign
+    transfer = (session.manual_transfer or Decimal("0")) * sign
+    card = (session.manual_card or Decimal("0")) * sign
+    total = cash + transfer + card
+    sale = DailySale.objects.filter(branch=session.branch, date=session.manual_date).first()
+    if sale is None:
+        if sign < 0 or total <= 0:
+            return
+        DailySale.objects.create(
+            branch=session.branch,
+            employee=session.employee,
+            date=session.manual_date,
+            total_sales=total,
+            cash_amount=cash,
+            transfer_amount=transfer,
+            card_amount=card,
+            other_amount=Decimal("0"),
+            notes=f"وردية يدوية: {session.employee.name}",
+        )
+        return
+    sale.total_sales += total
+    sale.cash_amount += cash
+    sale.transfer_amount += transfer
+    sale.card_amount += card
+    sale.save(update_fields=["total_sales", "cash_amount", "transfer_amount", "card_amount"])
+
+
+def _reverse_manual_session(session):
+    if session.manual_date is None:
+        return
+    allow_negative = AppSettings.load().allow_negative_stock
+    sale = DailySale.objects.filter(branch=session.branch, date=session.manual_date).first()
+    if sale is None:
+        return
+    sale.total_sales -= _manual_total(session)
+    sale.cash_amount -= session.manual_cash or Decimal("0")
+    sale.transfer_amount -= session.manual_transfer or Decimal("0")
+    sale.card_amount -= session.manual_card or Decimal("0")
+    sale.save(update_fields=["total_sales", "cash_amount", "transfer_amount", "card_amount"])
+    _cleanup_sale(sale, allow_negative)
+
+
+@transaction.atomic
+def create_manual_session(*, employee, branch, sale_date, cash, transfer, card, notes=""):
+    """إنشاء وردية مغلقة كاملة كمجموع مالي بدون بنود ولا خصم مخزون."""
+    total = cash + transfer + card
+    session = SaleSession.objects.create(
+        employee=employee,
+        branch=branch,
+        status=SaleSession.Status.CLOSED,
+        closed_at=timezone.now(),
+        is_manual=True,
+        manual_date=sale_date,
+        manual_cash=cash,
+        manual_transfer=transfer,
+        manual_card=card,
+        notes=notes,
+    )
+    _apply_manual_to_daily(session, sign=1)
+    if employee.commission_active:
+        percent = Decimal(str(employee.commission_percent or "0"))
+        session.commission_amount = (total * percent / Decimal("100")).quantize(Decimal("0.01"))
+        session.save(update_fields=["commission_amount"])
+    _post_session(session)
+    return session
+
+
 def recompute_commission(session):
     """إعادة حساب عمولة الموظف على إجمالي الوردية حسب نسبة عمولته."""
     total = sum(r.total for r in session.items.all())
@@ -175,7 +254,10 @@ def delete_session(session):
     """حذف وردية كاملة وإرجاع المخزون والسجلات اليومية للورديات المغلقة."""
     if session.status == SaleSession.Status.CLOSED:
         _unpost_session(session)
-        _reverse_closed_items(session)
+        if session.is_manual:
+            _reverse_manual_session(session)
+        else:
+            _reverse_closed_items(session)
     session.items.all().delete()
     session.delete()
 
@@ -185,6 +267,8 @@ def reopen_session(session):
     """إعادة فتح وردية مغلقة: عكس المبيعات اليومية والمخزون، ثم فتح الوردية."""
     if session.status != SaleSession.Status.CLOSED:
         raise ValueError("لا يمكن إعادة فتح وردية مفتوحة")
+    if session.is_manual:
+        raise ValueError("لا يمكن إعادة فتح وردية مُدخلة يدوياً — احذفها وأدخلها من جديد")
     _unpost_session(session)
     _reverse_closed_items(session)
     session.status = SaleSession.Status.OPEN
@@ -254,7 +338,7 @@ def update_session_item(session, item, attrs):
         current_sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if current_sale:
             _subtract_item(current_sale, item)
-    for field in ("fabric", "sale_type", "quantity", "unit_price", "payment_method", "discount_amount"):
+    for field in ("fabric", "sale_type", "quantity", "unit_price", "payment_method", "discount_amount", "customer_name", "customer_phone"):
         if field in attrs:
             setattr(item, field, attrs[field])
     item.total = attrs.get("total", item.total)

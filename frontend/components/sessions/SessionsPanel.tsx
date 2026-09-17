@@ -12,7 +12,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
-import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Package, Layers, Eye, Search, Move, Eraser, TriangleAlert, Printer, FileText } from 'lucide-react';
+import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Package, Layers, Eye, Search, Move, TriangleAlert, Printer, FileText } from 'lucide-react';
 import {
   SaleSession, Employee, Fabric, Branch, SessionSaleItem,
   SessionSaleType, SessionPaymentMethod, SaleSessionSummary, SaleStockResult,
@@ -25,7 +25,6 @@ import {
   addSessionItems,
   removeSessionItem,
   closeSaleSession,
-  clearSaleSession,
   deleteSaleSession,
   getSaleSessionSummary,
 } from '@/services/sessions';
@@ -75,6 +74,28 @@ const SORT_OPTIONS: { value: SessionSortKey; label: string }[] = [
   { value: 'employee', label: 'باسم الموظف' },
 ];
 
+const SALE_GROUP_COLORS = [
+  'bg-brand-50 text-brand-700 border-brand-200',
+  'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'bg-amber-50 text-amber-700 border-amber-200',
+  'bg-sky-50 text-sky-700 border-sky-200',
+  'bg-violet-50 text-violet-700 border-violet-200',
+  'bg-rose-50 text-rose-700 border-rose-200',
+];
+
+function saleGroupBadges(items: SessionSaleItem[]): Map<string, { num: number; cls: string }> {
+  const map = new Map<string, { num: number; cls: string }>();
+  let i = 1;
+  for (const it of items) {
+    const g = it.sale_group || `single-${it.id}`;
+    if (!map.has(g)) {
+      map.set(g, { num: i, cls: SALE_GROUP_COLORS[(i - 1) % SALE_GROUP_COLORS.length] });
+      i += 1;
+    }
+  }
+  return map;
+}
+
 function elapsedText(minutes: number | null): string {
   if (minutes == null) return '';
   const m = Math.max(0, minutes);
@@ -115,8 +136,6 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
   const [closing, setClosing] = useState<SaleSession | null>(null);
   const [closeLoading, setCloseLoading] = useState(false);
-  const [clearing, setClearing] = useState<SaleSession | null>(null);
-  const [clearingLoading, setClearingLoading] = useState(false);
   const [movingItem, setMovingItem] = useState<{ session: SaleSession; item: SessionSaleItem } | null>(null);
   const [editingItem, setEditingItem] = useState<{ session: SaleSession; item: SessionSaleItem } | null>(null);
   const [viewing, setViewing] = useState<SaleSession | null>(null);
@@ -316,7 +335,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           if (next.sale_type === 'roll') {
             price = candidate.sale_price_roll != null ? (Number(candidate.sale_price_roll) || 0) : base * (Number(candidate.yards_per_roll) || 0);
           }
-          next.unit_price = String(price);
+          next.unit_price = price > 0 ? String(price) : '';
         }
         return next;
       })
@@ -349,8 +368,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         toast('error', 'أدخل كمية صحيحة أكبر من صفر لكل الأصناف');
         return;
       }
-      if (isNaN(price) || price < 0) {
-        toast('error', 'أدخل سعر وحدة صحيح لكل الأصناف');
+      if (isNaN(price) || price <= 0) {
+        toast('error', 'لا يمكن حفظ البيعة بدون سعر — أدخل سعر الوحدة لكل الأصناف');
         return;
       }
       const calc = lineCalc(line);
@@ -392,6 +411,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           unit_price: parseFloat(line.unit_price),
           discount_amount: calc.discountNum,
           payment_method: line.payment_method,
+          customer_name: custName.trim(),
+          customer_phone: custPhone.trim(),
         };
       });
       const created = await addSessionItems(selected.id, payload);
@@ -401,6 +422,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         void ensureCustomer(custName, custPhone);
       }
       setLines([emptyItemForm(payload[0]?.payment_method || 'cash')]);
+      setCustName('');
+      setCustPhone('');
       fetchSessions();
       fetchSummary();
     } catch (err: any) {
@@ -445,23 +468,6 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     if (!selected) return;
     const ok = printSessionReceipt(selected, settings || null, 'إيصال وردية بيع');
     if (!ok) toast('error', 'الرجاء السماح بالنوافذ المنبثقة للطباعة');
-  };
-
-  const handleClear = async () => {
-    if (!clearing) return;
-    setClearingLoading(true);
-    try {
-      const s = await clearSaleSession(clearing.id);
-      toast('success', `تم إفراغ كل بنود الوردية (${s.totals.total} إجمالي)`);
-      setClearing(null);
-      fetchSessions();
-      fetchSummary();
-      onChanged?.();
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setClearingLoading(false);
-    }
   };
 
   const handleDeleteSession = async () => {
@@ -677,12 +683,6 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                   طباعة الإيصال
                 </Button>
               )}
-              {selected.items.length > 0 && (
-                <Button variant="secondary" onClick={() => setClearing(selected)}>
-                  <Eraser size={18} />
-                  إفراغ البنود
-                </Button>
-              )}
               <Button variant="danger" onClick={() => setClosing(selected)}>
                 <CircleDollarSign size={18} />
                 إغلاق الوردية وتسجيل البيع
@@ -712,7 +712,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       <Th>القماش</Th>
                       <Th>النوع</Th>
                       <Th>الكمية</Th>
-                      <Th>الياردات الفعلية</Th>
+                      <Th>البيعة</Th>
+                      <Th>هاتف الزبون</Th>
                       <Th>سعر الوحدة</Th>
                       <Th>الخصم</Th>
                       <Th>طريقة الدفع</Th>
@@ -740,7 +741,28 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         <Td className="font-medium">{item.fabric_name}</Td>
                         <Td><Badge variant="neutral">{item.sale_type_label}</Badge></Td>
                         <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'لفة' : 'يارد'}</Td>
-                        <Td className="tabular-nums text-neutral-500">{formatNumber(item.yards_effective)} ياردة</Td>
+                        <Td>
+                          <span
+                            onClick={() => {
+                              const g = item.sale_group || `single-${item.id}`;
+                              const ids = selected.items.filter((i) => (i.sale_group || `single-${i.id}`) === g).map((i) => i.id);
+                              setChecked((prev) => {
+                                const next = new Set(prev);
+                                ids.forEach((id) => next.add(id));
+                                return next;
+                              });
+                            }}
+                            title="تحديد كل بنود هذه البيعة للفاتورة"
+                            className={`inline-flex cursor-pointer items-center rounded-full border px-2 py-0.5 text-[11px] font-bold select-none transition-transform hover:scale-105 ${
+                              saleGroupBadges(selected.items).get(item.sale_group || `single-${item.id}`)?.cls ?? 'bg-neutral-100 text-neutral-400 border-neutral-200'
+                            }`}
+                          >
+                            بيعة {saleGroupBadges(selected.items).get(item.sale_group || `single-${item.id}`)?.num ?? ''}
+                          </span>
+                        </Td>
+                        <Td className="tabular-nums text-neutral-500">
+                          {item.customer_phone ? item.customer_phone : <span className="text-neutral-300">—</span>}
+                        </Td>
                         <Td className="tabular-nums">{formatCurrency(item.unit_price)}</Td>
                         <Td className={`tabular-nums ${item.discount_amount > 0 ? 'text-red-500' : 'text-neutral-400'}`}>
                           {item.discount_amount > 0 ? formatCurrency(item.discount_amount) : '—'}
@@ -893,12 +915,17 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         </button>
                       </div>
                     </div>
-                    <Select
-                      label="طريقة الدفع"
-                      value={line.payment_method}
-                      onChange={(e) => updateLine(idx, { payment_method: e.target.value as SessionPaymentMethod })}
-                      options={PAYMENT_OPTIONS}
-                    />
+                    {idx === 0 && (
+                      <Select
+                        label="طريقة الدفع (تُطبَّق على كل أصناف هذه البيعة)"
+                        value={line.payment_method}
+                        onChange={(e) => {
+                          const v = e.target.value as SessionPaymentMethod;
+                          setLines((cur) => cur.map((l) => ({ ...l, payment_method: v })));
+                        }}
+                        options={PAYMENT_OPTIONS}
+                      />
+                    )}
                     <Input
                       label={line.sale_type === 'roll' ? 'عدد اللفات' : 'الكمية (ياردات)'}
                       type="number"
@@ -985,20 +1012,6 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         loading={closeLoading}
         onClose={() => setClosing(null)}
         onConfirm={handleClose}
-      />
-
-      <ConfirmDialog
-        open={!!clearing}
-        onClose={() => setClearing(null)}
-        onConfirm={handleClear}
-        loading={clearingLoading}
-        title="إفراغ بنود الوردية"
-        confirmLabel="إفراغ البنود"
-        message={
-          clearing
-            ? `هل أنت متأكد من حذف كل بنود وردية ${clearing.employee_name} (${clearing.items.length} بند — إجمالي ${formatCurrency(clearing.totals.total)})؟ لا يمكن التراجع عن هذا الإجراء.`
-            : ''
-        }
       />
 
       <MoveItemModal

@@ -1,15 +1,16 @@
 from decimal import Decimal
+import uuid
 
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
 
-from branches.models import FabricBranchPrice
+from branches.models import Branch, FabricBranchPrice
 from suppliers.models import Fabric
 from warehouses.models import FabricRoll, Warehouse
 
 from .models import Employee, SaleSession, SaleSessionItem
-from .services import effective_sale_date
+from .services import effective_sale_date, create_manual_session
 
 PAYMENT_METHODS = {m for m, _ in SaleSessionItem.PaymentMethod.choices}
 
@@ -75,6 +76,7 @@ class SaleSessionItemSerializer(serializers.ModelSerializer):
             "sale_type", "sale_type_label",
             "quantity", "unit_price", "discount_amount", "payment_method", "payment_method_label",
             "total", "sale_date", "yards_effective",
+            "customer_name", "customer_phone", "sale_group",
         ]
 
 
@@ -124,6 +126,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
             "id", "employee", "employee_name", "branch", "branch_name",
             "status", "status_label", "opened_at", "closed_at", "notes",
             "commission_amount", "elapsed_minutes", "items", "totals",
+            "is_manual", "manual_date", "manual_cash", "manual_transfer", "manual_card",
         ]
 
     def get_elapsed_minutes(self, obj):
@@ -137,6 +140,17 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
         return SaleSessionItemSerializer(obj.items.all(), many=True).data
 
     def get_totals(self, obj):
+        if obj.is_manual:
+            cash = obj.manual_cash or Decimal("0")
+            transfer = obj.manual_transfer or Decimal("0")
+            card = obj.manual_card or Decimal("0")
+            return {
+                "cash": float(cash),
+                "transfer": float(transfer),
+                "card": float(card),
+                "total": float(cash + transfer + card),
+                "yards": 0.0,
+            }
         agg = {m: Decimal("0") for m in PAYMENT_METHODS}
         yards = Decimal("0")
         for it in obj.items.all():
@@ -166,6 +180,53 @@ class SaleSessionOpenSerializer(serializers.Serializer):
         return SaleSession.objects.create(employee=employee, branch=employee.branch)
 
 
+class SaleSessionManualCreateSerializer(serializers.Serializer):
+    """إدخال وردية كاملة كمجموع مالي بدون تفاصيل بنود ولا خصم مخزون."""
+
+    employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all())
+    branch = serializers.PrimaryKeyRelatedField(
+        queryset=Branch.objects.all(), required=False, allow_null=True
+    )
+    date = serializers.DateField()
+    cash = serializers.DecimalField(max_digits=15, decimal_places=2, required=False, default=Decimal("0"))
+    transfer = serializers.DecimalField(max_digits=15, decimal_places=2, required=False, default=Decimal("0"))
+    card = serializers.DecimalField(max_digits=15, decimal_places=2, required=False, default=Decimal("0"))
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        employee = attrs["employee"]
+        branch = attrs.get("branch") or employee.branch
+        if branch is None:
+            raise serializers.ValidationError({"branch": "حدّد الفرع"})
+        if employee.branch_id != branch.id:
+            raise serializers.ValidationError(
+                {"employee": "الموظف لا يتبع الفرع المحدد"}
+            )
+        cash = attrs.get("cash") or Decimal("0")
+        transfer = attrs.get("transfer") or Decimal("0")
+        card = attrs.get("card") or Decimal("0")
+        for label, amount in (("cash", cash), ("transfer", transfer), ("card", card)):
+            if amount < 0:
+                raise serializers.ValidationError({label: "المبلغ لا يمكن أن يكون سالباً"})
+        if cash + transfer + card <= 0:
+            raise serializers.ValidationError(
+                {"detail": "أدخل مبلغاً واحداً على الأقل أكبر من صفر"}
+            )
+        attrs["branch"] = branch
+        return attrs
+
+    def create(self, validated_data):
+        return create_manual_session(
+            employee=validated_data["employee"],
+            branch=validated_data["branch"],
+            sale_date=validated_data["date"],
+            cash=validated_data.get("cash") or Decimal("0"),
+            transfer=validated_data.get("transfer") or Decimal("0"),
+            card=validated_data.get("card") or Decimal("0"),
+            notes=validated_data.get("notes") or "",
+        )
+
+
 class SaleSessionItemCreateSerializer(serializers.Serializer):
     fabric = serializers.PrimaryKeyRelatedField(queryset=Fabric.objects.all())
     sale_type = serializers.ChoiceField(
@@ -179,6 +240,12 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(
         choices=SaleSessionItem.PaymentMethod.choices,
         default=SaleSessionItem.PaymentMethod.CASH,
+    )
+    customer_name = serializers.CharField(
+        required=False, allow_blank=True, default=""
+    )
+    customer_phone = serializers.CharField(
+        required=False, allow_blank=True, default=""
     )
 
     def validate(self, attrs):
@@ -222,8 +289,14 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
         if "unit_price" not in attrs or attrs.get("unit_price") is None:
             attrs["unit_price"] = auto
         unit_price = Decimal(str(attrs["unit_price"]))
-        if unit_price < 0:
-            raise serializers.ValidationError({"unit_price": "سعر الوحدة لا يمكن أن يكون سالباً"})
+        if unit_price <= 0:
+            raise serializers.ValidationError(
+                {
+                    "unit_price": (
+                        "لا يمكن حفظ البيعة بدون سعر — حدّد سعر البيع في ملف القماش أو أسعار الفرع"
+                    )
+                }
+            )
 
         bp_min_yard = branch_price.min_sale_yard if branch_price else None
         bp_min_roll = branch_price.min_sale_roll if branch_price else None
@@ -306,6 +379,7 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         validated_data["session"] = self.context["session"]
+        validated_data["sale_group"] = self.context.get("sale_group") or str(uuid.uuid4())
         return SaleSessionItem.objects.create(**validated_data)
 
 

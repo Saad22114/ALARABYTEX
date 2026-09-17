@@ -84,6 +84,17 @@ class SaleSession(TimeStampedModel):
         max_digits=15, decimal_places=2, default=Decimal("0"),
         verbose_name="قيمة العمولة",
     )
+    is_manual = models.BooleanField(default=False, verbose_name="وردية مُدخلة يدوياً")
+    manual_date = models.DateField(null=True, blank=True, verbose_name="تاريخ البيعة اليدوية")
+    manual_cash = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal("0"), verbose_name="النقدي (يدوي)"
+    )
+    manual_transfer = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal("0"), verbose_name="التحويل (يدوي)"
+    )
+    manual_card = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal("0"), verbose_name="الماكينة (يدوي)"
+    )
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
 
     class Meta:
@@ -130,6 +141,9 @@ class SaleSessionItem(TimeStampedModel):
     )
     total = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="الإجمالي")
     sale_date = models.DateField(verbose_name="تاريخ البيع")
+    customer_name = models.CharField(max_length=150, blank=True, verbose_name="اسم الزبون")
+    customer_phone = models.CharField(max_length=30, blank=True, verbose_name="رقم هاتف الزبون")
+    sale_group = models.CharField(max_length=36, blank=True, verbose_name="معرّف البيعة")
 
     class Meta:
         verbose_name = "بند وردية"

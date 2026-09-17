@@ -8,6 +8,7 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from core.daterange import resolve_range
 from warehouses.models import FabricRoll
 from warehouses.services import create_purchase_receipts
 
@@ -34,7 +35,17 @@ class SupplierViewSet(viewsets.ModelViewSet):
         total_suppliers = qs.count()
         active_count = qs.filter(is_active=True).count()
 
-        entries = LedgerEntry.objects
+        start_date, end_date, _ = resolve_range(request.query_params)
+        entries = LedgerEntry.objects.filter(
+            date__gte=start_date, date__lte=end_date
+        )
+        warehouse_id = request.query_params.get("warehouse")
+        branch_id = request.query_params.get("branch")
+        if warehouse_id:
+            entries = entries.filter(warehouse_id=warehouse_id)
+        if branch_id:
+            entries = entries.filter(branch_id=branch_id)
+
         ledger_agg = entries.aggregate(
             purchases=Sum("amount", filter=Q(entry_type=LedgerEntry.EntryType.PURCHASE)),
             payments=Sum("amount", filter=Q(entry_type=LedgerEntry.EntryType.PAYMENT)),

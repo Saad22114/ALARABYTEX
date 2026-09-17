@@ -1,7 +1,7 @@
 from django.db import transaction
 from django.db.models import Sum
-from django.utils import timezone
 from rest_framework import serializers
+from core.daterange import resolve_range
 from suppliers.models import Fabric
 from warehouses.models import Warehouse
 from .models import Branch, FabricBranchPrice
@@ -11,6 +11,7 @@ class BranchSerializer(serializers.ModelSerializer):
     sales_count = serializers.SerializerMethodField()
     expenses_count = serializers.SerializerMethodField()
     monthly_sales = serializers.SerializerMethodField()
+    monthly_expenses = serializers.SerializerMethodField()
     target_progress_pct = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(default=True)
 
@@ -19,7 +20,7 @@ class BranchSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "code", "phone", "address", "city", "notes",
             "is_active", "sales_count", "expenses_count",
-            "monthly_sales_target", "monthly_sales", "target_progress_pct",
+            "monthly_sales_target", "monthly_sales", "monthly_expenses", "target_progress_pct",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -30,11 +31,24 @@ class BranchSerializer(serializers.ModelSerializer):
     def get_expenses_count(self, obj):
         return obj.expenses.count()
 
+    def _range(self):
+        request = self.context.get("request")
+        params = request.query_params if request is not None else {}
+        return resolve_range(params, default_period="month")[:2]
+
     def get_monthly_sales(self, obj):
-        today = timezone.localdate()
+        start_date, end_date = self._range()
         total = (
-            obj.daily_sales.filter(date__year=today.year, date__month=today.month)
+            obj.daily_sales.filter(date__gte=start_date, date__lte=end_date)
             .aggregate(total=Sum("total_sales"))["total"]
+        )
+        return float(total or 0)
+
+    def get_monthly_expenses(self, obj):
+        start_date, end_date = self._range()
+        total = (
+            obj.expenses.filter(date__gte=start_date, date__lte=end_date)
+            .aggregate(total=Sum("amount"))["total"]
         )
         return float(total or 0)
 

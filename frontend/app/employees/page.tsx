@@ -27,6 +27,7 @@ import {
 import { getSectionsInfo } from '@/services/sections';
 import { listBranches } from '@/services/branches';
 import { useToast } from '@/components/ui/Toast';
+import { useUrlState } from '@/lib/useUrlState';
 
 interface EmployeeForm {
   name: string;
@@ -63,9 +64,9 @@ export default function EmployeesPage() {
   const [branches, setBranches] = useState<Array<{ id: number; name: string }>>([]);
   const [sectionsInfo, setSectionsInfo] = useState<SectionsInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filterBranch, setFilterBranch] = useState('');
-  const [filterRole, setFilterRole] = useState('');
+  const [search, setSearch] = useUrlState('q', '');
+  const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  const [filterRole, setFilterRole] = useUrlState('role', '');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<EmployeeForm>(emptyForm());

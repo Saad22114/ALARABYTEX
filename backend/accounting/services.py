@@ -144,16 +144,24 @@ def _round2(value):
 def post_session_close(session):
     """قيد إغلاق الوردية: نقد/بنك مقابل مبيعات + تكلفة البضاعة مقابل المخزون."""
     unpost_source(JournalEntry.Source.SESSION, session.pk)
-    rows = list(session.items.select_related("fabric"))
-    if not rows:
-        return
     from sale_sessions.models import SaleSessionItem
 
-    totals = {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values}
-    cogs = Decimal("0")
-    for r in rows:
-        totals[r.payment_method] += _round2(r.total)
-        cogs += _round2((r.fabric.purchase_price or Decimal("0")) * r.yards_effective)
+    if getattr(session, "is_manual", False):
+        totals = {
+            "cash": _round2(session.manual_cash),
+            "transfer": _round2(session.manual_transfer),
+            "card": _round2(session.manual_card),
+        }
+        cogs = Decimal("0")
+    else:
+        rows = list(session.items.select_related("fabric"))
+        if not rows:
+            return
+        totals = {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values}
+        cogs = Decimal("0")
+        for r in rows:
+            totals[r.payment_method] += _round2(r.total)
+            cogs += _round2((r.fabric.purchase_price or Decimal("0")) * r.yards_effective)
     total = sum(totals.values(), Decimal("0"))
 
     lines = []

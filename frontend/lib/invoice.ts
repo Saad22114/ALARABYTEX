@@ -102,6 +102,31 @@ export function englishWords(amount: number): string {
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
 export function sessionToDailySales(session: SaleSession): DailySale[] {
+  if (session.is_manual) {
+    const cash = Number(session.manual_cash) || 0;
+    const transfer = Number(session.manual_transfer) || 0;
+    const card = Number(session.manual_card) || 0;
+    const total = round2(cash + transfer + card);
+    return [{
+      id: 0,
+      branch: session.branch,
+      branch_name: session.branch_name,
+      employee: session.employee,
+      employee_name: session.employee_name,
+      date: session.manual_date || '',
+      total_sales: total,
+      cash_amount: round2(cash),
+      transfer_amount: round2(transfer),
+      card_amount: round2(card),
+      other_amount: 0,
+      notes: session.notes || '',
+      payment_total: total,
+      mismatch: false,
+      items: [],
+      created_at: '',
+      updated_at: '',
+    }];
+  }
   const byDate = new Map<string, DailySale>();
   for (const it of session.items) {
     const date = it.sale_date;

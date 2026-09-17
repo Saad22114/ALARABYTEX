@@ -9,6 +9,7 @@ import { ChatMessage, ChatContactSummary } from '@/types';
 import Badge from '@/components/ui/Badge';
 import Card from '@/components/ui/Card';
 import { useToast } from '@/components/ui/Toast';
+import { useUrlState } from '@/lib/useUrlState';
 
 function withinWindow(msg: ChatMessage): boolean {
   const diff = Date.now() - new Date(msg.created_at).getTime();
@@ -26,8 +27,8 @@ export default function MessagesPage() {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [contactSearch, setContactSearch] = useState('');
-  const [threadSearch, setThreadSearch] = useState('');
+  const [contactSearch, setContactSearch] = useUrlState('q', '');
+  const [threadSearch, setThreadSearch] = useUrlState('thread_q', '');
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');

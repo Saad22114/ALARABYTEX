@@ -38,6 +38,7 @@ import { formatCurrency, formatDate } from '@/lib/format';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 const OPERATION_TYPE_OPTIONS = [
   { value: 'support', label: 'دعم (إيداع)' },
@@ -100,17 +101,17 @@ export default function PartnersPage() {
   const [loadingPartners, setLoadingPartners] = useState(true);
   const [data, setData] = useState<Paginated<PartnerOperation> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [tab, setTab] = useState<Tab>('partners');
+  const [search, setSearch] = useUrlState('q', '');
+  const [page, setPage] = useUrlState('page', 1);
+  const [tab, setTab] = useUrlState<Tab>('tab', 'partners');
 
   const [summary, setSummary] = useState<PartnerOperationsSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [distribution, setDistribution] = useState<PartnerDistributionResult | null>(null);
   const [distributionLoading, setDistributionLoading] = useState(false);
 
-  const [from, setFrom] = useState(() => currentMonthRange().from);
-  const [to, setTo] = useState(() => currentMonthRange().to);
+  const [from, setFrom] = useUrlState('from', currentMonthRange().from);
+  const [to, setTo] = useUrlState('to', currentMonthRange().to);
 
   const [opModalOpen, setOpModalOpen] = useState(false);
   const [opForm, setOpForm] = useState<OperationForm>(emptyOperationForm());

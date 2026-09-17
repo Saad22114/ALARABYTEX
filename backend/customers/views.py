@@ -3,6 +3,8 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from core.daterange import resolve_range
+
 from .models import Customer
 from .serializers import CustomerSerializer
 
@@ -24,6 +26,19 @@ class CustomerViewSet(viewsets.ModelViewSet):
         elif is_active in ("false", "0"):
             qs = qs.filter(is_active=False)
         return qs
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request):
+        qs = self.get_queryset()
+        start_date, end_date, _ = resolve_range(request.query_params, default_period="month")
+        return Response({
+            "total_customers": qs.count(),
+            "active_count": qs.filter(is_active=True).count(),
+            "new_count": qs.filter(
+                created_at__date__gte=start_date, created_at__date__lte=end_date
+            ).count(),
+            "with_phone_count": qs.exclude(phone__isnull=True).exclude(phone="").count(),
+        })
 
     @action(detail=False, methods=["get"], url_path="lookup")
     def lookup(self, request):

@@ -1,4 +1,5 @@
 from datetime import date
+import json
 import struct
 import tempfile
 
@@ -123,6 +124,83 @@ class SettingsAPITest(TestCase):
         ):
             r = self.c.patch("/api/settings/", patch, format="json")
             self.assertEqual(r.status_code, 400, patch)
+
+
+class BackupEncryptionTest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+        self.today = date.today().isoformat()
+        self.branch = Branch.objects.create(name="مركز مسقط", code="MHN")
+
+    def _clear_data(self):
+        Expense.objects.all().delete()
+        DailySale.objects.all().delete()
+        ExpenseCategory.objects.all().delete()
+        Supplier.objects.all().delete()
+        Branch.objects.all().delete()
+
+    def test_password_hidden_from_api(self):
+        r = self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertNotIn("backup_password", r.data)
+        self.assertTrue(r.data["has_backup_password"])
+
+        r = self.c.get("/api/settings/")
+        self.assertNotIn("backup_password", r.data)
+        self.assertTrue(r.data["has_backup_password"])
+
+    def test_plain_backup_when_no_password(self):
+        r = self.c.get("/api/settings/backup/")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data.get("version"), 1)
+        self.assertFalse(data.get("encrypted", False))
+
+    def test_encrypted_backup_roundtrip(self):
+        self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+        DailySale.objects.create(
+            branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
+        )
+
+        r = self.c.get("/api/settings/backup/")
+        self.assertEqual(r.status_code, 200)
+        envelope = r.json()
+        self.assertTrue(envelope["encrypted"])
+        self.assertEqual(envelope["format"], "qomash-backup")
+        raw_text = r.content.decode("utf-8")
+
+        self._clear_data()
+        self.assertEqual(DailySale.objects.count(), 0)
+
+        r = self.c.post("/api/settings/restore/", {"content": raw_text}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Branch.objects.count(), 1)
+        self.assertEqual(DailySale.objects.count(), 1)
+
+    def test_restore_encrypted_with_wrong_password_fails(self):
+        self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+        raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
+
+        self.c.patch("/api/settings/", {"backup_password": "other"}, format="json")
+        r = self.c.post("/api/settings/restore/", {"content": raw_text}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("غير صحيحة", r.data["detail"])
+
+    def test_restore_encrypted_without_password_fails(self):
+        self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+        raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
+
+        self.c.patch("/api/settings/", {"backup_password": ""}, format="json")
+        r = self.c.post("/api/settings/restore/", {"content": raw_text}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_restore_legacy_plain_object(self):
+        raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        data = json.loads(raw_text)
+        self._clear_data()
+        r = self.c.post("/api/settings/restore/", data, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Branch.objects.count(), 1)
 
 
 class BackupRestoreTest(TestCase):

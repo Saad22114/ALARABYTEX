@@ -33,9 +33,17 @@ function makeSession(): SaleSession {
         total: 17.5,
         sale_date: '2026-09-15',
         yards_effective: 3.5,
+        customer_name: '',
+        customer_phone: '',
+        sale_group: 'group-1',
       },
     ],
     totals: { cash: 17.5, transfer: 0, card: 0, total: 17.5, yards: 3.5 },
+    is_manual: false,
+    manual_date: null,
+    manual_cash: 0,
+    manual_transfer: 0,
+    manual_card: 0,
   };
 }
 

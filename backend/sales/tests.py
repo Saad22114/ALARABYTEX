@@ -276,3 +276,17 @@ class SalesByEmployeeTest(TestCase):
     def test_by_employee_requires_employee_branch_match(self):
         r = self.c.get(f"/api/sales/by-employee/?branch={self.branch.id}&date_from={self.today}&date_to={self.today}")
         self.assertEqual(r.status_code, 200)
+
+    def test_by_employee_includes_quantities(self):
+        wh = Warehouse.objects.create(name="W", code="W", branch=self.branch)
+        fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5)
+        FabricRoll.objects.create(warehouse=wh, fabric=fabric, yards=100, remaining_yards=100)
+        self._sale(
+            employee=self.e1.id, total_sales=50, cash_amount=50,
+            items=[{"fabric": fabric.id, "yards": 10, "unit_price": 5}],
+        )
+        r = self.c.get(f"/api/sales/by-employee/?branch={self.branch.id}")
+        self.assertEqual(r.status_code, 200)
+        row = {i["employee_name"]: i for i in r.data["items"]}["أحمد"]
+        self.assertEqual(row["items_count"], 1)
+        self.assertEqual(row["yards_total"], 10.0)

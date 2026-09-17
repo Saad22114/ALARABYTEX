@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from appsettings.models import AppSettings
 from branches.models import Branch
+from core.daterange import resolve_range
 from expenses.models import Expense
 from partners.models import PartnerOperation
 from sale_sessions.models import SaleSession
@@ -104,29 +105,8 @@ class DashboardAlertsView(APIView):
 
 class DashboardSummaryView(APIView):
     def get(self, request):
-        today = timezone.localdate()
-        period = request.query_params.get("period", "today")
+        start_date, end_date, period = resolve_range(request.query_params)
         branch_id = request.query_params.get("branch")
-
-        if period == "today":
-            start_date = today
-            end_date = today
-        elif period == "week":
-            start_date = today - timedelta(days=today.weekday())
-            end_date = today
-        elif period == "month":
-            start_date = today.replace(day=1)
-            end_date = today
-        elif period == "custom":
-            start_date = request.query_params.get("date_from", today)
-            end_date = request.query_params.get("date_to", today)
-            if isinstance(start_date, str):
-                start_date = date.fromisoformat(start_date)
-            if isinstance(end_date, str):
-                end_date = date.fromisoformat(end_date)
-        else:
-            start_date = today
-            end_date = today
 
         sales_qs = DailySale.objects.filter(date__gte=start_date, date__lte=end_date)
         expense_qs = Expense.objects.filter(date__gte=start_date, date__lte=end_date)

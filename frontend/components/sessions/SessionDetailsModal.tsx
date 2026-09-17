@@ -221,11 +221,14 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                 <FileDown size={15} className="ms-1" />
                 تصدير CSV
               </Button>
-              {session.status === 'closed' && (
+              {session.status === 'closed' && !session.is_manual && (
                 <Button variant="primary" size="sm" className="mr-auto" onClick={() => setConfirmReopen(true)}>
                   <RotateCcw size={15} className="ms-1" />
                   إعادة فتح الوردية
                 </Button>
+              )}
+              {session.is_manual && (
+                <div className="mr-auto"><Badge variant="warning">وردية مُدخلة يدوياً</Badge></div>
               )}
             </div>
 
@@ -240,6 +243,12 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                   {session.status_label}
                 </Badge>
               </div>
+              {session.is_manual && (
+                <p className="mt-2 text-sm text-amber-700">
+                  وردية مسجلة كمجموع يدوي بدون تفاصيل أصناف
+                  {session.manual_date ? ` — بتاريخ ${formatDate(session.manual_date)}` : ''}
+                </p>
+              )}
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-neutral-400">فُتحت</p>

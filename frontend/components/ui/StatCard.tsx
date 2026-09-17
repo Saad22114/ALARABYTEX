@@ -5,7 +5,7 @@ interface StatCardProps {
   iconBg?: string;
   label: string;
   value: string | number;
-  sub?: string;
+  sub?: React.ReactNode;
 }
 
 export default function StatCard({ icon, iconBg = 'bg-brand-50 text-brand-600', label, value, sub }: StatCardProps) {

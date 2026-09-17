@@ -1,6 +1,7 @@
 import { apiRequest, buildQuery } from './api';
 import {
   Employee,
+  ManualSessionWrite,
   Paginated,
   SaleSession,
   SaleSessionSummary,
@@ -84,5 +85,12 @@ export async function moveSessionItem(id: number, itemId: number, targetSession:
   return apiRequest<SessionSaleItem>(`/sale-sessions/${id}/move-item/${itemId}/`, {
     method: 'POST',
     body: JSON.stringify({ target_session: targetSession }),
+  });
+}
+
+export async function createManualSession(data: ManualSessionWrite): Promise<SaleSession> {
+  return apiRequest<SaleSession>('/sale-sessions/manual/', {
+    method: 'POST',
+    body: JSON.stringify(data),
   });
 }

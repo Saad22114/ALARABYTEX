@@ -7,6 +7,7 @@ import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
 import Pagination from '@/components/ui/Pagination';
+import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
@@ -15,6 +16,7 @@ import { listMovements } from '@/services/warehouses';
 import { listWarehouses } from '@/services/warehouses';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 const TYPE_META: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'neutral' }> = {
   receipt: { label: 'استلام من مورد', variant: 'success' },
@@ -33,10 +35,12 @@ export default function MovementsPage() {
   const pageSize = settings?.default_page_size ?? 10;
   const [data, setData] = useState<Paginated<StockMovement> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [warehouse, setWarehouse] = useState('');
-  const [movementType, setMovementType] = useState('');
+  const [page, setPage] = useUrlState('page', 1);
+  const [search, setSearch] = useUrlState('q', '');
+  const [warehouse, setWarehouse] = useUrlState('warehouse', '');
+  const [movementType, setMovementType] = useUrlState('type', '');
+  const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
+  const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   const fetchData = useCallback(() => {
@@ -48,13 +52,15 @@ export default function MovementsPage() {
       search: search || undefined,
       warehouse: warehouse || undefined,
       movement_type: movementType || undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
     };
     listMovements(params)
       .then((res) => { if (!cancelled) setData(res); })
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize, search, warehouse, movementType]);
+  }, [page, pageSize, search, warehouse, movementType, dateFrom, dateTo]);
 
   useEffect(() => fetchData(), [fetchData]);
 
@@ -71,6 +77,12 @@ export default function MovementsPage() {
           <h1 className="text-xl font-bold text-neutral-800">حركات المخزون</h1>
           <p className="text-sm text-neutral-500">السجل الزمني الكامل لجميع الحركات الموثقة في المخازن</p>
         </div>
+
+        <DateRangeToolbar
+          from={dateFrom}
+          to={dateTo}
+          onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1); }}
+        />
 
         <Card>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border-b border-sand-100">

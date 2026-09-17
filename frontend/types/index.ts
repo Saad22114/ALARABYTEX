@@ -11,6 +11,7 @@ export interface Branch {
   expenses_count: number;
   monthly_sales_target: number;
   monthly_sales: number;
+  monthly_expenses: number;
   target_progress_pct: number | null;
   created_at: string;
   updated_at: string;
@@ -69,6 +70,13 @@ export interface Customer {
 export interface CustomerLookupResult {
   found: boolean;
   customer: Customer | null;
+}
+
+export interface CustomersSummary {
+  total_customers: number;
+  active_count: number;
+  new_count: number;
+  with_phone_count: number;
 }
 
 export type FabricUnit = 'yard' | 'meter' | 'roll';
@@ -339,6 +347,8 @@ export interface SalesByEmployeeRow {
   card_total: number;
   other_total: number;
   sales_count: number;
+  items_count: number;
+  yards_total: number;
 }
 
 export interface SalesByEmployeeResult {
@@ -596,6 +606,8 @@ export interface AppSettings {
   receipt_show_tax: boolean;
   receipt_show_phone: boolean;
   logo: string;
+  backup_password?: string;
+  has_backup_password?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1117,6 +1129,9 @@ export interface SessionSaleItem {
   total: number;
   sale_date: string;
   yards_effective: number;
+  customer_name: string;
+  customer_phone: string;
+  sale_group: string;
 }
 
 export interface SessionSaleItemWrite {
@@ -1126,6 +1141,8 @@ export interface SessionSaleItemWrite {
   unit_price?: number;
   discount_amount?: number;
   payment_method: SessionPaymentMethod;
+  customer_name?: string;
+  customer_phone?: string;
 }
 
 export interface SessionTotals {
@@ -1153,6 +1170,21 @@ export interface SaleSession {
   elapsed_minutes: number | null;
   items: SessionSaleItem[];
   totals: SessionTotals;
+  is_manual: boolean;
+  manual_date: string | null;
+  manual_cash: number;
+  manual_transfer: number;
+  manual_card: number;
+}
+
+export interface ManualSessionWrite {
+  employee: number;
+  branch?: number;
+  date: string;
+  cash: number;
+  transfer: number;
+  card: number;
+  notes?: string;
 }
 
 export interface SaleSessionSummary {

@@ -5,34 +5,28 @@ import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
-import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
 import DateRangeToolbar, { getRangeForKey, DateRangeKey } from '@/components/ui/DateRangeToolbar';
-import Pagination from '@/components/ui/Pagination';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import SalesForm from '@/components/forms/SalesForm';
 import SessionsPanel from '@/components/sessions/SessionsPanel';
 import SessionItemEditModal from '@/components/sessions/SessionItemEditModal';
 import SessionDetailsModal from '@/components/sessions/SessionDetailsModal';
 import SessionEditModal from '@/components/sessions/SessionEditModal';
+import ManualSessionModal from '@/components/sessions/ManualSessionModal';
 import Badge from '@/components/ui/Badge';
-import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import StatCard from '@/components/ui/StatCard';
 import {
   Plus, Pencil, Trash2, Store, Timer,
   IndianRupee, Banknote, Download, Users, ChevronDown, ChevronLeft, Archive, Eye, EyeOff, ChevronsUp, ChevronsDownUp,
-  Printer, Share2, Square, CheckSquare, CheckCircle,
+  Printer, Share2, CheckCircle,
 } from 'lucide-react';
 import {
-  DailySale, Branch, Employee, Paginated,
-  SaleWritePayload, SaleSummary, SalesByEmployeeResult, SaleSession, SessionSaleItem, Fabric,
+  Branch, Employee, DailySale,
+  SaleSummary, SalesByEmployeeResult, SaleSession, SessionSaleItem, Fabric,
 } from '@/types';
-import {
-  listSales, createSale, updateSale, deleteSale,
-  getSalesSummary, getSalesByEmployee, salesExportUrl,
-} from '@/services/sales';
+import { listSales, getSalesSummary, getSalesByEmployee, salesExportUrl } from '@/services/sales';
 import { listSaleSessions, removeSessionItem, deleteSaleSession } from '@/services/sessions';
 import { listBranches } from '@/services/branches';
 import { listEmployees } from '@/services/employees';
@@ -42,46 +36,39 @@ import { openSalesInvoice, sessionToDailySales } from '@/lib/invoice';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 export default function SalesPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
-  const [tab, setTab] = useState<'sales' | 'sessions'>('sales');
-  const pageSize = settings?.default_page_size ?? 10;
+  const [tab, setTab] = useUrlState<'sales' | 'sessions'>('tab', 'sales');
 
-  const [data, setData] = useState<Paginated<DailySale> | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  const [search, setSearch] = useState('');
-  const [filterBranch, setFilterBranch] = useState('');
-  const [filterEmployee, setFilterEmployee] = useState('');
-  const [dateFrom, setDateFrom] = useState(() => getRangeForKey('today').from);
-  const [dateTo, setDateTo] = useState(() => getRangeForKey('today').to);
-  const [page, setPage] = useState(1);
+  const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  const [filterEmployee, setFilterEmployee] = useUrlState('employee', '');
+  const [dateFrom, setDateFrom] = useUrlState('from', getRangeForKey('today').from);
+  const [dateTo, setDateTo] = useUrlState('to', getRangeForKey('today').to);
+
+  const [empFrom, setEmpFrom] = useUrlState('emp_from', getRangeForKey('today').from);
+  const [empTo, setEmpTo] = useUrlState('emp_to', getRangeForKey('today').to);
 
   const [summary, setSummary] = useState<SaleSummary | null>(null);
   const [byEmployee, setByEmployee] = useState<SalesByEmployeeResult | null>(null);
   const [showByEmployee, setShowByEmployee] = useState(false);
   const [byEmployeeLoading, setByEmployeeLoading] = useState(false);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [savedSale, setSavedSale] = useState<DailySale | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
   const [generatedOpen, setGeneratedOpen] = useState(false);
   const [generatedSales, setGeneratedSales] = useState<DailySale[]>([]);
-  const [editing, setEditing] = useState<DailySale | null>(null);
-  const [deleting, setDeleting] = useState<DailySale | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const [closedSessions, setClosedSessions] = useState<SaleSession[]>([]);
   const [closedLoading, setClosedLoading] = useState(true);
   const [expandedClosed, setExpandedClosed] = useState<Set<number>>(new Set());
-  const [sessionBranch, setSessionBranch] = useState('');
-  const [sessionEmployee, setSessionEmployee] = useState('');
-  const [sessionFrom, setSessionFrom] = useState(() => getRangeForKey('today').from);
-  const [sessionTo, setSessionTo] = useState(() => getRangeForKey('today').to);
+  const [showClosedSessions, setShowClosedSessions] = useState<boolean>(true);
+
   const [editClosedItem, setEditClosedItem] = useState<{ session: SaleSession; item: SessionSaleItem } | null>(null);
   const [deleteClosedItem, setDeleteClosedItem] = useState<{ session: SaleSession; item: SessionSaleItem } | null>(null);
   const [deleteClosedLoading, setDeleteClosedLoading] = useState(false);
@@ -89,14 +76,6 @@ export default function SalesPage() {
   const [editClosedSession, setEditClosedSession] = useState<SaleSession | null>(null);
   const [deleteClosedSession, setDeleteClosedSession] = useState<SaleSession | null>(null);
   const [deleteClosedSessionLoading, setDeleteClosedSessionLoading] = useState(false);
-  const [showClosedSessions, setShowClosedSessions] = useState<boolean>(true);
-
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const selectedSales = useMemo(
-    () => (data ? data.results.filter((s) => selected.has(s.id)) : []),
-    [data, selected]
-  );
-  const allSelected = !!data && data.results.length > 0 && data.results.every((s) => selected.has(s.id));
 
   const [selectedClosed, setSelectedClosed] = useState<Set<number>>(new Set());
   const selectedClosedSessions = useMemo(
@@ -105,23 +84,7 @@ export default function SalesPage() {
   );
   const allClosedSelected = closedSessions.length > 0 && closedSessions.every((s) => selectedClosed.has(s.id));
 
-  const toggleSelect = useCallback((id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleSelectAll = useCallback(() => {
-    setSelected((prev) => {
-      if (!data) return prev;
-      return allSelected ? new Set() : new Set(data.results.map((s) => s.id));
-    });
-  }, [data, allSelected]);
-
-  useEffect(() => setSelected(new Set()), [tab, page, search, filterBranch, filterEmployee, dateFrom, dateTo]);
-  useEffect(() => setSelectedClosed(new Set()), [sessionBranch, sessionEmployee, sessionFrom, sessionTo, tab]);
+  useEffect(() => setSelectedClosed(new Set()), [filterBranch, filterEmployee, dateFrom, dateTo, tab]);
 
   const appliedDefaultPeriod = useRef<string | null>(null);
   useEffect(() => {
@@ -131,9 +94,8 @@ export default function SalesPage() {
     const r = getRangeForKey(settings.default_period as DateRangeKey);
     setDateFrom(r.from);
     setDateTo(r.to);
-    setSessionFrom(r.from);
-    setSessionTo(r.to);
-    setPage(1);
+    setEmpFrom(r.from);
+    setEmpTo(r.to);
   }, [settings?.default_period]);
 
   useEffect(() => {
@@ -162,24 +124,11 @@ export default function SalesPage() {
   }, [filterBranch]);
 
   const filterParams = useMemo(() => ({
-    search: search || undefined,
     branch: filterBranch || undefined,
     employee: filterEmployee || undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
-  }), [search, filterBranch, filterEmployee, dateFrom, dateTo]);
-
-  const fetchData = useCallback(() => {
-    let cancelled = false;
-    setLoading(true);
-    listSales({ ...filterParams, page, page_size: pageSize })
-      .then((res) => { if (!cancelled) setData(res); })
-      .catch((err) => { if (!cancelled) toast('error', err.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [filterParams, page, pageSize]);
-
-  useEffect(() => fetchData(), [fetchData]);
+  }), [filterBranch, filterEmployee, dateFrom, dateTo]);
 
   const fetchSummary = useCallback(() => {
     let cancelled = false;
@@ -193,12 +142,12 @@ export default function SalesPage() {
 
   const sessionParams = useMemo(() => ({
     status: 'closed',
-    branch: sessionBranch || undefined,
-    employee: sessionEmployee || undefined,
-    closed_from: sessionFrom || undefined,
-    closed_to: sessionTo || undefined,
+    branch: filterBranch || undefined,
+    employee: filterEmployee || undefined,
+    closed_from: dateFrom || undefined,
+    closed_to: dateTo || undefined,
     page_size: 200,
-  }), [sessionBranch, sessionEmployee, sessionFrom, sessionTo]);
+  }), [filterBranch, filterEmployee, dateFrom, dateTo]);
 
   const fetchClosedSessions = useCallback(() => {
     let cancelled = false;
@@ -216,25 +165,28 @@ export default function SalesPage() {
     }
   }, [tab, fetchClosedSessions]);
 
+  const byEmployeeParams = useMemo(() => ({
+    branch: filterBranch || undefined,
+    employee: filterEmployee || undefined,
+    date_from: empFrom || undefined,
+    date_to: empTo || undefined,
+  }), [filterBranch, filterEmployee, empFrom, empTo]);
+
+  const fetchByEmployee = useCallback(() => {
+    let cancelled = false;
+    setByEmployeeLoading(true);
+    getSalesByEmployee(byEmployeeParams)
+      .then((res) => { if (cancelled) return; setByEmployee(res); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setByEmployeeLoading(false); });
+    return () => { cancelled = true; };
+  }, [byEmployeeParams]);
+
+  useEffect(() => { return fetchByEmployee(); }, [fetchByEmployee]);
+
   const refreshSalesTab = useCallback(() => {
     fetchClosedSessions();
   }, [fetchClosedSessions]);
-
-  const handlePrintInvoice = useCallback((sale: DailySale) => {
-    openSalesInvoice([sale], settings, { title: 'فاتورة بيع', autoPrint: true });
-  }, [settings]);
-
-  const handleShareInvoice = useCallback((sale: DailySale) => {
-    openSalesInvoice([sale], settings, { title: 'فاتورة بيع', autoPrint: true });
-  }, [settings]);
-
-  const handlePrintCombined = useCallback(() => {
-    openSalesInvoice(selectedSales, settings, { title: 'فاتورة مجمعة', autoPrint: true });
-  }, [selectedSales, settings]);
-
-  const handleShareCombined = useCallback(() => {
-    openSalesInvoice(selectedSales, settings, { title: 'فاتورة مجمعة', autoPrint: true });
-  }, [selectedSales, settings]);
 
   const handleClosedDelete = async () => {
     if (!deleteClosedItem) return;
@@ -244,7 +196,6 @@ export default function SalesPage() {
       toast('success', 'تم حذف البيعة من الوردية وتحديث المبيعات');
       setDeleteClosedItem(null);
       fetchClosedSessions();
-      fetchData();
       fetchSummary();
     } catch (err: any) {
       toast('error', err.message);
@@ -261,7 +212,6 @@ export default function SalesPage() {
       toast('success', 'تم حذف الوردية وإرجاع المخزون');
       setDeleteClosedSession(null);
       fetchClosedSessions();
-      fetchData();
       fetchSummary();
     } catch (err: any) {
       toast('error', err.message);
@@ -324,48 +274,16 @@ export default function SalesPage() {
     return { items, yards, cash, transfer, card, total };
   }, [closedSessions]);
 
-  const fetchByEmployee = useCallback(() => {
-    let cancelled = false;
-    setByEmployeeLoading(true);
-    getSalesByEmployee(filterParams)
-      .then((res) => { if (cancelled) return; setByEmployee(res); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setByEmployeeLoading(false); });
-    return () => { cancelled = true; };
-  }, [filterParams]);
-
-  useEffect(() => { return fetchByEmployee(); }, [fetchByEmployee]);
-
-  const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
-
-  const editBranches = useMemo(() => {
-    if (!editing || branches.some((b) => b.id === editing.branch)) return branches;
-    return [...branches, {
-      id: editing.branch, name: editing.branch_name || 'فرع (موقوف)',
-      code: '', phone: '', address: '', city: '', notes: '',
-      is_active: false, sales_count: 0, expenses_count: 0,
-      monthly_sales_target: 0, monthly_sales: 0, target_progress_pct: 0,
-      created_at: '', updated_at: '',
-    }];
-  }, [branches, editing]);
-
-  const handleCreate = async (d: SaleWritePayload) => {
-    const created = await createSale(d);
-    toast('success', 'تم تسجيل المبيعات بنجاح');
-    setSavedSale(created);
-    fetchData();
-    fetchSummary();
-    if (showByEmployee) fetchByEmployee();
-  };
-
-  const closeSaleModal = () => {
-    setModalOpen(false);
-    setSavedSale(null);
-  };
-
   const handleSaleGenerated = useCallback(async (session: SaleSession) => {
     const dates = Array.from(new Set(session.items.map((i) => i.sale_date))).sort();
-    if (dates.length === 0) return;
+    if (dates.length === 0) {
+      const built = sessionToDailySales(session);
+      if (built.length > 0) {
+        setGeneratedSales(built);
+        setGeneratedOpen(true);
+      }
+      return;
+    }
     try {
       const res = await listSales({
         branch: String(session.branch),
@@ -387,32 +305,12 @@ export default function SalesPage() {
     setGeneratedOpen(true);
   }, []);
 
-  const handleUpdate = async (d: SaleWritePayload) => {
-    if (!editing) return;
-    await updateSale(editing.id, d);
-    toast('success', 'تم تحديث المبيعات بنجاح');
-    setEditing(null);
-    fetchData();
+  const handleManualSaved = useCallback((session: SaleSession) => {
+    setGeneratedSales(sessionToDailySales(session));
+    setGeneratedOpen(true);
+    fetchClosedSessions();
     fetchSummary();
-    if (showByEmployee) fetchByEmployee();
-  };
-
-  const handleDelete = async () => {
-    if (!deleting) return;
-    setDeleteLoading(true);
-    try {
-      await deleteSale(deleting.id);
-      toast('success', 'تم حذف السجل بنجاح');
-      setDeleting(null);
-      fetchData();
-      fetchSummary();
-      if (showByEmployee) fetchByEmployee();
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
+  }, [fetchClosedSessions, fetchSummary]);
 
   const exportUrl = useMemo(() => `${API_URL}${salesExportUrl(filterParams)}`, [filterParams]);
   const avgPerDay = summary && summary.days_count > 0 ? summary.total_sales / summary.days_count : 0;
@@ -440,9 +338,9 @@ export default function SalesPage() {
                   تصدير Excel
                 </Button>
               </a>
-              <Button onClick={() => { setSavedSale(null); setModalOpen(true); }}>
+              <Button onClick={() => setManualOpen(true)}>
                 <Plus size={18} />
-                تسجيل مبيعات
+                إضافة وردية كاملة
               </Button>
             </div>
           )}
@@ -450,7 +348,38 @@ export default function SalesPage() {
 
         {tab === 'sales' ? (
         <>
-        {/* Closed sessions (المبيعات المحفوظة) */}
+        {/* KPIs (الداشبورد) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+          <StatCard
+            icon={<IndianRupee size={20} />}
+            label="إجمالي المبيعات"
+            value={summary ? formatCurrency(summary.total_sales) : '—'}
+            sub={summary ? `${summary.sales_count} سجل في ${summary.days_count} يوم` : undefined}
+          />
+          <StatCard
+            icon={<Banknote size={20} />}
+            iconBg="bg-emerald-50 text-emerald-600"
+            label="النقدي"
+            value={summary ? formatCurrency(summary.cash) : '—'}
+            sub={summary && summary.total_sales > 0 ? `${((summary.cash / summary.total_sales) * 100).toFixed(0)}% من الإجمالي` : undefined}
+          />
+          <StatCard
+            icon={<Banknote size={20} />}
+            iconBg="bg-blue-50 text-blue-600"
+            label="التحويل والبطاقة"
+            value={summary ? formatCurrency((summary.transfer || 0) + (summary.card || 0)) : '—'}
+            sub={summary && summary.total_sales > 0 ? `${((((summary.transfer || 0) + (summary.card || 0)) / summary.total_sales) * 100).toFixed(0)}% من الإجمالي` : undefined}
+          />
+          <StatCard
+            icon={<IndianRupee size={20} />}
+            iconBg="bg-amber-50 text-amber-600"
+            label="متوسط اليوم"
+            value={summary ? formatCurrency(avgPerDay) : '—'}
+            sub={summary ? `أخرى: ${formatCurrency(summary.other || 0)}` : undefined}
+          />
+        </div>
+
+        {/* Closed sessions (الورديات المحفوظة) */}
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 border-b border-sand-100">
             <button
@@ -504,8 +433,9 @@ export default function SalesPage() {
               </button>
             </div>
           </div>
-          {showClosedSessions && closedSessions.length > 0 && (
+          {showClosedSessions && (
             <>
+              {closedSessions.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-sand-100">
                 <label className="flex items-center gap-2 text-sm font-medium text-neutral-700 cursor-pointer select-none">
                   <input type="checkbox" checked={allClosedSelected} onChange={toggleClosedSelectAll} className="w-4 h-4 accent-brand-600" title="تحديد كل الورديات لدمجها في فاتورة واحدة" />
@@ -533,34 +463,36 @@ export default function SalesPage() {
                   <span className="text-xs text-neutral-400">حدِّد أكثر من وردية لدمجها في فاتورة واحدة</span>
                 )}
               </div>
+              )}
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-sand-100">
                 <Select
-                  value={sessionBranch}
-                  onChange={(e) => { setSessionBranch(e.target.value); setSessionEmployee(''); }}
+                  value={filterBranch}
+                  onChange={(e) => { setFilterBranch(e.target.value); setFilterEmployee(''); }}
                   options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
                   className="w-full sm:w-44"
                 />
                 <Select
-                  value={sessionEmployee}
-                  onChange={(e) => setSessionEmployee(e.target.value)}
+                  value={filterEmployee}
+                  onChange={(e) => setFilterEmployee(e.target.value)}
                   options={[{ value: '', label: 'كل الموظفين' }, ...employees.map((emp) => ({ value: emp.id, label: emp.name }))]}
                   className="w-full sm:w-44"
                 />
                 <DateRangeToolbar
-                  from={sessionFrom}
-                  to={sessionTo}
-                  onChange={(f, t) => { setSessionFrom(f); setSessionTo(t); }}
+                  from={dateFrom}
+                  to={dateTo}
+                  onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
                 />
-                {(sessionBranch || sessionEmployee || sessionFrom || sessionTo) && (
+                {(filterBranch || filterEmployee || dateFrom || dateTo) && (
                   <button
                     type="button"
-                    onClick={() => { setSessionBranch(''); setSessionEmployee(''); setSessionFrom(''); setSessionTo(''); }}
+                    onClick={() => { setFilterBranch(''); setFilterEmployee(''); setDateFrom(''); setDateTo(''); }}
                     className="text-sm text-brand-600 hover:underline"
                   >
                     مسح الفلاتر
                   </button>
                 )}
               </div>
+              {closedSessions.length > 0 && (
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-sand-100 bg-sand-50/60 dark:bg-neutral-900/40">
                 <SummaryChip label="ورديات" value={String(closedSessions.length)} />
                 <SummaryChip label="بنود" value={formatNumber(sTotals.items)} />
@@ -572,6 +504,7 @@ export default function SalesPage() {
                   الإجمالي: {formatCurrency(sTotals.total)}
                 </span>
               </div>
+              )}
             </>
           )}
           {!showClosedSessions ? (
@@ -581,7 +514,7 @@ export default function SalesPage() {
           ) : closedLoading ? (
             <div className="flex justify-center py-10"><Spinner size={28} /></div>
           ) : closedSessions.length === 0 ? (
-            <p className="py-8 text-center text-sm text-neutral-400">لا توجد ورديات محفوظة — أغلِق وردية من تبويب «ورديات البيع» لتظهر هنا</p>
+            <p className="py-8 text-center text-sm text-neutral-400">لا توجد ورديات محفوظة — أغلِق وردية من تبويب «ورديات البيع» أو أضف وردية كاملة</p>
           ) : (
             <div>
               {closedSessions.map((s) => {
@@ -605,10 +538,17 @@ export default function SalesPage() {
                           <ChevronLeft size={16} className={`text-neutral-400 transition-transform ${expanded ? 'rotate-90' : ''}`} />
                           <span className="font-medium text-neutral-800">{s.employee_name}</span>
                           <span className="text-sm text-neutral-500">{s.branch_name}</span>
-                          <span className="text-xs text-neutral-400 tabular-nums">{formatDate(s.opened_at)} {s.closed_at ? `→ ${formatDate(s.closed_at)}` : ''}</span>
+                          <span className="text-xs text-neutral-400 tabular-nums">
+                            {s.is_manual
+                              ? formatDate(s.manual_date || s.closed_at || s.opened_at)
+                              : `${formatDate(s.opened_at)}${s.closed_at ? ` → ${formatDate(s.closed_at)}` : ''}`}
+                          </span>
+                          {s.is_manual && <Badge variant="warning">يدوية</Badge>}
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
-                          <span className="text-sm text-neutral-500 tabular-nums">{s.items.length} بند · {formatNumber(s.totals.yards)} ياردة</span>
+                          <span className="text-sm text-neutral-500 tabular-nums">
+                            {s.is_manual ? 'مجموع يدوي' : `${s.items.length} بند · ${formatNumber(s.totals.yards)} ياردة`}
+                          </span>
                           <span className="font-bold tabular-nums text-brand-700">{formatCurrency(s.totals.total)}</span>
                         </div>
                       </button>
@@ -626,56 +566,72 @@ export default function SalesPage() {
                     </div>
                     {expanded && (
                       <div className="px-4 pb-4">
-                        <div className="overflow-x-auto rounded-xl border border-sand-200">
-                          <Table>
-                            <thead>
-                              <tr>
-                                <Th>القماش</Th>
-                                <Th>النوع</Th>
-                                <Th>الكمية</Th>
-                                <Th>الياردات الفعلية</Th>
-                                <Th>سعر الوحدة</Th>
-                                <Th>طريقة الدفع</Th>
-                                <Th>الإجمالي</Th>
-                                <Th>تاريخ البيع</Th>
-                                <Th>إجراءات</Th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {s.items.map((it) => (
-                                <Tr key={it.id}>
-                                  <Td className="font-medium">{it.fabric_name}</Td>
-                                  <Td><Badge variant="neutral">{it.sale_type_label}</Badge></Td>
-                                  <Td className="tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'لفة' : 'يارد'}</Td>
-                                  <Td className="tabular-nums text-neutral-500">{formatNumber(it.yards_effective)} ياردة</Td>
-                                  <Td className="tabular-nums">{formatCurrency(it.unit_price)}</Td>
-                                  <Td>
-                                    <Badge variant={it.payment_method === 'card' ? 'warning' : it.payment_method === 'transfer' ? 'neutral' : 'success'}>
-                                      {it.payment_method_label}
-                                    </Badge>
-                                  </Td>
-                                  <Td className="tabular-nums font-semibold">{formatCurrency(it.total)}</Td>
-                                  <Td className="tabular-nums text-sm text-neutral-500">{formatDate(it.sale_date)}</Td>
-                                  <Td>
-                                    <div className="flex items-center gap-1.5">
-                                      <button onClick={() => setEditClosedItem({ session: s, item: it })} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل البيعة">
-                                        <Pencil size={15} />
-                                      </button>
-                                      <button onClick={() => setDeleteClosedItem({ session: s, item: it })} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيعة">
-                                        <Trash2 size={15} />
-                                      </button>
-                                    </div>
-                                  </Td>
-                                </Tr>
-                              ))}
-                            </tbody>
-                          </Table>
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                          <Badge variant="success">كاش {formatCurrency(s.totals.cash)}</Badge>
-                          <Badge variant="neutral">تحويل {formatCurrency(s.totals.transfer)}</Badge>
-                          <Badge variant="warning">ماكينة {formatCurrency(s.totals.card)}</Badge>
-                        </div>
+                        {s.is_manual ? (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                            <p className="font-medium">وردية مُدخلة يدوياً كمجموع — بدون تفاصيل أصناف.</p>
+                            {s.notes && <p className="mt-1 whitespace-pre-wrap text-amber-700">{s.notes}</p>}
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <Badge variant="success">كاش {formatCurrency(s.totals.cash)}</Badge>
+                              <Badge variant="neutral">تحويل {formatCurrency(s.totals.transfer)}</Badge>
+                              <Badge variant="warning">ماكينة {formatCurrency(s.totals.card)}</Badge>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="overflow-x-auto rounded-xl border border-sand-200">
+                              <Table>
+                                <thead>
+                                  <tr>
+                                    <Th>القماش</Th>
+                                    <Th>النوع</Th>
+                                    <Th>الكمية</Th>
+                                    <Th>هاتف الزبون</Th>
+                                    <Th>سعر الوحدة</Th>
+                                    <Th>طريقة الدفع</Th>
+                                    <Th>الإجمالي</Th>
+                                    <Th>تاريخ البيع</Th>
+                                    <Th>إجراءات</Th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {s.items.map((it) => (
+                                    <Tr key={it.id}>
+                                      <Td className="font-medium">{it.fabric_name}</Td>
+                                      <Td><Badge variant="neutral">{it.sale_type_label}</Badge></Td>
+                                      <Td className="tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'لفة' : 'يارد'}</Td>
+                                      <Td className="tabular-nums text-neutral-500">
+                                        {it.customer_phone ? it.customer_phone : <span className="text-neutral-300">—</span>}
+                                      </Td>
+                                      <Td className="tabular-nums">{formatCurrency(it.unit_price)}</Td>
+                                      <Td>
+                                        <Badge variant={it.payment_method === 'card' ? 'warning' : it.payment_method === 'transfer' ? 'neutral' : 'success'}>
+                                          {it.payment_method_label}
+                                        </Badge>
+                                      </Td>
+                                      <Td className="tabular-nums font-semibold">{formatCurrency(it.total)}</Td>
+                                      <Td className="tabular-nums text-sm text-neutral-500">{formatDate(it.sale_date)}</Td>
+                                      <Td>
+                                        <div className="flex items-center gap-1.5">
+                                          <button onClick={() => setEditClosedItem({ session: s, item: it })} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل البيعة">
+                                            <Pencil size={15} />
+                                          </button>
+                                          <button onClick={() => setDeleteClosedItem({ session: s, item: it })} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيعة">
+                                            <Trash2 size={15} />
+                                          </button>
+                                        </div>
+                                      </Td>
+                                    </Tr>
+                                  ))}
+                                </tbody>
+                              </Table>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                              <Badge variant="success">كاش {formatCurrency(s.totals.cash)}</Badge>
+                              <Badge variant="neutral">تحويل {formatCurrency(s.totals.transfer)}</Badge>
+                              <Badge variant="warning">ماكينة {formatCurrency(s.totals.card)}</Badge>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -685,180 +641,7 @@ export default function SalesPage() {
           )}
         </Card>
 
-        {/* KPIs */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-          <StatCard
-            icon={<IndianRupee size={20} />}
-            label="إجمالي المبيعات"
-            value={summary ? formatCurrency(summary.total_sales) : '—'}
-            sub={summary ? `${summary.sales_count} سجل في ${summary.days_count} يوم` : undefined}
-          />
-          <StatCard
-            icon={<Banknote size={20} />}
-            iconBg="bg-emerald-50 text-emerald-600"
-            label="النقدي"
-            value={summary ? formatCurrency(summary.cash) : '—'}
-            sub={summary && summary.total_sales > 0 ? `${((summary.cash / summary.total_sales) * 100).toFixed(0)}% من الإجمالي` : undefined}
-          />
-          <StatCard
-            icon={<Banknote size={20} />}
-            iconBg="bg-blue-50 text-blue-600"
-            label="التحويل والبطاقة"
-            value={summary ? formatCurrency((summary.transfer || 0) + (summary.card || 0)) : '—'}
-            sub={summary && summary.total_sales > 0 ? `${((((summary.transfer || 0) + (summary.card || 0)) / summary.total_sales) * 100).toFixed(0)}% من الإجمالي` : undefined}
-          />
-          <StatCard
-            icon={<IndianRupee size={20} />}
-            iconBg="bg-amber-50 text-amber-600"
-            label="متوسط اليوم"
-            value={summary ? formatCurrency(avgPerDay) : '—'}
-            sub={summary ? `أخرى: ${formatCurrency(summary.other || 0)}` : undefined}
-          />
-        </div>
-
-        {/* Filters */}
-        <Card className="!p-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-[180px]">
-              <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="بحث في المبيعات..." />
-            </div>
-            <Select
-              value={filterBranch}
-              onChange={(e) => { setFilterBranch(e.target.value); setFilterEmployee(''); setPage(1); }}
-              options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
-              className="w-full sm:w-44"
-            />
-            <Select
-              value={filterEmployee}
-              onChange={(e) => { setFilterEmployee(e.target.value); setPage(1); }}
-              options={[{ value: '', label: 'كل الموظفين' }, ...employees.map((emp) => ({ value: emp.id, label: emp.name }))]}
-              className="w-full sm:w-44"
-            />
-            <DateRangeToolbar
-              from={dateFrom}
-              to={dateTo}
-              onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1); }}
-            />
-          </div>
-        </Card>
-
-        {/* Table */}
-        <Card>
-          {loading ? (
-            <div className="flex justify-center py-12"><Spinner size={32} /></div>
-          ) : !data || data.results.length === 0 ? (
-            <EmptyState title="لا توجد مبيعات" description="لم يتم تسجيل أي مبيعات بعد" />
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-sand-100">
-                <label className="flex items-center gap-2 text-sm font-medium text-neutral-700 cursor-pointer select-none">
-                  <input type="checkbox" checked={!!data && allSelected} onChange={toggleSelectAll} className="w-4 h-4 accent-brand-600" />
-                  تحديد الكل
-                </label>
-                {selectedSales.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="neutral">{selectedSales.length} فاتورة</Badge>
-                    <Button size="sm" onClick={handlePrintCombined}>
-                      <Printer size={15} />
-                      طباعة الفاتورة المجمعة
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={handleShareCombined}>
-                      <Share2 size={15} />
-                      مشاركة الملف
-                    </Button>
-                    <button onClick={() => setSelected(new Set())} className="text-sm text-neutral-500 hover:text-red-600 transition-colors">
-                      إلغاء التحديد
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-xs text-neutral-400">حدِّد أكثر من فاتورة لدمجها في فاتورة واحدة</span>
-                )}
-              </div>
-              <div className="overflow-x-auto">
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th className="w-10">
-                        <input type="checkbox" checked={!!data && allSelected} onChange={toggleSelectAll} className="w-4 h-4 accent-brand-600" />
-                      </Th>
-                      <Th>التاريخ</Th>
-                      <Th>الفرع</Th>
-                      <Th>الموظف</Th>
-                      <Th>الأصناف</Th>
-                      <Th>إجمالي المبيعات</Th>
-                      <Th>نقدي</Th>
-                      <Th>تحويل</Th>
-                      <Th>بطاقة</Th>
-                      <Th>أخرى</Th>
-                      <Th>إجمالي الدفع</Th>
-                      <Th>الحالة</Th>
-                      <Th>إجراءات</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.results.map((s) => (
-                      <Tr key={s.id}>
-                        <Td className="w-10">
-                          <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggleSelect(s.id)} className="w-4 h-4 accent-brand-600" />
-                        </Td>
-                        <Td>{formatDate(s.date)}</Td>
-                        <Td className="font-medium">{s.branch_name}</Td>
-                        <Td>{s.employee_name || <span className="text-neutral-400">—</span>}</Td>
-                        <Td>
-                          {s.items && s.items.length > 0 ? (
-                            <div className="flex flex-col gap-1">
-                              {s.items.map((it) => (
-                                <span key={it.id} className="text-xs text-neutral-600 whitespace-nowrap">
-                                  {it.fabric_name}: <b className="tabular-nums">{it.yards}</b>
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-neutral-400">—</span>
-                          )}
-                        </Td>
-                        <Td className="tabular-nums font-medium">{formatCurrency(s.total_sales)}</Td>
-                        <Td className="tabular-nums">{formatCurrency(s.cash_amount)}</Td>
-                        <Td className="tabular-nums">{formatCurrency(s.transfer_amount)}</Td>
-                        <Td className="tabular-nums">{formatCurrency(s.card_amount)}</Td>
-                        <Td className="tabular-nums">{formatCurrency(s.other_amount)}</Td>
-                        <Td className="tabular-nums">{formatCurrency(s.payment_total)}</Td>
-                        <Td>
-                          {s.mismatch ? (
-                            <Badge variant="warning">غير متوازن</Badge>
-                          ) : (
-                            <Badge variant="success">متوازن</Badge>
-                          )}
-                        </Td>
-                        <Td>
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => handlePrintInvoice(s)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-50 text-sky-600 hover:bg-sky-100 dark:bg-sky-500/15 dark:text-sky-400 transition-colors" title="طباعة الفاتورة">
-                              <Printer size={14} />
-                              طباعة
-                            </button>
-                            <button onClick={() => handleShareInvoice(s)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-brand-50 text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-400 transition-colors" title="حفظ ومشاركة الفاتورة PDF">
-                              <Share2 size={14} />
-                              مشاركة
-                            </button>
-                            <button onClick={() => setEditing(s)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل">
-                              <Pencil size={16} />
-                            </button>
-                            <button onClick={() => setDeleting(s)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف">
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </Td>
-                      </Tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-              <Pagination page={page} totalPages={totalPages} onChange={setPage} count={data.count} pageSize={pageSize} />
-            </>
-          )}
-        </Card>
-
-        {/* Per-employee breakdown (أسفل الورديات المحفوظة) */}
+        {/* Per-employee breakdown */}
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-sand-100">
             <div className="flex flex-wrap items-center gap-3">
@@ -879,6 +662,11 @@ export default function SalesPage() {
             </span>
           </div>
           {showByEmployee && (
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-sand-100">
+              <DateRangeToolbar from={empFrom} to={empTo} onChange={(f, t) => { setEmpFrom(f); setEmpTo(t); }} />
+            </div>
+          )}
+          {showByEmployee && (
             byEmployeeLoading && !byEmployee ? (
               <div className="flex justify-center py-10"><Spinner size={28} /></div>
             ) : !byEmployee || byEmployee.items.length === 0 ? (
@@ -890,6 +678,8 @@ export default function SalesPage() {
                       <tr>
                         <Th>الموظف</Th>
                         <Th>عدد السجلات</Th>
+                        <Th>عدد القطع</Th>
+                        <Th>الياردات</Th>
                         <Th>النقدي</Th>
                         <Th>التحويل</Th>
                         <Th>البطاقة</Th>
@@ -904,6 +694,8 @@ export default function SalesPage() {
                           <Tr key={row.employee}>
                             <Td className="font-medium">{row.employee_name}</Td>
                             <Td className="tabular-nums">{row.sales_count}</Td>
+                            <Td className="tabular-nums">{formatNumber(row.items_count)}</Td>
+                            <Td className="tabular-nums">{formatNumber(row.yards_total)}</Td>
                             <Td className="tabular-nums">{formatCurrency(row.cash_total)}</Td>
                             <Td className="tabular-nums">{formatCurrency(row.transfer_total)}</Td>
                             <Td className="tabular-nums">{formatCurrency(row.card_total)}</Td>
@@ -926,6 +718,8 @@ export default function SalesPage() {
                           <Td className="text-neutral-400">—</Td>
                           <Td className="text-neutral-400">—</Td>
                           <Td className="text-neutral-400">—</Td>
+                          <Td className="text-neutral-400">—</Td>
+                          <Td className="text-neutral-400">—</Td>
                           <Td className="tabular-nums font-semibold">{formatCurrency(byEmployee.unassigned_total)}</Td>
                           <Td className="text-xs text-neutral-400">—</Td>
                         </Tr>
@@ -935,6 +729,8 @@ export default function SalesPage() {
                       <tr>
                         <Th>الإجمالي</Th>
                         <Th className="tabular-nums">{byEmployee.items.reduce((s, r) => s + r.sales_count, 0)}</Th>
+                        <Th className="tabular-nums">{formatNumber(byEmployee.items.reduce((s, r) => s + r.items_count, 0))}</Th>
+                        <Th className="tabular-nums">{formatNumber(byEmployee.items.reduce((s, r) => s + r.yards_total, 0))}</Th>
                         <Th className="tabular-nums">{formatCurrency(byEmployee.items.reduce((s, r) => s + r.cash_total, 0))}</Th>
                         <Th className="tabular-nums">{formatCurrency(byEmployee.items.reduce((s, r) => s + r.transfer_total, 0))}</Th>
                         <Th className="tabular-nums">{formatCurrency(byEmployee.items.reduce((s, r) => s + r.card_total, 0))}</Th>
@@ -956,7 +752,6 @@ export default function SalesPage() {
           onClose={() => setEditClosedItem(null)}
           onSaved={() => {
             fetchClosedSessions();
-            fetchData();
             fetchSummary();
           }}
         />
@@ -970,60 +765,12 @@ export default function SalesPage() {
           message="هل أنت متأكد من حذف هذه البيعة؟ سيتم تحديث إجمالي الوردية والسجل اليومي والمخزون تلقائياً."
         />
 
-        <Modal open={modalOpen} onClose={closeSaleModal} title={savedSale ? 'تم تسجيل البيعة' : 'تسجيل مبيعات جديدة'} maxWidth="max-w-2xl">
-          {savedSale ? (
-            <div className="space-y-5">
-              <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                <CheckCircle size={20} className="text-emerald-500 mt-0.5 shrink-0" />
-                <div className="text-sm text-emerald-800">
-                  <p className="font-medium">تم تسجيل البيعة رقم {settings?.invoice_prefix}{savedSale.id} بنجاح</p>
-                  <p className="mt-1 text-emerald-700">
-                    {savedSale.items?.length || 0} صنف · الإجمالي {formatCurrency(savedSale.total_sales)} {settings?.currency_symbol} · {formatDate(savedSale.date)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button size="sm" onClick={() => handlePrintInvoice(savedSale)}>
-                  <Printer size={15} />
-                  طباعة الفاتورة
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => handleShareInvoice(savedSale)}>
-                  <Share2 size={15} />
-                  مشاركة PDF
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setSavedSale(null)}>
-                  <Plus size={15} />
-                  تسجيل بيعة أخرى
-                </Button>
-              </div>
-              <div className="flex justify-end pt-1">
-                <Button variant="secondary" onClick={closeSaleModal}>إنهاء</Button>
-              </div>
-            </div>
-          ) : (
-            <SalesForm branches={branches} allowNegative={settings?.allow_negative_stock} onSubmit={handleCreate} onCancel={closeSaleModal} />
-          )}
-        </Modal>
-
-        <Modal open={!!editing} onClose={() => setEditing(null)} title="تعديل المبيعات" maxWidth="max-w-2xl">
-          {editing && <SalesForm initial={editing} branches={editBranches} allowNegative={settings?.allow_negative_stock} onSubmit={handleUpdate} onCancel={() => setEditing(null)} />}
-        </Modal>
-
-        <ConfirmDialog
-          open={!!deleting}
-          onClose={() => setDeleting(null)}
-          onConfirm={handleDelete}
-          loading={deleteLoading}
-          message="هل أنت متأكد من حذف سجل المبيعات هذا؟ لا يمكن التراجع عن هذا الإجراء."
-        />
-
         <SessionDetailsModal
           open={!!viewClosedSession}
           session={viewClosedSession}
           onClose={() => setViewClosedSession(null)}
           onReopened={() => {
             fetchClosedSessions();
-            fetchData();
             fetchSummary();
           }}
         />
@@ -1036,7 +783,6 @@ export default function SalesPage() {
           onClose={() => setEditClosedSession(null)}
           onSaved={() => {
             fetchClosedSessions();
-            fetchData();
             fetchSummary();
           }}
         />
@@ -1049,53 +795,61 @@ export default function SalesPage() {
           title="حذف الوردية المحفوظة"
           message={
             deleteClosedSession
-              ? `هل أنت متأكد من حذف وردية ${deleteClosedSession.employee_name} (${deleteClosedSession.items.length} بند — إجمالي ${formatCurrency(deleteClosedSession.totals.total)})؟ سيتم حذف سجلاتها اليومية وإرجاع المخزون المستهلك.`
+              ? deleteClosedSession.is_manual
+                ? `هل أنت متأكد من حذف وردية ${deleteClosedSession.employee_name} اليدوية (إجمالي ${formatCurrency(deleteClosedSession.totals.total)})؟ سيتم عكس مبالغها من السجل اليومي.`
+                : `هل أنت متأكد من حذف وردية ${deleteClosedSession.employee_name} (${deleteClosedSession.items.length} بند — إجمالي ${formatCurrency(deleteClosedSession.totals.total)})؟ سيتم حذف سجلاتها اليومية وإرجاع المخزون المستهلك.`
               : ''
           }
         />
 
         </>
         ) : (
-          <>
-            <SessionsPanel onChanged={refreshSalesTab} onSaleGenerated={handleSaleGenerated} />
-            <Modal open={generatedOpen} onClose={() => setGeneratedOpen(false)} title="تم توليد البيعة" maxWidth="max-w-2xl">
-              {generatedSales.length > 0 && (
-                <div className="space-y-5">
-                  <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                    <CheckCircle size={20} className="text-emerald-500 mt-0.5 shrink-0" />
-                    <div className="text-sm text-emerald-800">
-                      <p className="font-medium">
-                        تم توليد {generatedSales.length === 1 ? 'بيعة' : `${generatedSales.length} بيعات`} من الوردية بنجاح
-                      </p>
-                      <ul className="mt-2 space-y-1 text-emerald-700">
-                        {generatedSales.map((s) => (
-                          <li key={s.id || s.date}>
-                            رقم الفاتورة {settings?.invoice_prefix}{s.id || '—'} · {formatDate(s.date)} · {s.branch_name} ·{' '}
-                            {formatCurrency(s.total_sales)} {settings?.currency_symbol}
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="mt-2 font-medium">
-                        الإجمالي: {formatCurrency(generatedSales.reduce((a, s) => a + Number(s.total_sales), 0))} {settings?.currency_symbol}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button size="sm" onClick={() => openSalesInvoice(generatedSales, settings, { title: generatedSales.length > 1 ? 'فاتورة مجمعة' : 'فاتورة بيع', autoPrint: true })}>
-                      <Printer size={15} />
-                      طباعة الفاتورة
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => openSalesInvoice(generatedSales, settings, { title: generatedSales.length > 1 ? 'فاتورة مجمعة' : 'فاتورة بيع', autoPrint: true })}>
-                      <Share2 size={15} />
-                      مشاركة PDF
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setGeneratedOpen(false)}>تم</Button>
-                  </div>
-                </div>
-              )}
-            </Modal>
-          </>
+          <SessionsPanel onChanged={refreshSalesTab} onSaleGenerated={handleSaleGenerated} />
         )}
+
+        <ManualSessionModal
+          open={manualOpen}
+          employees={employees}
+          onClose={() => setManualOpen(false)}
+          onSaved={handleManualSaved}
+        />
+
+        <Modal open={generatedOpen} onClose={() => setGeneratedOpen(false)} title="تم توليد البيعة" maxWidth="max-w-2xl">
+          {generatedSales.length > 0 && (
+            <div className="space-y-5">
+              <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <CheckCircle size={20} className="text-emerald-500 mt-0.5 shrink-0" />
+                <div className="text-sm text-emerald-800">
+                  <p className="font-medium">
+                    تم توليد {generatedSales.length === 1 ? 'بيعة' : `${generatedSales.length} بيعات`} بنجاح
+                  </p>
+                  <ul className="mt-2 space-y-1 text-emerald-700">
+                    {generatedSales.map((s) => (
+                      <li key={s.id || s.date}>
+                        رقم الفاتورة {settings?.invoice_prefix}{s.id || '—'} · {formatDate(s.date)} · {s.branch_name} ·{' '}
+                        {formatCurrency(s.total_sales)} {settings?.currency_symbol}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 font-medium">
+                    الإجمالي: {formatCurrency(generatedSales.reduce((a, s) => a + Number(s.total_sales), 0))} {settings?.currency_symbol}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button size="sm" onClick={() => openSalesInvoice(generatedSales, settings, { title: generatedSales.length > 1 ? 'فاتورة مجمعة' : 'فاتورة بيع', autoPrint: true })}>
+                  <Printer size={15} />
+                  طباعة الفاتورة
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => openSalesInvoice(generatedSales, settings, { title: generatedSales.length > 1 ? 'فاتورة مجمعة' : 'فاتورة بيع', autoPrint: true })}>
+                  <Share2 size={15} />
+                  مشاركة PDF
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setGeneratedOpen(false)}>تم</Button>
+              </div>
+            </div>
+          )}
+        </Modal>
       </div>
     </AppShell>
   );

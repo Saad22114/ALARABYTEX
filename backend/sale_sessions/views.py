@@ -1,7 +1,9 @@
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -14,6 +16,7 @@ from .serializers import (
     SaleSessionItemCreateSerializer,
     SaleSessionItemEditSerializer,
     SaleSessionItemSerializer,
+    SaleSessionManualCreateSerializer,
     SaleSessionOpenSerializer,
     SaleSessionReadSerializer,
     SaleSessionUpdateSerializer,
@@ -120,11 +123,17 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         if opened_to:
             qs = qs.filter(opened_at__date__lte=opened_to)
         closed_from = self.request.query_params.get("closed_from")
-        if closed_from:
-            qs = qs.filter(closed_at__date__gte=closed_from)
         closed_to = self.request.query_params.get("closed_to")
-        if closed_to:
-            qs = qs.filter(closed_at__date__lte=closed_to)
+        if closed_from or closed_to:
+            normal = Q(is_manual=False)
+            manual = Q(is_manual=True)
+            if closed_from:
+                normal &= Q(closed_at__date__gte=closed_from)
+                manual &= Q(manual_date__gte=closed_from)
+            if closed_to:
+                normal &= Q(closed_at__date__lte=closed_to)
+                manual &= Q(manual_date__lte=closed_to)
+            qs = qs.filter(normal | manual)
         return qs
 
     @action(detail=False, methods=["get"], url_path="summary")
@@ -174,8 +183,9 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
                 {"detail": "أرسل قائمة بنود (items) لإضافتها معاً"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        sale_group = str(uuid.uuid4())
         serializers_ = [
-            SaleSessionItemCreateSerializer(data=data, context={"session": session})
+            SaleSessionItemCreateSerializer(data=data, context={"session": session, "sale_group": sale_group})
             for data in items
         ]
         for s in serializers_:
@@ -243,6 +253,16 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(SaleSessionReadSerializer(session).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="manual")
+    def manual(self, request):
+        serializer = SaleSessionManualCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session = serializer.save()
+        return Response(
+            SaleSessionReadSerializer(session).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["post"], url_path="move-item/(?P<item_id>[0-9]+)")
     def move_item(self, request, pk=None, item_id=None):

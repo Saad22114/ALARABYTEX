@@ -7,7 +7,7 @@ import Button from '@/components/ui/Button';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
-import DateRangePicker from '@/components/ui/DateRangePicker';
+import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import Pagination from '@/components/ui/Pagination';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -22,6 +22,7 @@ import { formatCurrency, formatDate } from '@/lib/format';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useUrlState } from '@/lib/useUrlState';
 
 export default function ExpensesPage() {
   const { toast } = useToast();
@@ -31,12 +32,12 @@ export default function ExpensesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filterBranch, setFilterBranch] = useState('');
-  const [filterCategory, setFilterCategory] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useUrlState('q', '');
+  const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  const [filterCategory, setFilterCategory] = useUrlState('category', '');
+  const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
+  const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
+  const [page, setPage] = useUrlState('page', 1);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [deleting, setDeleting] = useState<Expense | null>(null);
@@ -71,6 +72,7 @@ export default function ExpensesPage() {
       expenses_count: 0,
       monthly_sales_target: 0,
       monthly_sales: 0,
+      monthly_expenses: 0,
       target_progress_pct: 0,
       created_at: '',
       updated_at: '',
@@ -157,11 +159,10 @@ export default function ExpensesPage() {
               options={[{ value: '', label: 'كل التصنيفات' }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
               className="w-full sm:w-48"
             />
-            <DateRangePicker
+            <DateRangeToolbar
               from={dateFrom}
               to={dateTo}
-              onChangeFrom={(v) => { setDateFrom(v); setPage(1); }}
-              onChangeTo={(v) => { setDateTo(v); setPage(1); }}
+              onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1); }}
             />
           </div>
         </Card>

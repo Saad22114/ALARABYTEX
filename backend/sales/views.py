@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from warehouses.models import FabricRoll, Warehouse
 
-from .models import DailySale
+from .models import DailySale, DailySaleItem
 from .serializers import DailySaleReadSerializer, DailySaleWriteSerializer
 
 
@@ -132,6 +132,13 @@ class SalesByEmployeeView(APIView):
             .order_by("-total_sales")
         )
 
+        qty_rows = (
+            DailySaleItem.objects.filter(sale__in=qs)
+            .values("sale__employee_id")
+            .annotate(items_count=Count("id"), yards_total=Sum("yards"))
+        )
+        qty = {r["sale__employee_id"]: r for r in qty_rows}
+
         items = [
             {
                 "employee": r["employee_id"],
@@ -142,6 +149,8 @@ class SalesByEmployeeView(APIView):
                 "card_total": float(r["card_total"] or 0),
                 "other_total": float(r["other_total"] or 0),
                 "sales_count": r["sales_count"],
+                "items_count": qty.get(r["employee_id"], {}).get("items_count", 0),
+                "yards_total": float(qty.get(r["employee_id"], {}).get("yards_total") or 0),
             }
             for r in rows
         ]

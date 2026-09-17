@@ -4,6 +4,11 @@ from .models import AppSettings
 
 
 class AppSettingsSerializer(serializers.ModelSerializer):
+    backup_password = serializers.CharField(
+        max_length=128, required=False, allow_blank=True, write_only=True,
+    )
+    has_backup_password = serializers.SerializerMethodField()
+
     class Meta:
         model = AppSettings
         fields = [
@@ -22,6 +27,10 @@ class AppSettingsSerializer(serializers.ModelSerializer):
             "default_payment_method", "discount_max_percent",
             "receipt_show_tax", "receipt_show_phone",
             "logo",
+            "backup_password", "has_backup_password",
             "created_at", "updated_at",
         ]
         read_only_fields = ["pk", "created_at", "updated_at"]
+
+    def get_has_backup_password(self, obj):
+        return bool(obj.backup_password)

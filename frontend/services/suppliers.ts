@@ -1,8 +1,9 @@
 import { apiRequest, buildQuery } from './api';
 import { Supplier, Paginated, LedgerEntry, LedgerSummary, CreateLedgerEntry, SuppliersOverview } from '@/types';
 
-export async function getSuppliersOverview(): Promise<SuppliersOverview> {
-  return apiRequest<SuppliersOverview>('/suppliers/summary/');
+export async function getSuppliersOverview(params?: Record<string, string | number | undefined | null>): Promise<SuppliersOverview> {
+  const q = buildQuery(params || {});
+  return apiRequest<SuppliersOverview>(`/suppliers/summary/${q}`);
 }
 
 export async function listSuppliers(params?: Record<string, string | number | undefined | null>): Promise<Paginated<Supplier>> {
