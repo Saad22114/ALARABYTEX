@@ -6,6 +6,7 @@ import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import { listSuppliers } from '@/services/suppliers';
+import { listFabrics } from '@/services/fabrics';
 import { Fabric, FabricUnit, Supplier } from '@/types';
 
 const UNIT_OPTIONS = [
@@ -59,6 +60,42 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [fabrics, setFabrics] = useState<Fabric[]>([]);
+  const [importSource, setImportSource] = useState('');
+  const [importedName, setImportedName] = useState('');
+
+  useEffect(() => {
+    if (initial?.id) return;
+    let cancelled = false;
+    listFabrics({ page_size: 300 })
+      .then((res) => { if (!cancelled) setFabrics(res.results); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [initial?.id]);
+
+  const fillFromFabric = (f: Fabric) => {
+    setForm((prev) => ({
+      ...prev,
+      unit: f.unit || 'yard',
+      fabric_type: f.fabric_type || '',
+      color: f.color || '',
+      composition: f.composition || '',
+      width_cm: f.width_cm != null ? String(f.width_cm) : '',
+      weight_gsm: f.weight_gsm != null ? String(f.weight_gsm) : '',
+      origin: f.origin || '',
+      manufacturer: f.manufacturer || '',
+      supplier: f.supplier != null ? String(f.supplier) : '',
+      purchase_price: f.purchase_price != null ? String(f.purchase_price) : '',
+      sale_price_yard: f.sale_price_yard != null ? String(f.sale_price_yard) : '',
+      sale_price_roll: f.sale_price_roll != null ? String(f.sale_price_roll) : '',
+      min_sale_yard: f.min_sale_yard != null ? String(f.min_sale_yard) : '',
+      min_sale_roll: f.min_sale_roll != null ? String(f.min_sale_roll) : '',
+      min_stock: f.min_stock != null ? String(f.min_stock) : '',
+      yards_per_roll: f.yards_per_roll != null ? String(f.yards_per_roll) : '',
+      description: f.description || '',
+      is_active: true,
+    }));
+  };
 
   useEffect(() => {
     if (initial) {
@@ -175,6 +212,32 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {!initial?.id && (
+        <>
+          {sectionTitle('استيراد سريع')}
+          <Select
+            label="انسخ بيانات قماش موجود"
+            value={importSource}
+            onChange={(e) => {
+              const id = e.target.value;
+              setImportSource(id);
+              const f = fabrics.find((x) => String(x.id) === id);
+              if (f) {
+                fillFromFabric(f);
+                setImportedName(f.name);
+              }
+            }}
+            options={[{ value: '', label: 'اختر قماشاً لنسخ بياناته...' }, ...fabrics.map((f) => ({ value: String(f.id), label: `${f.name}${f.code ? ` (${f.code})` : ''}` }))]}
+            placeholder="اختر قماشاً لنسخ بياناته..."
+          />
+          {importedName && (
+            <p className="text-xs text-emerald-600">
+              تم استيراد بيانات «{importedName}» — عدّل الاسم والكود ثم أكمل الإضافة.
+            </p>
+          )}
+        </>
+      )}
+
       {sectionTitle('البيانات الأساسية')}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input label="اسم القماش" value={form.name} onChange={(e) => set('name', e.target.value)} error={errors.name} placeholder="اسم القماش" />

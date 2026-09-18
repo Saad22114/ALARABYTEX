@@ -62,6 +62,7 @@ export interface Customer {
   notes: string;
   branch: number | null;
   branch_name: string;
+  last_purchase_date?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -108,6 +109,7 @@ export interface Fabric {
   total_rolls: number;
   stock_yards: number;
   stock_cost_value: number;
+  sold_count?: number;
   low_stock: boolean;
   min_stock: number;
   yards_per_roll: number | null;

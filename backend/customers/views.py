@@ -1,9 +1,12 @@
 from django.conf import settings
+import re
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from core.daterange import resolve_range
+
+from sale_sessions.models import SaleSessionItem
 
 from .models import Customer
 from .serializers import CustomerSerializer
@@ -17,14 +20,21 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        branch = self.request.query_params.get("branch")
+        params = self.request.query_params
+        branch = params.get("branch")
         if branch:
             qs = qs.filter(branch_id=branch)
-        is_active = self.request.query_params.get("is_active")
+        is_active = params.get("is_active")
         if is_active in ("true", "1"):
             qs = qs.filter(is_active=True)
         elif is_active in ("false", "0"):
             qs = qs.filter(is_active=False)
+        date_from = params.get("date_from")
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+        date_to = params.get("date_to")
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
         return qs
 
     @action(detail=False, methods=["get"], url_path="summary")
@@ -48,7 +58,19 @@ class CustomerViewSet(viewsets.ModelViewSet):
         customer = Customer.objects.filter(phone=phone).first()
         if customer is None:
             return Response({"found": False, "customer": None})
-        return Response({"found": True, "customer": CustomerSerializer(customer).data})
+        data = CustomerSerializer(customer).data
+        data["last_purchase_date"] = self._last_purchase_date(phone)
+        return Response({"found": True, "customer": data})
+
+    @staticmethod
+    def _last_purchase_date(phone):
+        phones = {phone, re.sub(r"\s", "", phone)} if phone else {phone}
+        return (
+            SaleSessionItem.objects.filter(customer_phone__in=phones)
+            .order_by("-sale_date")
+            .values_list("sale_date", flat=True)
+            .first()
+        )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

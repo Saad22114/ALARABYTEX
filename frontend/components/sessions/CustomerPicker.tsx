@@ -5,6 +5,7 @@ import Input from '@/components/ui/Input';
 import { Check, Loader2, Phone, Search, User } from 'lucide-react';
 import { Customer } from '@/types';
 import { lookupCustomer, listCustomers } from '@/services/customers';
+import { formatDate } from '@/lib/format';
 import { searchContacts, CustomerContact, normalizePhone } from '@/lib/customerContacts';
 
 type Props = {
@@ -157,6 +158,11 @@ export default function CustomerPicker({ name, onChangeName, phone, onChangePhon
           )}
         </div>
         <div className="relative">
+          {found?.last_purchase_date && (
+            <span className="mb-0.5 flex items-center gap-1 text-[11px] leading-tight text-neutral-500">
+              آخر شراء: <b className="font-medium text-neutral-600">{formatDate(found.last_purchase_date)}</b>
+            </span>
+          )}
           <Input
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}

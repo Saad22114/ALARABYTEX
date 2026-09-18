@@ -320,6 +320,20 @@
   --brand-950: 10 16 30;
 }
 
+[data-theme='beige'] {
+  --brand-50: 252 250 240;
+  --brand-100: 249 247 233;
+  --brand-200: 246 244 226;
+  --brand-300: 244 242 219;
+  --brand-400: 245 245 220;
+  --brand-500: 233 231 205;
+  --brand-600: 212 208 178;
+  --brand-700: 182 176 150;
+  --brand-800: 149 144 116;
+  --brand-900: 109 104 82;
+  --brand-950: 64 61 46;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

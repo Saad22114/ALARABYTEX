@@ -1,7 +1,8 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Count, F, Q, Sum, Window
+from django.db.models import Count, F, IntegerField, Q, OuterRef, Subquery, Sum, Window
+from django.db.models.deletion import ProtectedError
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status, viewsets
@@ -9,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from core.daterange import resolve_range
+from sale_sessions.models import SaleSessionItem
 from warehouses.models import FabricRoll
 from warehouses.services import create_purchase_receipts
 
@@ -99,10 +101,18 @@ class FabricViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         available = Q(rolls__status=FabricRoll.Status.AVAILABLE)
+        sold = (
+            SaleSessionItem.objects.filter(fabric=OuterRef("pk"))
+            .order_by()
+            .values("fabric")
+            .annotate(c=Count("id"))
+            .values("c")
+        )
         return (
             Fabric.objects.all()
             .select_related("supplier")
             .annotate(
+                sold_count=Coalesce(Subquery(sold), 0, output_field=IntegerField()),
                 total_rolls=Count("rolls", filter=available),
                 stock_yards=Coalesce(
                     Sum("rolls__remaining_yards", filter=available), Decimal("0")
@@ -237,11 +247,30 @@ class FabricViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        self.perform_destroy(instance)
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {
+                    "detail": (
+                        f"لا يمكن حذف القماش «{instance.name}» لأنه مرتبط بلفات أو مشتريات أو "
+                        "مبيعات أو حركات مخزون. يمكنك إيقافه بدلاً من ذلك بالضغط على تعديل "
+                        "وتحديد الحالة «غير نشط»."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(
             {"detail": settings.API_MESSAGES["deleted"]},
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=True, methods=["get"], url_path="ledger")
+    def ledger(self, request, pk=None):
+        supplier = self.get_object()
+        entries = LedgerEntry.objects.filter(
+            supplier=supplier
+        ).order_by("date", "id")
 
 
 class SupplierLedgerViewSet(viewsets.GenericViewSet):

@@ -108,6 +108,35 @@ class CustomerApiTests(TestCase):
         self.assertEqual(data["customer"]["id"], c.pk)
         self.assertEqual(data["customer"]["name"], "منى")
 
+    def test_lookup_returns_last_purchase_date(self):
+        from sale_sessions.models import Employee, SaleSession, SaleSessionItem
+        from suppliers.models import Fabric
+
+        customer = Customer.objects.create(name="منى", phone="0565555555", branch=self.branch)
+        emp = Employee.objects.create(name="موظف", branch=self.branch)
+        fabric = Fabric.objects.create(name="قماش اختبار")
+        session = SaleSession.objects.create(employee=emp, branch=self.branch)
+        SaleSessionItem.objects.create(
+            session=session,
+            fabric=fabric,
+            sale_type="yard",
+            quantity=5,
+            unit_price="10",
+            total="50",
+            sale_date="2026-09-10",
+            customer_name="منى",
+            customer_phone="0565555555",
+        )
+        res = self.client.get(reverse("customer-lookup"), {"phone": "0565555555"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["customer"]
+        self.assertEqual(data["last_purchase_date"], "2026-09-10")
+
+    def test_lookup_last_purchase_null_when_no_purchases(self):
+        Customer.objects.create(name="منى", phone="0565555555", branch=self.branch)
+        res = self.client.get(reverse("customer-lookup"), {"phone": "0565555555"})
+        self.assertIsNone(res.json()["customer"]["last_purchase_date"])
+
     def test_lookup_phone_not_found(self):
         res = self.client.get(reverse("customer-lookup"), {"phone": "0567777777"})
         self.assertEqual(res.status_code, 200)
@@ -129,3 +158,12 @@ class CustomerApiTests(TestCase):
         Customer.objects.create(name="أ", phone="053", is_active=False)
         res = self.client.get(self.list_url, {"is_active": "false"})
         self.assertEqual(res.json()["count"], 1)
+
+    def test_filter_by_created_date_range(self):
+        old = Customer.objects.create(name="قديم", phone="0571111111", branch=self.branch)
+        recent = Customer.objects.create(name="جديد", phone="0572222222", branch=self.branch)
+        Customer.objects.filter(pk=old.pk).update(created_at="2026-01-05T10:00:00+04:00")
+        Customer.objects.filter(pk=recent.pk).update(created_at="2026-09-18T10:00:00+04:00")
+        res = self.client.get(self.list_url, {"date_from": "2026-09-01", "date_to": "2026-09-30"})
+        self.assertEqual(res.json()["count"], 1)
+        self.assertEqual(res.json()["results"][0]["id"], recent.pk)
