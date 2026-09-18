@@ -1,3 +1,5 @@
+import { clearAuthStorage, getStoredToken } from '@/lib/authStorage';
+
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
 
@@ -18,11 +20,16 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const url = `${API_URL}${path}`;
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const token = getStoredToken();
+  const authHeaders: Record<string, string> = token && !path.startsWith('/auth/login')
+    ? { Authorization: `Token ${token}` }
+    : {};
   const res = await fetch(url, {
     headers: isForm
-      ? { ...(options.headers || {}) }
+      ? { ...authHeaders, ...(options.headers || {}) }
       : {
           'Content-Type': 'application/json',
+          ...authHeaders,
           ...(options.headers || {}),
         },
     ...options,
@@ -33,6 +40,10 @@ export async function apiRequest<T>(
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') {
+      clearAuthStorage();
+      if (window.location.pathname !== '/login') window.location.href = '/login';
+    }
     if (data && typeof data === 'object') {
       if (data.detail) {
         throw new Error(data.detail);

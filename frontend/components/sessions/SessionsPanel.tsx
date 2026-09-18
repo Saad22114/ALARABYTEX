@@ -142,6 +142,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [editingSession, setEditingSession] = useState<SaleSession | null>(null);
   const [deletingSession, setDeletingSession] = useState<SaleSession | null>(null);
   const [deleteSessionLoading, setDeleteSessionLoading] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<SessionSaleItem | null>(null);
+  const [deleteItemLoading, setDeleteItemLoading] = useState(false);
 
   const fetchSessions = useCallback((silent = false) => {
     let cancelled = false;
@@ -191,6 +193,16 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   }, [fetchSessions, fetchSummary]);
 
   const selected = useMemo(() => sessions.find((s) => s.id === selectedId) || null, [sessions, selectedId]);
+
+  const saleFabrics = useMemo(
+    () =>
+      [...fabrics].sort((a, b) => {
+        const diff = (b.sold_count ?? 0) - (a.sold_count ?? 0);
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name, 'ar');
+      }),
+    [fabrics],
+  );
 
   useEffect(() => {
     setChecked(new Set());
@@ -419,7 +431,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       toast('success', `تمت إضافة ${created.length > 1 ? `${created.length} أصناف` : 'البند'} — المجموع ${formatCurrency(linesTotal)}`);
       if (custPhone.trim()) {
         saveContact(custPhone, custName);
-        void ensureCustomer(custName, custPhone);
+        void ensureCustomer(custName, custPhone, selected.branch);
       }
       setLines([emptyItemForm(payload[0]?.payment_method || 'cash')]);
       setCustName('');
@@ -433,16 +445,20 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     }
   };
 
-  const handleRemoveItem = async (itemId: number) => {
-    if (!selected) return;
+  const handleRemoveItem = async () => {
+    if (!selected || !deletingItem) return;
+    setDeleteItemLoading(true);
     try {
-      await removeSessionItem(selected.id, itemId);
-      toast('success', 'تم حذف البند');
+      await removeSessionItem(selected.id, deletingItem.id);
+      toast('success', 'تم حذف البيع');
+      setDeletingItem(null);
       fetchSessions();
       fetchSummary();
       onChanged?.();
     } catch (err: any) {
       toast('error', err.message);
+    } finally {
+      setDeleteItemLoading(false);
     }
   };
 
@@ -782,7 +798,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                             <button onClick={() => setEditingItem({ session: selected, item })} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل البيع">
                               <Pencil size={15} />
                             </button>
-                            <button onClick={() => handleRemoveItem(item.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيع">
+                            <button onClick={() => setDeletingItem(item)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيع">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -893,7 +909,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       label="القماش"
                       value={line.fabric ?? ''}
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
-                      options={fabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
+                      options={saleFabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
                       placeholder="اختر القماش"
                     />
                     <div>
@@ -1031,7 +1047,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         open={!!editingItem}
         session={editingItem?.session ?? null}
         item={editingItem?.item ?? null}
-        fabrics={fabrics}
+        fabrics={saleFabrics}
         onClose={() => setEditingItem(null)}
         onSaved={() => {
           fetchSessions();
@@ -1056,6 +1072,20 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           fetchSessions();
           fetchSummary();
         }}
+      />
+
+      <ConfirmDialog
+        open={!!deletingItem}
+        onClose={() => setDeletingItem(null)}
+        onConfirm={handleRemoveItem}
+        loading={deleteItemLoading}
+        title="حذف البيع"
+        confirmLabel="حذف البيع"
+        message={
+          deletingItem
+            ? `هل أنت متأكد من حذف هذا البيع (${deletingItem.fabric_name} — ${deletingItem.quantity} ${deletingItem.sale_type === 'roll' ? 'لفة' : 'يارد'} — ${formatCurrency(Number(deletingItem.total))})؟ سيتم إلغاء البيعة وترجيع الكمية إلى المخزون.`
+            : ''
+        }
       />
 
       <ConfirmDialog

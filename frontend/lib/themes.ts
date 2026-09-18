@@ -26,6 +26,7 @@ export const THEME_PRESETS: ThemePreset[] = [
   { id: 'forest', name: 'أخضر غابة', swatch: '#2A835F', description: 'طبيعي وهادئ' },
   { id: 'plum', name: 'خوخي داكن', swatch: '#601D49', description: 'أرجواني غامق' },
   { id: 'navy', name: 'كحلي', swatch: '#253C6D', description: 'أزرق داكن رسمي' },
+  { id: 'beige', name: 'بيج', swatch: '#f5f5dc', description: 'عاجي فاتح وهادئ' },
 ];
 
 export const STORAGE_KEYS = {

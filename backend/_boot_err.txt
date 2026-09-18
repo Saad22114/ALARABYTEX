@@ -1,0 +1,13 @@
+Bad Request: /api/auth/login/
+[19/Sep/2026 01:09:51] "POST /api/auth/login/ HTTP/1.1" 400 81
+Unauthorized: /api/auth/me/
+[19/Sep/2026 01:09:51] "GET /api/auth/me/ HTTP/1.1" 401 62
+Unauthorized: /api/branches/
+[19/Sep/2026 01:09:51] "GET /api/branches/?page_size=50 HTTP/1.1" 401 62
+Unauthorized: /api/branches/
+[19/Sep/2026 01:09:51] "GET /api/branches/ HTTP/1.1" 401 62
+Unauthorized: /api/auth/logout/
+[19/Sep/2026 01:09:51] "POST /api/auth/logout/ HTTP/1.1" 401 62
+Unauthorized: /api/auth/me/
+[19/Sep/2026 01:09:51] "GET /api/auth/me/ HTTP/1.1" 401 62
+[19/Sep/2026 01:09:51,223] - Broken pipe from ('127.0.0.1', 52069)

@@ -433,7 +433,7 @@ export default function FabricsPage() {
           onClose={() => setDeleting(null)}
           onConfirm={handleDelete}
           loading={deleteLoading}
-          message={`هل أنت متأكد من حذف قماش "${deleting?.name}"؟ لا يمكن التراجع عن هذا الإجراء.`}
+          message={`هل أنت متأكد من حذف قماش "${deleting?.name}"؟ لا يمكن التراجع عن هذا الإجراء.${(deleting?.total_rolls ?? 0) > 0 ? ' ملاحظة: إذا كان للقماش لفات أو مشتريات أو مبيعات أو حركات مرتبطة، فلن يسمح النظام بحذفه حفاظاً على السجل المالي، ويمكنك إيقافه بدلاً من ذلك من خلال التعديل وتحديد الحالة «غير نشط».' : ''}`}
         />
       </div>
     </AppShell>

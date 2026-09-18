@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
-from rest_framework import serializers, status, viewsets
+from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -44,11 +44,26 @@ class SectionsView(APIView):
         )
 
 
+class IsManager(permissions.BasePermission):
+    """يسمح للمدير (role=admin) فقط بتنفيذ عمليات الكتابة على الموظفين."""
+
+    message = "غير مسموح — تعديل بيانات الموظفين متاح للمدير فقط"
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and getattr(user, "role", "") == "admin")
+
+
 class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.select_related("branch").all()
     serializer_class = EmployeeSerializer
     search_fields = ["name", "phone", "branch__name"]
     ordering_fields = ["name", "created_at"]
+
+    def get_permissions(self):
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return [IsManager()]
+        return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
         qs = super().get_queryset()

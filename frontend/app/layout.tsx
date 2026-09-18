@@ -4,6 +4,8 @@ import { ToastProvider } from '@/components/ui/Toast';
 import ThemeProvider from '@/components/providers/ThemeProvider';
 import SettingsProvider from '@/components/providers/SettingsProvider';
 import CurrentEmployeeProvider from '@/components/providers/CurrentEmployeeProvider';
+import AuthProvider from '@/components/providers/AuthProvider';
+import AuthGate from '@/components/providers/AuthGate';
 import './globals.css';
 
 const cairo = Cairo({
@@ -30,9 +32,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${cairo.variable} font-cairo bg-sand-50 text-neutral-800 antialiased`}>
         <ToastProvider>
           <ThemeProvider>
-            <CurrentEmployeeProvider>
-              <SettingsProvider>{children}</SettingsProvider>
-            </CurrentEmployeeProvider>
+            <AuthProvider>
+              <CurrentEmployeeProvider>
+                <SettingsProvider>
+                  <AuthGate>{children}</AuthGate>
+                </SettingsProvider>
+              </CurrentEmployeeProvider>
+            </AuthProvider>
           </ThemeProvider>
         </ToastProvider>
       </body>

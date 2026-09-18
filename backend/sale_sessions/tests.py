@@ -46,8 +46,24 @@ class EffectiveDateTest(TestCase):
 
 class EmployeeAPITest(TestCase):
     def setUp(self):
+        from django.contrib.auth.hashers import make_password
+
         self.c = APIClient()
+        self.mgr_branch = Branch.objects.create(name="HM", code="HM")
         self.branch = Branch.objects.create(name="B", code="B")
+        self.manager = Employee.objects.create(
+            name="المدير", branch=self.mgr_branch, username="mgr1", password=make_password("p")
+        )
+        self.manager.apply_role_preset("admin")
+        self.manager.save()
+        res = self.c.post(
+            "/api/auth/login/",
+            {"username": "mgr1", "password": "p"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        token = res.data["token"]
+        self.c.credentials(HTTP_AUTHORIZATION=f"Token {token}")
 
     def test_create_employee(self):
         r = self.c.post("/api/employees/", {"name": "علي", "branch": self.branch.id}, format="json")
@@ -968,8 +984,24 @@ class SessionItemExtrasTest(TestCase):
 
 class CommissionAPITest(TestCase):
     def setUp(self):
+        from django.contrib.auth.hashers import make_password
+
         self.c = APIClient()
+        self.mgr_branch2 = Branch.objects.create(name="ب", code="ب")
         self.branch = Branch.objects.create(name="B", code="B")
+        self.manager = Employee.objects.create(
+            name="المدير", branch=self.mgr_branch2, username="mgr2", password=make_password("p")
+        )
+        self.manager.apply_role_preset("admin")
+        self.manager.save()
+        res = self.c.post(
+            "/api/auth/login/",
+            {"username": "mgr2", "password": "p"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        token = res.data["token"]
+        self.c.credentials(HTTP_AUTHORIZATION=f"Token {token}")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.emp = Employee.objects.create(
             name="محمد", branch=self.branch,

@@ -62,6 +62,7 @@ export interface Customer {
   notes: string;
   branch: number | null;
   branch_name: string;
+  last_purchase_date?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -108,6 +109,7 @@ export interface Fabric {
   total_rolls: number;
   stock_yards: number;
   stock_cost_value: number;
+  sold_count?: number;
   low_stock: boolean;
   min_stock: number;
   yards_per_roll: number | null;
@@ -1062,7 +1064,7 @@ export interface DashboardActivityItem {
   link: string;
 }
 
-export type EmployeeRole = 'admin' | 'supervisor' | 'sales' | 'viewer' | 'custom';
+export type EmployeeRole = 'admin' | 'supervisor' | 'sales' | 'accountant' | 'viewer' | 'custom';
 
 export interface EmployeePermissions {
   [sectionKey: string]: {
@@ -1077,6 +1079,8 @@ export interface Employee {
   id: number;
   name: string;
   phone: string;
+  username?: string;
+  password?: string;
   branch: number;
   branch_name: string;
   notes: string;

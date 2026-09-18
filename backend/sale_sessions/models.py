@@ -18,6 +18,10 @@ class Employee(TimeStampedModel, ActiveModel):
 
     name = models.CharField(max_length=150, unique=True, verbose_name="اسم الموظف")
     phone = models.CharField(max_length=30, blank=True, verbose_name="رقم الهاتف")
+    username = models.CharField(
+        max_length=50, null=True, blank=True, unique=True, verbose_name="اسم المستخدم"
+    )
+    password = models.CharField(max_length=128, blank=True, verbose_name="كلمة المرور")
     branch = models.ForeignKey(
         "branches.Branch",
         on_delete=models.PROTECT,
@@ -43,6 +47,14 @@ class Employee(TimeStampedModel, ActiveModel):
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
 
     def apply_role_preset(self, role):
         """يعيد بناء الصلاحيات حسب الدور."""

@@ -21,6 +21,7 @@ import {
   MessageSquareText,
 } from 'lucide-react';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useAuth } from '@/components/providers/AuthProvider';
 import { logoUrl } from '@/services/settings';
 
 const navItems = [
@@ -48,6 +49,7 @@ interface SidebarProps {
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { settings } = useSettings();
+  const { isManager } = useAuth();
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -55,7 +57,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   };
 
   const hidden = settings?.hidden_sections || [];
-  const visibleItems = navItems.filter((item) => !hidden.includes(item.key));
+  const managerOnly = isManager ? [] : ['employees'];
+  const visibleItems = navItems.filter(
+    (item) => !hidden.includes(item.key) && !managerOnly.includes(item.key)
+  );
 
   return (
     <>

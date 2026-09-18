@@ -5,9 +5,10 @@ import React from 'react';
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  hint?: string;
 }
 
-export default function Input({ label, error, className = '', type, inputMode, pattern, onKeyDown, ...props }: InputProps) {
+export default function Input({ label, error, hint, className = '', type, inputMode, pattern, onKeyDown, ...props }: InputProps) {
   const isNumber = type === 'number';
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -39,6 +40,7 @@ export default function Input({ label, error, className = '', type, inputMode, p
         {...props}
       />
       {error && <p className="text-xs text-red-500">{error}</p>}
+      {!error && hint && <p className="text-xs text-neutral-400">{hint}</p>}
     </div>
   );
 }

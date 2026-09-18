@@ -16,7 +16,7 @@ import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import PermissionsModal from '@/components/employees/PermissionsModal';
-import { ShieldCheck, Plus, Pencil, Trash2, UserRoundPlus, Users, UserCheck, UserX, Shield } from 'lucide-react';
+import { ShieldCheck, Plus, Pencil, Trash2, UserRoundPlus, Users, UserCheck, UserX, Shield, Ban } from 'lucide-react';
 import { Employee, EmployeeRole, SectionsInfo, EmployeePermissions } from '@/types';
 import {
   listEmployees,
@@ -27,11 +27,15 @@ import {
 import { getSectionsInfo } from '@/services/sections';
 import { listBranches } from '@/services/branches';
 import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/components/providers/AuthProvider';
 import { useUrlState } from '@/lib/useUrlState';
 
 interface EmployeeForm {
   name: string;
   phone: string;
+  username: string;
+  password: string;
+  role: EmployeeRole;
   branch: number | null;
   notes: string;
   is_active: boolean;
@@ -47,15 +51,16 @@ const ROLE_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'neutral' | 'da
   custom: 'neutral',
 };
 
-const ROLE_OPTIONS = [
+const ROLE_OPTIONS: Array<{ value: EmployeeRole; label: string }> = [
   { value: 'admin', label: 'مدير النظام' },
   { value: 'supervisor', label: 'مشرف' },
   { value: 'sales', label: 'مندوب مبيعات' },
+  { value: 'accountant', label: 'محاسب' },
   { value: 'viewer', label: 'مشاهد' },
   { value: 'custom', label: 'مخصص' },
 ];
 
-const emptyForm = (): EmployeeForm => ({ name: '', phone: '', branch: null, notes: '', is_active: true, commission_active: false, commission_percent: 0 });
+const emptyForm = (): EmployeeForm => ({ name: '', phone: '', username: '', password: '', role: 'sales', branch: null, notes: '', is_active: true, commission_active: false, commission_percent: 0 });
 
 export default function EmployeesPage() {
   const { toast } = useToast();
@@ -131,6 +136,9 @@ export default function EmployeesPage() {
       ? {
           name: emp.name,
           phone: emp.phone,
+          username: emp.username || '',
+          password: '',
+          role: emp.role,
           branch: emp.branch,
           notes: emp.notes,
           is_active: emp.is_active,
@@ -380,6 +388,30 @@ export default function EmployeesPage() {
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
               placeholder="05xxxxxxxx"
               dir="ltr"
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="اسم المستخدم"
+                value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                placeholder="username"
+                dir="ltr"
+              />
+              <Input
+                label="كلمة المرور"
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="••••••••"
+                dir="ltr"
+                hint={editing ? 'اتركها فارغة للإبقاء على الحالية' : 'كلمة مرور الدخول'}
+              />
+            </div>
+            <Select
+              label="الدور"
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value as EmployeeRole })}
+              options={ROLE_OPTIONS}
             />
             <Select
               label="الفرع"

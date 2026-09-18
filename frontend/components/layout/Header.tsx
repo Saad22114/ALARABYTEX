@@ -1,9 +1,10 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Menu, Sun, Moon } from 'lucide-react';
+import { Menu, Sun, Moon, LogOut } from 'lucide-react';
 import { formatArabicDate } from '@/lib/format';
 import { useTheme } from '@/components/providers/ThemeProvider';
+import { useAuth } from '@/components/providers/AuthProvider';
 import NotificationsBell from './NotificationsBell';
 import { useEffect, useState } from 'react';
 
@@ -32,6 +33,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const [mounted, setMounted] = useState(false);
   const today = formatArabicDate(new Date());
   const { dark, toggleDark } = useTheme();
+  const { employee, logout } = useAuth();
 
   useEffect(() => {
     setMounted(true);
@@ -75,9 +77,21 @@ export default function Header({ onMenuClick }: HeaderProps) {
           <div className="hidden md:block w-px h-6 bg-sand-200" />
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center">
-              <span className="text-brand-700 dark:text-brand-300 text-sm font-semibold">م</span>
+              <span className="text-brand-700 dark:text-brand-300 text-sm font-semibold">
+                {(employee?.name || 'م').trim().charAt(0)}
+              </span>
             </div>
-            <span className="hidden sm:inline text-sm font-medium text-neutral-600">عميل</span>
+            <span className="hidden sm:inline text-sm font-medium text-neutral-600">{employee?.name || 'قيد الدخول'}</span>
+            <button
+              onClick={() => {
+                logout().then(() => window.location.assign('/login'));
+              }}
+              className="p-2 rounded-xl hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 transition-colors"
+              aria-label="تسجيل الخروج"
+              title="تسجيل الخروج"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </div>

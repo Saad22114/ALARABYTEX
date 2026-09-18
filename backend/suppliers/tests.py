@@ -108,6 +108,37 @@ class FabricAPITest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(Fabric.objects.count(), 0)
 
+    def test_delete_fabric_with_roll_blocked_with_clear_message(self):
+        r = self.c.post("/api/fabrics/", {"name": "قطن محمي"}, format="json")
+        fid = r.data["id"]
+        wh = Warehouse.objects.create(name="مخزن", code="WH-TEST")
+        FabricRoll.objects.create(
+            warehouse=wh, fabric_id=fid, yards=10, remaining_yards=10, unit_cost=2
+        )
+        r = self.c.delete(f"/api/fabrics/{fid}/")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("لا يمكن حذف القماش", r.data["detail"])
+        self.assertTrue(Fabric.objects.filter(pk=fid).exists())
+
+    def test_fabric_sold_count(self):
+        from branches.models import Branch
+        from sale_sessions.models import Employee, SaleSession, SaleSessionItem
+
+        f1 = self.c.post("/api/fabrics/", {"name": "أول", "code": "F1"}, format="json").data["id"]
+        f2 = self.c.post("/api/fabrics/", {"name": "ثاني", "code": "F2"}, format="json").data["id"]
+        branch = Branch.objects.create(name="فرع", code="BR-X")
+        emp = Employee.objects.create(name="موظف", branch=branch)
+        session = SaleSession.objects.create(employee=emp, branch=branch)
+        for fabric in (f1,):  # f1 مُباع مرة واحدة، f2 لم يُبع
+            SaleSessionItem.objects.create(
+                session=session, fabric_id=fabric, sale_type="yard",
+                quantity=5, unit_price="10", total="50", sale_date="2026-09-10",
+            )
+        r = self.c.get("/api/fabrics/")
+        counts = {item["name"]: item["sold_count"] for item in r.data["results"]}
+        self.assertEqual(counts["أول"], 1)
+        self.assertEqual(counts["ثاني"], 0)
+
 
 class FabricAdvancedTests(TestCase):
     def setUp(self):

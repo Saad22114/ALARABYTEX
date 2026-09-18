@@ -10,18 +10,19 @@ import { listBranches } from '@/services/branches';
 
 interface CustomerFormProps {
   initial?: Partial<Customer>;
+  defaultBranch?: number | null;
   onSubmit: (data: Partial<Customer>) => Promise<void>;
   onCancel: () => void;
 }
 
-export default function CustomerForm({ initial, onSubmit, onCancel }: CustomerFormProps) {
+export default function CustomerForm({ initial, defaultBranch, onSubmit, onCancel }: CustomerFormProps) {
   const [form, setForm] = useState({
     name: initial?.name || '',
     phone: initial?.phone || '',
     email: initial?.email || '',
     address: initial?.address || '',
     notes: initial?.notes || '',
-    branch: initial?.branch || '',
+    branch: initial?.branch ?? defaultBranch ?? '',
   });
   const [branches, setBranches] = useState<Branch[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -36,17 +37,17 @@ export default function CustomerForm({ initial, onSubmit, onCancel }: CustomerFo
   }, []);
 
   useEffect(() => {
-    if (initial) {
+    if (initial?.id) {
       setForm({
         name: initial.name || '',
         phone: initial.phone || '',
         email: initial.email || '',
         address: initial.address || '',
         notes: initial.notes || '',
-        branch: initial.branch || '',
+        branch: initial.branch ?? '',
       });
     }
-  }, [initial]);
+  }, [initial?.id]);
 
   const validate = () => {
     const e: Record<string, string> = {};

@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "customers",
     "accounting",
     "messaging",
+    "accounts",
 ]
 
 MIDDLEWARE = [
@@ -115,6 +116,12 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Django REST Framework
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "accounts.authentication.EmployeeTokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardPagination",
     "DEFAULT_FILTER_BACKENDS": [

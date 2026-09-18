@@ -1,6 +1,7 @@
 from decimal import Decimal
 import uuid
 
+from django.contrib.auth.hashers import make_password
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
@@ -18,11 +19,17 @@ PAYMENT_METHODS = {m for m, _ in SaleSessionItem.PaymentMethod.choices}
 class EmployeeSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
     role_label = serializers.CharField(source="get_role_display", read_only=True)
+    username = serializers.CharField(
+        required=False, allow_blank=True, max_length=50, trim_whitespace=True
+    )
+    password = serializers.CharField(
+        required=False, allow_blank=True, write_only=True
+    )
 
     class Meta:
         model = Employee
         fields = [
-            "id", "name", "phone", "branch", "branch_name",
+            "id", "name", "phone", "username", "password", "branch", "branch_name",
             "notes", "is_active", "role", "role_label",
             "permissions", "hidden_sections",
             "commission_active", "commission_percent",
@@ -30,11 +37,25 @@ class EmployeeSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def validate_username(self, value):
+        username = (value or "").strip().lower()
+        if not username:
+            return ""
+        qs = Employee.objects.filter(username__iexact=username)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("اسم المستخدم مستخدم بالفعل")
+        return username
+
     def create(self, validated_data):
+        password = validated_data.pop("password", "")
         role = validated_data.pop("role", Employee.Role.ADMIN)
         permissions = validated_data.pop("permissions", None)
         hidden_sections = validated_data.pop("hidden_sections", None)
         employee = Employee(**validated_data)
+        if password:
+            employee.password = make_password(password)
         if permissions is not None and hidden_sections is not None:
             employee.role = role
             employee.permissions = permissions
@@ -45,10 +66,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return employee
 
     def update(self, instance, validated_data):
+        password = validated_data.pop("password", "")
         role = validated_data.pop("role", None)
         has_custom = "permissions" in validated_data or "hidden_sections" in validated_data
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        if password:
+            instance.password = make_password(password)
         if role is not None and not has_custom:
             instance.apply_role_preset(role)
         elif role is not None:
