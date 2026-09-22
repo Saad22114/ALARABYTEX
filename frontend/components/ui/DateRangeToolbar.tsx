@@ -24,10 +24,9 @@ export function getRangeForKey(key: DateRangeKey): { from: string; to: string } 
 
   if (key === 'today') return { from: today, to: today };
 
-  const isoDay = (now.getDay() + 6) % 7; // Monday = 0
   if (key === 'week') {
-    const monday = new Date(y, m, now.getDate() - isoDay);
-    return { from: toISODate(monday), to: today };
+    const start = new Date(y, m, now.getDate() - 6);
+    return { from: toISODate(start), to: today };
   }
 
   if (key === 'month') {
@@ -61,7 +60,8 @@ interface DateRangeToolbarProps {
 }
 
 export default function DateRangeToolbar({ from, to, onChange, className = '' }: DateRangeToolbarProps) {
-  const active = getActivePreset(from, to);
+  const [selected, setSelected] = useState<DateRangeKey | null>(null);
+  const active = selected ?? getActivePreset(from, to);
   const [customOpen, setCustomOpen] = useState(false);
   const showPicker = customOpen || active === null;
 
@@ -71,6 +71,7 @@ export default function DateRangeToolbar({ from, to, onChange, className = '' }:
         <button
           key={r.key}
           onClick={() => {
+            setSelected(r.key);
             setCustomOpen(false);
             const range = getRangeForKey(r.key);
             onChange(range.from, range.to);

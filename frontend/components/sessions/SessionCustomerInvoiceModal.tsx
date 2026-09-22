@@ -51,7 +51,7 @@ export default function SessionCustomerInvoiceModal({ open, onClose, session, it
     if (!session || items.length === 0) return;
     const phone = customerPhone.trim();
     saveContact(phone, customerName);
-    void ensureCustomer(customerName, phone);
+    void ensureCustomer(customerName, phone, session?.branch);
     const html = buildSessionItemsInvoice(items, session, settings, {
       title: 'INVOICE',
       invoiceNo,

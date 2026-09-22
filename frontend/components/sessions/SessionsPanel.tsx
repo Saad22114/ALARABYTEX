@@ -41,6 +41,8 @@ import CustomerPicker from '@/components/sessions/CustomerPicker';
 import { saveContact } from '@/lib/customerContacts';
 import { ensureCustomer } from '@/lib/registerCustomer';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useAuth } from '@/components/providers/AuthProvider';
+import { toEmployee } from '@/lib/sessionEmployee';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { printSessionReceipt } from '@/lib/receipt';
 import { useToast } from '@/components/ui/Toast';
@@ -108,6 +110,9 @@ function elapsedText(minutes: number | null): string {
 export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChanged?: () => void; onSaleGenerated?: (session: SaleSession) => void }) {
   const { toast } = useToast();
   const { settings } = useSettings();
+  const { session } = useAuth();
+  const me = session?.employee;
+  const isManager = Boolean(me && (me.role === 'admin' || me.role === 'supervisor'));
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
@@ -142,6 +147,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [editingSession, setEditingSession] = useState<SaleSession | null>(null);
   const [deletingSession, setDeletingSession] = useState<SaleSession | null>(null);
   const [deleteSessionLoading, setDeleteSessionLoading] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<SessionSaleItem | null>(null);
+  const [deleteItemLoading, setDeleteItemLoading] = useState(false);
 
   const fetchSessions = useCallback((silent = false) => {
     let cancelled = false;
@@ -170,9 +177,14 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
   useEffect(() => {
     let cancelled = false;
-    listEmployees({ page_size: 100 })
-      .then((res) => { if (!cancelled) setEmployees(res.results); })
-      .catch(() => {});
+    if (isManager) {
+      listEmployees({ page_size: 100 })
+        .then((res) => { if (!cancelled) setEmployees(res.results); })
+        .catch(() => {});
+    } else if (me) {
+      setEmployees([toEmployee(me)]);
+      setOpeningEmp((cur) => cur ?? me.id);
+    }
     listFabrics({ page_size: 100 })
       .then((res) => { if (!cancelled) setFabrics(res.results); })
       .catch(() => {});
@@ -180,7 +192,13 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       .then((res) => { if (!cancelled) setBranches(res.results.filter((b) => b.is_active)); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [isManager, me]);
+
+  useEffect(() => {
+    if (!isManager && me?.branch) {
+      setBranchFilter(String(me.branch));
+    }
+  }, [isManager, me?.branch]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -191,6 +209,16 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   }, [fetchSessions, fetchSummary]);
 
   const selected = useMemo(() => sessions.find((s) => s.id === selectedId) || null, [sessions, selectedId]);
+
+  const saleFabrics = useMemo(
+    () =>
+      [...fabrics].sort((a, b) => {
+        const diff = (b.sold_count ?? 0) - (a.sold_count ?? 0);
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name, 'ar');
+      }),
+    [fabrics],
+  );
 
   useEffect(() => {
     setChecked(new Set());
@@ -267,7 +295,14 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   };
 
   const lineCalc = (line: ItemForm) => {
-    const availableYards = line.fabric != null ? stock?.items.find((i) => i.fabric === line.fabric)?.yards : undefined;
+    const stockYards = line.fabric != null ? stock?.items.find((i) => i.fabric === line.fabric)?.yards : undefined;
+    const pendingYards =
+      line.fabric != null && selected
+        ? selected.items
+            .filter((i) => i.fabric === line.fabric)
+            .reduce((s, i) => s + (i.yards_effective || 0), 0)
+        : 0;
+    const availableYards = stockYards === undefined ? undefined : Math.max(0, stockYards - pendingYards);
     const selectedFabric = line.fabric != null ? fabrics.find((f) => f.id === line.fabric) : undefined;
     const yardsPerRoll = Number(selectedFabric?.yards_per_roll) || 0;
     const availableUnit =
@@ -309,7 +344,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     try {
       const s = await openSaleSession(openingEmp);
       toast('success', `تمت فتح الوردية للموظف ${s.employee_name}`);
-      setOpeningEmp(null);
+      if (isManager) setOpeningEmp(null);
       fetchSessions();
       fetchSummary();
       setSelectedId(s.id);
@@ -380,13 +415,16 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       if (line.sale_type === 'roll') {
         const fabric = fabrics.find((f) => f.id === line.fabric);
         if (fabric && !fabric.yards_per_roll) {
-          toast('error', `القماش «${fabric.name}» لا توجد له ياردات اللفة`);
+          toast('error', `القماش «${fabric.name}» لا توجد له ياردات الطاقة`);
           return;
         }
       }
       if (line.fabric && stock) {
         const entry = stock.items.find((i) => i.fabric === line.fabric);
-        const avail = entry ? entry.yards : 0;
+        const pending = selected.items
+          .filter((i) => i.fabric === line.fabric)
+          .reduce((s, i) => s + (i.yards_effective || 0), 0);
+        const avail = Math.max(0, (entry ? entry.yards : 0) - pending);
         const need = line.sale_type === 'roll'
           ? quantity * (Number(fabrics.find((f) => f.id === line.fabric)?.yards_per_roll) || 0)
           : quantity;
@@ -395,7 +433,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           return;
         }
         if (need > avail) {
-          toast('error', `الكمية غير متوفرة في مخزون الفرع — المتوفر ${formatNumber(avail)} ياردة فقط`);
+          toast('error', `الكمية غير متوفرة في مخزون الفرع — المتوفر ${formatNumber(avail)} ياردة فقط بعد بنود الوردية المعلقة`);
           return;
         }
       }
@@ -419,7 +457,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       toast('success', `تمت إضافة ${created.length > 1 ? `${created.length} أصناف` : 'البند'} — المجموع ${formatCurrency(linesTotal)}`);
       if (custPhone.trim()) {
         saveContact(custPhone, custName);
-        void ensureCustomer(custName, custPhone);
+        void ensureCustomer(custName, custPhone, selected.branch);
       }
       setLines([emptyItemForm(payload[0]?.payment_method || 'cash')]);
       setCustName('');
@@ -433,16 +471,20 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     }
   };
 
-  const handleRemoveItem = async (itemId: number) => {
-    if (!selected) return;
+  const handleRemoveItem = async () => {
+    if (!selected || !deletingItem) return;
+    setDeleteItemLoading(true);
     try {
-      await removeSessionItem(selected.id, itemId);
-      toast('success', 'تم حذف البند');
+      await removeSessionItem(selected.id, deletingItem.id);
+      toast('success', 'تم حذف البيع');
+      setDeletingItem(null);
       fetchSessions();
       fetchSummary();
       onChanged?.();
     } catch (err: any) {
       toast('error', err.message);
+    } finally {
+      setDeleteItemLoading(false);
     }
   };
 
@@ -536,22 +578,33 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       <Card className="!p-5">
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex-1 min-w-[220px]">
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">فتح وردية لموظف</label>
-            {employees.length === 0 ? (
-              <div className="rounded-xl border border-sand-300 px-4 py-2.5 text-sm text-neutral-500">
-                لا يوجد موظفون بعد —{' '}
-                <Link href="/employees" className="font-medium text-brand-600 hover:underline">أضف الموظفين أولاً</Link>
-              </div>
+            {isManager ? (
+              <>
+                <label className="block text-sm font-medium text-neutral-700 mb-1.5">فتح وردية لموظف</label>
+                {employees.length === 0 ? (
+                  <div className="rounded-xl border border-sand-300 px-4 py-2.5 text-sm text-neutral-500">
+                    لا يوجد موظفون بعد —{' '}
+                    <Link href="/employees" className="font-medium text-brand-600 hover:underline">أضف الموظفين أولاً</Link>
+                  </div>
+                ) : (
+                  <Select
+                    value={openingEmp ?? ''}
+                    onChange={(e) => setOpeningEmp(Number(e.target.value))}
+                    options={employees.map((emp) => ({ value: emp.id, label: `${emp.name} — ${emp.branch_name}` }))}
+                    placeholder="اختر الموظف"
+                  />
+                )}
+              </>
             ) : (
-              <Select
-                value={openingEmp ?? ''}
-                onChange={(e) => setOpeningEmp(Number(e.target.value))}
-                options={employees.map((emp) => ({ value: emp.id, label: `${emp.name} — ${emp.branch_name}` }))}
-                placeholder="اختر الموظف"
-              />
+              <>
+                <label className="block text-sm font-medium text-neutral-700 mb-1.5">فتح وردية باسمك</label>
+                <div className="rounded-xl border border-sand-300 px-4 py-2.5 text-sm text-neutral-800">
+                  {me?.name || ''}{me?.branch_name ? ` — ${me.branch_name}` : ''}
+                </div>
+              </>
             )}
           </div>
-          <Button onClick={handleOpen} loading={opening} disabled={employees.length === 0}>
+          <Button onClick={handleOpen} loading={opening} disabled={isManager && employees.length === 0}>
             <LogIn size={18} />
             فتح وردية
           </Button>
@@ -740,7 +793,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         </Td>
                         <Td className="font-medium">{item.fabric_name}</Td>
                         <Td><Badge variant="neutral">{item.sale_type_label}</Badge></Td>
-                        <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'لفة' : 'يارد'}</Td>
+                        <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'طاقة' : 'يارد'}</Td>
                         <Td>
                           <span
                             onClick={() => {
@@ -782,7 +835,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                             <button onClick={() => setEditingItem({ session: selected, item })} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل البيع">
                               <Pencil size={15} />
                             </button>
-                            <button onClick={() => handleRemoveItem(item.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيع">
+                            <button onClick={() => setDeletingItem(item)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيع">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -893,7 +946,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       label="القماش"
                       value={line.fabric ?? ''}
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
-                      options={fabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
+                      options={saleFabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
                       placeholder="اختر القماش"
                     />
                     <div>
@@ -911,7 +964,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                           onClick={() => changeFabricOrType(idx, { sale_type: 'roll' })}
                           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${line.sale_type === 'roll' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
                         >
-                          لفة (بالطاقة)
+                          طاقة (بالطاقة)
                         </button>
                       </div>
                     </div>
@@ -927,7 +980,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       />
                     )}
                     <Input
-                      label={line.sale_type === 'roll' ? 'عدد اللفات' : 'الكمية (ياردات)'}
+                      label={line.sale_type === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
                       type="number"
                       min="0"
                       step={line.sale_type === 'roll' ? '1' : '0.25'}
@@ -958,7 +1011,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-sand-50 border border-sand-200 px-4 py-2.5">
                     <span className="text-sm text-neutral-600">
-                      إجمالي الصنف ({line.sale_type === 'roll' ? `${line.quantity || '0'} لفة × ${formatCurrency(calc.priceNum)}` : `${line.quantity || '0'} ياردة × ${formatCurrency(calc.priceNum)}`})
+                      إجمالي الصنف ({line.sale_type === 'roll' ? `${line.quantity || '0'} طاقة × ${formatCurrency(calc.priceNum)}` : `${line.quantity || '0'} ياردة × ${formatCurrency(calc.priceNum)}`})
                       {calc.discountNum > 0 ? ` - خصم ${formatCurrency(calc.discountNum)}` : ''}:
                     </span>
                     <span className={`text-lg font-bold tabular-nums ${calc.discountExceeds ? 'text-red-500' : 'text-brand-700'}`}>
@@ -968,12 +1021,12 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
                   {stock && calc.availableUnit !== null && (
                     <p className={`text-xs ${overStock ? 'text-red-500 font-medium' : 'text-neutral-400'}`}>
-                      المتوفر في مخزون الفرع ({stock.warehouse_name}): {formatNumber(calc.availableUnit)} {line.sale_type === 'roll' ? 'لفة' : 'ياردة'}
+                      المتوفر في مخزون الفرع ({stock.warehouse_name}): {formatNumber(calc.availableUnit)} {line.sale_type === 'roll' ? 'طاقة' : 'ياردة'}
                       {overStock ? ' — الكمية تتجاوز المتوفر' : ''}
                     </p>
                   )}
                   {calc.selectedFabric && line.sale_type === 'roll' && !calc.selectedFabric.yards_per_roll && (
-                    <p className="text-xs text-amber-600 font-medium">هذا القماش لا يملك ياردات اللفة — لا يمكن بيعه باللفة</p>
+                    <p className="text-xs text-amber-600 font-medium">هذا القماش لا يملك ياردات الطاقة — لا يمكن بيعه بالطاقة</p>
                   )}
                 </div>
               );
@@ -992,7 +1045,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
           <div className="space-y-1.5">
             <p className="text-xs text-neutral-400">
-              يمكن إضافة أكثر من صنف في البيعة الواحدة بزر «إضافة صنف آخر» — تُضاف الأصناف معاً في عملية واحدة وتصبح بيعة واحدة بمجموع موحد. السعر التلقائي يُؤخذ من ملف القماش (ياردات × سعر الياردة = سعر اللفة) — لا يمكن البيع بأقل من الحد الأدنى المحدد لكل قماش.
+              يمكن إضافة أكثر من صنف في البيعة الواحدة بزر «إضافة صنف آخر» — تُضاف الأصناف معاً في عملية واحدة وتصبح بيعة واحدة بمجموع موحد. السعر التلقائي يُؤخذ من ملف القماش (ياردات × سعر الياردة = سعر الطاقة) — لا يمكن البيع بأقل من الحد الأدنى المحدد لكل قماش.
             </p>
           </div>
         </div>
@@ -1031,7 +1084,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         open={!!editingItem}
         session={editingItem?.session ?? null}
         item={editingItem?.item ?? null}
-        fabrics={fabrics}
+        fabrics={saleFabrics}
         onClose={() => setEditingItem(null)}
         onSaved={() => {
           fetchSessions();
@@ -1049,13 +1102,27 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       <SessionEditModal
         open={!!editingSession}
         session={editingSession}
-        employees={employees}
+        employees={isManager ? employees : me ? [toEmployee(me)] : []}
         branches={branches}
         onClose={() => setEditingSession(null)}
         onSaved={() => {
           fetchSessions();
           fetchSummary();
         }}
+      />
+
+      <ConfirmDialog
+        open={!!deletingItem}
+        onClose={() => setDeletingItem(null)}
+        onConfirm={handleRemoveItem}
+        loading={deleteItemLoading}
+        title="حذف البيع"
+        confirmLabel="حذف البيع"
+        message={
+          deletingItem
+            ? `هل أنت متأكد من حذف هذا البيع (${deletingItem.fabric_name} — ${deletingItem.quantity} ${deletingItem.sale_type === 'roll' ? 'طاقة' : 'يارد'} — ${formatCurrency(Number(deletingItem.total))})؟ سيتم إلغاء البيعة وترجيع الكمية إلى المخزون.`
+            : ''
+        }
       />
 
       <ConfirmDialog

@@ -122,7 +122,7 @@ function ReceiptForm({
         {items.map((it, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center bg-sand-50 p-2 rounded-xl">
             <Select value={it.fabric} onChange={(e) => updateItem(i, { fabric: Number(e.target.value) })} options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))} />
-            <Input type="number" min={1} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="لفات" title="عدد اللفات" />
+            <Input type="number" min={1} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="طاقات" title="عدد الطاقات" />
             <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: Number(e.target.value) })} placeholder="ياردات" required />
             <Input type="number" min={0} step="0.001" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })} placeholder="سعر الياردة" />
             <button type="button" onClick={() => setItems((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r))} className="p-2 rounded-lg text-neutral-400 hover:text-red-500">
@@ -200,7 +200,7 @@ export default function ReceiptsPage() {
     setPostLoading(true);
     try {
       await postReceipt(posting.id);
-      toast('success', 'تم ترحيل السند وإنشاء اللفات');
+      toast('success', 'تم ترحيل السند وإنشاء الطاقات');
       setPosting(null);
       fetchData();
     } catch (err: any) {
@@ -231,7 +231,7 @@ export default function ReceiptsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-neutral-800">استلام البضاعة</h1>
-            <p className="text-sm text-neutral-500">استلام أقمشة من الموردين وإنشاء اللفات</p>
+            <p className="text-sm text-neutral-500">استلام أقمشة من الموردين وإنشاء الطاقات</p>
           </div>
           <Button onClick={() => setModalOpen(true)}>
             <Plus size={18} />
@@ -329,7 +329,7 @@ export default function ReceiptsPage() {
       <ConfirmDialog
         open={!!posting}
         title="ترحيل سند الاستلام"
-        message={`سيتم إنشاء اللفات وحركات المخزون للسند ${posting?.number}. لا يمكن التراجع بعد الترحيل.`}
+        message={`سيتم إنشاء الطاقات وحركات المخزون للسند ${posting?.number}. لا يمكن التراجع بعد الترحيل.`}
         confirmLabel="ترحيل السند"
         loading={postLoading}
         onConfirm={handlePost}

@@ -4,6 +4,7 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from core.testsupport import authenticate_admin
 
 from branches.models import Branch
 from expenses.models import Expense, ExpenseBudget, ExpenseCategory
@@ -21,6 +22,7 @@ class ReportsAPITest(TestCase):
 
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.supplier = Supplier.objects.create(name="S")
         self.cat = ExpenseCategory.objects.get(name="إيجار")
@@ -187,6 +189,7 @@ class ReportsAPITest(TestCase):
 class AdvancedReportsAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.cat = ExpenseCategory.objects.create(name="مصروف")
         self.today = date.today()

@@ -2,28 +2,101 @@ PERMISSION_ACTIONS = ["view", "create", "edit", "delete"]
 
 SECTIONS = [
     {"key": "dashboard", "label": "الرئيسية", "fixed": True, "actions": ["view"]},
-    {"key": "branches", "label": "الفروع", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "suppliers", "label": "الموردون", "fixed": False, "actions": PERMISSION_ACTIONS},
+    {"key": "branches", "label": "الفروع", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "branches", "label": "قائمة الفروع"},
+        {"key": "detail", "label": "تفاصيل الفرع"},
+    ]},
+    {"key": "suppliers", "label": "الموردون", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "list", "label": "قائمة الموردين"},
+        {"key": "ledger", "label": "كشف المورد"},
+        {"key": "purchases", "label": "المشتريات"},
+        {"key": "statement", "label": "بيان الحساب"},
+    ]},
     {"key": "customers", "label": "الزبائن", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "partners", "label": "الشركاء", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "fabrics", "label": "الأقمشة", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "sales", "label": "المبيعات", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "sessions", "label": "ورديات البيع", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "employees", "label": "الموظفون", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "warehouses", "label": "المخازن", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "expenses", "label": "المصاريف", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "reports", "label": "التقارير", "fixed": False, "actions": PERMISSION_ACTIONS},
-    {"key": "accounting", "label": "المحاسبة", "fixed": False, "actions": PERMISSION_ACTIONS},
+    {"key": "partners", "label": "الشركاء", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "partners", "label": "الشركاء"},
+        {"key": "operations", "label": "العمليات"},
+        {"key": "distribution", "label": "التوزيع"},
+        {"key": "statement", "label": "كشف الحساب"},
+    ]},
+    {"key": "fabrics", "label": "الأقمشة", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "fabric_list", "label": "قائمة الأقمشة"},
+        {"key": "stock", "label": "المخزون حسب المخازن"},
+    ]},
+    {"key": "sales", "label": "المبيعات", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "sales", "label": "صفحة البيع"},
+        {"key": "sessions", "label": "ورديات البيع"},
+        {"key": "closed", "label": "الورديات المحفوظة"},
+        {"key": "by_employee", "label": "توزيع المبيعات على الموظفين"},
+    ]},
+    {"key": "sessions", "label": "ورديات البيع", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "open", "label": "الورديات المفتوحة"},
+        {"key": "close", "label": "إغلاق الوردية"},
+        {"key": "manual", "label": "إضافة وردية كاملة"},
+        {"key": "move_item", "label": "نقل البند بين الورديات"},
+    ]},
+    {"key": "employees", "label": "الموظفون", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "list", "label": "قائمة الموظفين"},
+        {"key": "permissions", "label": "الصلاحيات والأدوار"},
+    ]},
+    {"key": "warehouses", "label": "المخازن", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "warehouses", "label": "المخازن"},
+        {"key": "stock", "label": "المخزون"},
+        {"key": "receipts", "label": "سندات الاستلام"},
+        {"key": "transfers", "label": "التحويلات"},
+        {"key": "adjustments", "label": "التسويات"},
+        {"key": "counts", "label": "الجرد"},
+        {"key": "movements", "label": "الحركات"},
+    ]},
+    {"key": "expenses", "label": "المصاريف", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "expense_list", "label": "قائمة المصاريف"},
+        {"key": "categories", "label": "تصنيفات المصاريف"},
+        {"key": "budgets", "label": "الميزانيات"},
+    ]},
+    {"key": "reports", "label": "التقارير", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "sales", "label": "تقرير المبيعات"},
+        {"key": "expenses", "label": "تقرير المصاريف"},
+        {"key": "budget", "label": "المصاريف مقابل الميزانية"},
+        {"key": "commissions", "label": "عمولات المبيعات"},
+        {"key": "net", "label": "صافي النتيجة اليومي"},
+        {"key": "profit-loss", "label": "الربح والخسارة"},
+        {"key": "cogs", "label": "تكلفة البضاعة المباعة"},
+        {"key": "journal", "label": "القيود اليومية"},
+        {"key": "inventory", "label": "تقرير المخزون"},
+        {"key": "inventory-movements", "label": "حركات المخزون"},
+        {"key": "suppliers", "label": "قائمة الموردين"},
+        {"key": "branches", "label": "قائمة الفروع"},
+    ]},
+    {"key": "accounting", "label": "المحاسبة", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "journal", "label": "دفتر اليومية"},
+        {"key": "accounts", "label": "شجرة الحسابات"},
+        {"key": "trial-balance", "label": "ميزان المراجعة"},
+        {"key": "statements", "label": "القوائم المالية"},
+        {"key": "cashbox", "label": "الخزينة والإقفال"},
+    ]},
     {"key": "messages", "label": "التواصل", "fixed": False, "actions": ["view", "create"]},
+    {"key": "themes", "label": "الثيمات والتحكم", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "appearance", "label": "المظهر"},
+        {"key": "print", "label": "الطباعة"},
+        {"key": "categories", "label": "تصنيفات المصاريف"},
+    ]},
     {"key": "settings", "label": "الإعدادات", "fixed": True, "actions": PERMISSION_ACTIONS},
 ]
+
+
+def section_windows(section):
+    """قائمة مفاتيح نوافذ القسم — فارغة إن كان القسم بلا نوافذ."""
+    return [w["key"] for w in section.get("windows", [])]
 
 ROLE_PRESETS = {
     "admin": {
         "label": "مدير النظام",
         "description": "صلاحيات كاملة على جميع الأقسام",
         "permissions": {
-            s["key"]: {a: True for a in s["actions"]}
+            s["key"]: {
+                **{a: True for a in s["actions"]},
+                **({"windows": section_windows(s)} if s.get("windows") else {}),
+            }
             for s in SECTIONS
         },
         "hidden_sections": [],
@@ -32,7 +105,10 @@ ROLE_PRESETS = {
         "label": "مشرف",
         "description": "يراقب ويعدل — لا يمكنه الحذف",
         "permissions": {
-            s["key"]: {a: (a != "delete") for a in s["actions"]}
+            s["key"]: {
+                **{a: (a != "delete") for a in s["actions"]},
+                **({"windows": section_windows(s)} if s.get("windows") else {}),
+            }
             for s in SECTIONS
         },
         "hidden_sections": [],
@@ -85,7 +161,10 @@ ROLE_PRESETS = {
         "label": "مشاهد",
         "description": "عرض فقط — لا يمكنه أي تعديل",
         "permissions": {
-            s["key"]: {a: (a == "view") for a in s["actions"]}
+            s["key"]: {
+                **{a: (a == "view") for a in s["actions"]},
+                **({"windows": section_windows(s)} if s.get("windows") else {}),
+            }
             for s in SECTIONS
         },
         "hidden_sections": [],

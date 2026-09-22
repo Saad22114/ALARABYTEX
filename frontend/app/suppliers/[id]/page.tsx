@@ -436,7 +436,7 @@ export default function SupplierDetailPage() {
                                           <tr>
                                             <Th>القماش</Th>
                                             <Th>الكمية بالياردة</Th>
-                                            <Th>عدد اللفات</Th>
+                                            <Th>عدد الطاقات</Th>
                                             <Th>سعر الياردة</Th>
                                             <Th>الإجمالي</Th>
                                             <Th>الوجهة</Th>
@@ -496,7 +496,7 @@ export default function SupplierDetailPage() {
                               <tr>
                                 <Th>القماش</Th>
                                 <Th>الكمية بالياردة</Th>
-                                <Th>عدد اللفات</Th>
+                                <Th>عدد الطاقات</Th>
                                 <Th>سعر الياردة</Th>
                                 <Th>الإجمالي</Th>
                                 <Th>الوجهة</Th>

@@ -118,7 +118,7 @@ function AdjustmentForm({
           <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center bg-sand-50 p-2 rounded-xl">
             <Select value={it.fabric} onChange={(e) => updateItem(i, { fabric: Number(e.target.value) })} options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))} />
             <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: Number(e.target.value) })} placeholder="الياردات" required />
-            <Input type="number" min={0} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="لفات" />
+            <Input type="number" min={0} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="طاقات" />
             <button type="button" onClick={() => setItems((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r))} className="p-2 rounded-lg text-neutral-400 hover:text-red-500">
               <X size={16} />
             </button>

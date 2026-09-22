@@ -36,7 +36,7 @@ export function buildSessionReceipt(session: SaleSession, settings: AppSettings 
       <tr>
         <td>${it.fabric_name}</td>
         <td>${it.sale_type_label}</td>
-        <td class="num">${it.quantity} ${it.sale_type === 'roll' ? 'لفة' : 'يارد'}</td>
+        <td class="num">${it.quantity} ${it.sale_type === 'roll' ? 'طاقة' : 'يارد'}</td>
         <td class="num">${num(it.yards_effective)} ياردة</td>
         <td class="num">${num(it.unit_price)}</td>
         <td class="num">${it.discount_amount > 0 ? num(it.discount_amount) : '—'}</td>

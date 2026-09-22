@@ -5,6 +5,32 @@ export interface ThemePreset {
   description: string;
 }
 
+export interface FontPreset {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export const FONT_PRESETS: FontPreset[] = [
+  { id: 'cairo', name: 'Cairo', description: 'الخط الافتراضي — عصري وواضح' },
+  { id: 'ibm', name: 'IBM Plex Sans Arabic', description: 'سانس بلا سيري — أنيق وحديث' },
+  { id: 'amiri', name: 'Amiri', description: 'سيري كلاسيكي بروح الخط النسخي' },
+  { id: 'noto', name: 'Noto Sans Arabic', description: 'سانس موحد واضح وقابل للقراءة' },
+  { id: 'almarai', name: 'Almarai', description: 'خط عربي حديث وواضح للواجهات' },
+  { id: 'tajawal', name: 'Tajawal', description: 'خط عربي عصري ونظيف' },
+  { id: 'rubik', name: 'Rubik', description: 'خط هندسي متوازن يدعم العربية' },
+  { id: 'changa', name: 'Changa', description: 'خط عربي عريض وبارز' },
+  { id: 'mada', name: 'Mada', description: 'خط عربي رفيع وأنيق' },
+];
+
+export const FONT_SCALE_OPTIONS = [
+  { value: 90, label: 'صغير' },
+  { value: 100, label: 'عادي' },
+  { value: 115, label: 'متوسط' },
+  { value: 130, label: 'كبير' },
+  { value: 150, label: 'كبير جداً' },
+];
+
 export const THEME_PRESETS: ThemePreset[] = [
   { id: 'green', name: 'أخضر', swatch: '#1e6b56', description: 'اللون الأساسي الافتراضي' },
   { id: 'blue', name: 'أزرق', swatch: '#2563eb', description: 'مهني وهادئ' },
@@ -26,10 +52,13 @@ export const THEME_PRESETS: ThemePreset[] = [
   { id: 'forest', name: 'أخضر غابة', swatch: '#2A835F', description: 'طبيعي وهادئ' },
   { id: 'plum', name: 'خوخي داكن', swatch: '#601D49', description: 'أرجواني غامق' },
   { id: 'navy', name: 'كحلي', swatch: '#253C6D', description: 'أزرق داكن رسمي' },
+  { id: 'beige', name: 'بيج', swatch: '#f5f5dc', description: 'عاجي فاتح وهادئ' },
 ];
 
 export const STORAGE_KEYS = {
   theme: 'qomash_theme',
   dark: 'qomash_dark',
+  font: 'qomash_font',
+  fontScale: 'qomash_font_scale',
   settings: 'qomash_settings',
 };

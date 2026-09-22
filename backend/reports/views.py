@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from branches.models import Branch
+from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 from expenses.models import Expense, ExpenseBudget, ExpenseCategory
 from partners.models import PartnerOperation
 from sales.models import DailySale
@@ -109,8 +110,11 @@ def _xlsx_response(workbook, filename):
 
 
 class SalesReportView(APIView):
+    permission_section = "reports"
     def get(self, request):
-        qs = DailySale.objects.select_related("branch").all()
+        qs = scope_queryset(
+            self.request, DailySale.objects.select_related("branch")
+        )
         branch = request.query_params.get("branch")
         date_from = request.query_params.get("date_from")
         date_to = request.query_params.get("date_to")
@@ -167,8 +171,11 @@ class SalesReportView(APIView):
 
 
 class ExpensesReportView(APIView):
+    permission_section = "reports"
     def get(self, request):
-        qs = Expense.objects.select_related("branch", "category").all()
+        qs = scope_queryset(
+            self.request, Expense.objects.select_related("branch", "category")
+        )
         branch = request.query_params.get("branch")
         category = request.query_params.get("category")
         date_from = request.query_params.get("date_from")
@@ -227,6 +234,7 @@ def _month_start(value, fallback):
 
 class ExpensesBudgetReportView(APIView):
     """مصاريف كل فرع/تصنيف مقابل الميزانية الشهرية المحددة له."""
+    permission_section = "reports"
 
     def get(self, request):
         today = timezone.localdate()
@@ -239,8 +247,13 @@ class ExpensesBudgetReportView(APIView):
         branch = request.query_params.get("branch")
         category = request.query_params.get("category")
 
-        budget_qs = ExpenseBudget.objects.filter(month=month_start)
-        expense_qs = Expense.objects.filter(date__gte=month_start, date__lte=month_end)
+        budget_qs = scope_queryset(
+            self.request, ExpenseBudget.objects.filter(month=month_start)
+        )
+        expense_qs = scope_queryset(
+            self.request,
+            Expense.objects.filter(date__gte=month_start, date__lte=month_end),
+        )
         if branch:
             budget_qs = budget_qs.filter(branch_id=branch)
             expense_qs = expense_qs.filter(branch_id=branch)
@@ -310,6 +323,7 @@ class ExpensesBudgetReportView(APIView):
 
 
 class NetDailyReportView(APIView):
+    permission_section = "reports"
     def get(self, request):
         today = timezone.localdate()
         date_from = request.query_params.get("date_from", today - timedelta(days=30))
@@ -324,8 +338,12 @@ class NetDailyReportView(APIView):
         current = date_from
         chart_data = []
         while current <= date_to:
-            sales_qs = DailySale.objects.filter(date=current)
-            expense_qs = Expense.objects.filter(date=current)
+            sales_qs = scope_queryset(
+                self.request, DailySale.objects.filter(date=current)
+            )
+            expense_qs = scope_queryset(
+                self.request, Expense.objects.filter(date=current)
+            )
             if branch:
                 sales_qs = sales_qs.filter(branch_id=branch)
                 expense_qs = expense_qs.filter(branch_id=branch)
@@ -358,6 +376,7 @@ class NetDailyReportView(APIView):
 
 
 class SupplierReportView(APIView):
+    permission_section = "reports"
     def get(self, request):
         suppliers = Supplier.objects.filter(is_active=True).order_by("name")
         data = []
@@ -387,8 +406,11 @@ class SupplierReportView(APIView):
 
 
 class BranchReportView(APIView):
+    permission_section = "reports"
     def get(self, request):
-        branches = Branch.objects.filter(is_active=True).order_by("name")
+        branches = scope_queryset(
+            self.request, Branch.objects.filter(is_active=True)
+        ).order_by("name")
         data = []
         for b in branches:
             data.append({
@@ -417,6 +439,7 @@ class BranchReportView(APIView):
 
 class InventoryReportView(APIView):
     """تقرير الأرصدة الحالية لكل قماش في كل مخزن مع تنبيهات الحد الأدنى."""
+    permission_section = "reports"
 
     def get(self, request):
         filters = {}
@@ -429,6 +452,7 @@ class InventoryReportView(APIView):
         search = request.query_params.get("search", "").strip()
 
         rows = FabricRoll.objects.filter(status=FabricRoll.Status.AVAILABLE, **filters)
+        rows = scope_queryset(self.request, rows, branch_field="warehouse__branch")
         if search:
             rows = rows.filter(fabric__name__icontains=search)
 
@@ -439,7 +463,10 @@ class InventoryReportView(APIView):
         )
 
         by_fabric = {}
-        warehouses = {w.id: w.name for w in Warehouse.objects.all()}
+        warehouses = {
+            w.id: w.name
+            for w in scope_queryset(self.request, Warehouse.objects.all())
+        }
         for r in agg:
             key = r["fabric_id"]
             entry = by_fabric.setdefault(key, {
@@ -491,9 +518,14 @@ class InventoryReportView(APIView):
 
 class InventoryMovementsReportView(APIView):
     """تقرير حركات المخزون المفصلة مع الرصيد قبل/بعد كل حركة."""
+    permission_section = "reports"
 
     def get(self, request):
-        qs = StockMovement.objects.select_related("warehouse", "fabric").order_by("date", "id")
+        qs = scope_queryset(
+            self.request,
+            StockMovement.objects.select_related("warehouse", "fabric"),
+            branch_field="warehouse__branch",
+        ).order_by("date", "id")
         warehouse = request.query_params.get("warehouse")
         fabric = request.query_params.get("fabric")
         movement_type = request.query_params.get("movement_type")
@@ -563,24 +595,45 @@ def _report_dates(request):
     return date.fromisoformat(date_from), date.fromisoformat(date_to)
 
 
-def _cogs_total(date_from, date_to):
-    """تكلفة البضاعة المباعة الإجمالية في الفترة."""
-    cogs = cogs_by_fabric(date_from, date_to)
+def _scoped_cogs(request, date_from, date_to):
+    """تكلفة البضاعة المباعة الإجمالية في الفترة لنطاق فرع الموظف إن كان مقيداً."""
+    allowed = allowed_branch_ids(request)
+    if allowed is not None:
+        if not allowed:
+            return Decimal("0")
+        branch_id = next(iter(allowed))
+    else:
+        branch_id = None
+    cogs = cogs_by_fabric(date_from, date_to, branch_id)
     return sum(cogs.values(), Decimal("0"))
+
+
+def _scoped_sold(request, date_from, date_to, fabric_id=None):
+    """الياردات المباعة لكل قماش في الفترة لنطاق فرع الموظف إن كان مقيداً."""
+    allowed = allowed_branch_ids(request)
+    if allowed is not None:
+        if not allowed:
+            return {}
+        branch_id = next(iter(allowed))
+    else:
+        branch_id = None
+    sold = sold_by_fabric(date_from, date_to, branch_id)
+    if fabric_id:
+        try:
+            sold = {k: v for k, v in sold.items() if k == int(fabric_id)}
+        except (TypeError, ValueError):
+            sold = {}
+    return sold
 
 
 class CogsReportView(APIView):
     """تكلفة البضاعة المباعة وربحية كل قماش في الفترة."""
+    permission_section = "reports"
 
     def get(self, request):
         date_from, date_to = _report_dates(request)
         fabric_id = request.query_params.get("fabric")
-        sold = sold_by_fabric(date_from, date_to)
-        if fabric_id:
-            try:
-                sold = {k: v for k, v in sold.items() if k == int(fabric_id)}
-            except (TypeError, ValueError):
-                sold = {}
+        sold = _scoped_sold(request, date_from, date_to, fabric_id)
         costs = fabric_average_costs()
         fabrics = {f.id: f for f in Fabric.objects.filter(id__in=list(sold.keys()))}
 
@@ -632,24 +685,35 @@ class CogsReportView(APIView):
 
 class ProfitLossReportView(APIView):
     """الربح والخسارة: مبيعات - تكلفة البضاعة المباعة - مصاريف."""
+    permission_section = "reports"
 
     def get(self, request):
         date_from, date_to = _report_dates(request)
         branch = request.query_params.get("branch")
 
-        sales_qs = DailySale.objects.filter(date__gte=date_from, date__lte=date_to)
-        expense_qs = Expense.objects.filter(date__gte=date_from, date__lte=date_to)
+        sales_qs = scope_queryset(
+            self.request, DailySale.objects.filter(
+                date__gte=date_from, date__lte=date_to
+            )
+        )
+        expense_qs = scope_queryset(
+            self.request, Expense.objects.filter(
+                date__gte=date_from, date__lte=date_to
+            )
+        )
         if branch:
             sales_qs = sales_qs.filter(branch_id=branch)
             expense_qs = expense_qs.filter(branch_id=branch)
 
         total_sales = sales_qs.aggregate(t=Sum("total_sales"))["t"] or 0
         total_expenses = expense_qs.aggregate(t=Sum("amount"))["t"] or 0
-        cogs = _cogs_total(date_from, date_to)
+        cogs = _scoped_cogs(request, date_from, date_to)
         gross_profit = total_sales - cogs
         net_profit = gross_profit - total_expenses
 
-        row_branches = Branch.objects.filter(is_active=True)
+        row_branches = scope_queryset(
+            self.request, Branch.objects.filter(is_active=True)
+        )
         if branch:
             row_branches = row_branches.filter(id=branch)
         rows = []
@@ -693,6 +757,7 @@ class ProfitLossReportView(APIView):
 
 class CommissionsReportView(APIView):
     """عمولات المبيعات لكل موظف في الفترة حسب إغلاق الورديات."""
+    permission_section = "reports"
 
     def get(self, request):
         today = timezone.localdate()
@@ -716,10 +781,13 @@ class CommissionsReportView(APIView):
             except ValueError:
                 pass
 
-        qs = SaleSession.objects.filter(
-            status=SaleSession.Status.CLOSED,
-            closed_at__date__gte=month_start,
-            closed_at__date__lte=month_end,
+        qs = scope_queryset(
+            self.request,
+            SaleSession.objects.filter(
+                status=SaleSession.Status.CLOSED,
+                closed_at__date__gte=month_start,
+                closed_at__date__lte=month_end,
+            ),
         ).select_related("employee", "employee__branch", "branch").prefetch_related("items")
 
         employee = request.query_params.get("employee")
@@ -784,6 +852,7 @@ class CommissionsReportView(APIView):
 
 class JournalReportView(APIView):
     """سجل القيود اليومية: مبيعات، مشتريات، مصاريف، دعم وسحب الشركاء مع رصيد تراكمي."""
+    permission_section = "reports"
 
     def get(self, request):
         date_from, date_to = _report_dates(request)
@@ -792,9 +861,19 @@ class JournalReportView(APIView):
         journal = []
         current = date_from
         while current <= date_to:
-            sales_qs = DailySale.objects.filter(date=current)
-            expense_qs = Expense.objects.filter(date=current)
-            purchase_qs = GoodsReceiptItem.objects.filter(receipt__status="posted", receipt__date=current)
+            sales_qs = scope_queryset(
+                self.request, DailySale.objects.filter(date=current)
+            )
+            expense_qs = scope_queryset(
+                self.request, Expense.objects.filter(date=current)
+            )
+            purchase_qs = scope_queryset_or(
+                self.request,
+                GoodsReceiptItem.objects.filter(
+                    receipt__status="posted", receipt__date=current
+                ),
+                ["receipt__branch", "receipt__warehouse__branch"],
+            )
             if branch:
                 sales_qs = sales_qs.filter(branch_id=branch)
                 expense_qs = expense_qs.filter(branch_id=branch)

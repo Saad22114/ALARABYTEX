@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from suppliers.models import Fabric
+from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 
 from .models import (
     DocumentSequence,
@@ -50,10 +51,14 @@ from .services import (
 
 
 class WarehouseViewSet(viewsets.ModelViewSet):
+    permission_section = "warehouses"
     queryset = Warehouse.objects.all()
     serializer_class = WarehouseSerializer
     search_fields = ["name", "code", "location", "manager_name"]
     ordering_fields = ["name", "code", "created_at"]
+
+    def get_queryset(self):
+        return scope_queryset(self.request, super().get_queryset())
 
     @action(detail=True, methods=["get"])
     def summary(self, request, pk=None):
@@ -90,6 +95,7 @@ class WarehouseViewSet(viewsets.ModelViewSet):
 
 
 class FabricRollViewSet(viewsets.ModelViewSet):
+    permission_section = "warehouses"
     queryset = FabricRoll.objects.select_related("warehouse", "fabric")
     serializer_class = FabricRollSerializer
     search_fields = ["code", "fabric__name", "fabric__code"]
@@ -97,6 +103,7 @@ class FabricRollViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs, branch_field="warehouse__branch")
         warehouse = self.request.query_params.get("warehouse")
         fabric = self.request.query_params.get("fabric")
         status_filter = self.request.query_params.get("status")
@@ -120,6 +127,7 @@ class FabricRollViewSet(viewsets.ModelViewSet):
 
 
 class GoodsReceiptViewSet(viewsets.ModelViewSet):
+    permission_section = "warehouses"
     queryset = GoodsReceipt.objects.select_related("warehouse", "supplier").prefetch_related("items__fabric")
     search_fields = ["number", "supplier_receipt_no", "warehouse__name"]
     ordering_fields = ["date", "number", "created_at"]
@@ -130,7 +138,9 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
         return GoodsReceiptSerializer
 
     def get_queryset(self):
-        return self.queryset
+        return scope_queryset_or(
+            self.request, self.queryset, ["warehouse__branch", "branch"]
+        )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -164,9 +174,17 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
 
 
 class StockTransferViewSet(viewsets.ModelViewSet):
+    permission_section = "warehouses"
     queryset = StockTransfer.objects.select_related("from_warehouse", "to_warehouse", "to_branch").prefetch_related("items__fabric")
     search_fields = ["number", "from_warehouse__name", "to_warehouse__name", "to_branch__name"]
     ordering_fields = ["date", "number", "created_at"]
+
+    def get_queryset(self):
+        return scope_queryset_or(
+            self.request,
+            self.queryset,
+            ["from_warehouse__branch", "to_warehouse__branch", "to_branch"],
+        )
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -262,9 +280,13 @@ class StockTransferViewSet(viewsets.ModelViewSet):
 
 
 class StockAdjustmentViewSet(viewsets.ModelViewSet):
+    permission_section = "warehouses"
     queryset = StockAdjustment.objects.select_related("warehouse").prefetch_related("items__fabric")
     search_fields = ["number", "warehouse__name"]
     ordering_fields = ["date", "number", "created_at"]
+
+    def get_queryset(self):
+        return scope_queryset(self.request, self.queryset, branch_field="warehouse__branch")
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -280,9 +302,13 @@ class StockAdjustmentViewSet(viewsets.ModelViewSet):
 
 
 class StockCountViewSet(viewsets.ModelViewSet):
+    permission_section = "warehouses"
     queryset = StockCount.objects.select_related("warehouse").prefetch_related("items__fabric")
     search_fields = ["number", "warehouse__name"]
     ordering_fields = ["date", "number", "created_at"]
+
+    def get_queryset(self):
+        return scope_queryset(self.request, self.queryset, branch_field="warehouse__branch")
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -332,6 +358,7 @@ class StockCountViewSet(viewsets.ModelViewSet):
 
 
 class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_section = "warehouses"
     queryset = StockMovement.objects.select_related("warehouse", "fabric", "roll")
     serializer_class = StockMovementSerializer
     search_fields = ["reference_no", "notes", "fabric__name"]
@@ -339,6 +366,7 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs, branch_field="warehouse__branch")
         params = self.request.query_params
         if params.get("warehouse"):
             qs = qs.filter(warehouse_id=params["warehouse"])
@@ -354,6 +382,7 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class StockOpeningViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_section = "warehouses"
     queryset = StockOpening.objects.select_related("warehouse").prefetch_related("items__fabric")
     serializer_class = StockOpeningSerializer
     search_fields = ["number", "warehouse__name"]
@@ -361,6 +390,7 @@ class StockOpeningViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs, branch_field="warehouse__branch")
         warehouse = self.request.query_params.get("warehouse")
         if warehouse:
             qs = qs.filter(warehouse_id=warehouse)
@@ -379,6 +409,7 @@ class StockOpeningViewSet(viewsets.ReadOnlyModelViewSet):
 
 class StockBalanceView(APIView):
     """الرصيد الكلي لكل قماش في كل المخازن مع تنبيهات الحد الأدنى."""
+    permission_section = "warehouses"
 
     def get(self, request):
         filters = {}
@@ -391,10 +422,14 @@ class StockBalanceView(APIView):
             filters["fabric_id"] = fabric_id
 
         rows = FabricRoll.objects.filter(status=FabricRoll.Status.AVAILABLE, **filters)
+        rows = scope_queryset(self.request, rows, branch_field="warehouse__branch")
         if search:
             rows = rows.filter(fabric__name__icontains=search)
 
-        warehouses = {w.id: w for w in Warehouse.objects.filter(is_active=True)}
+        warehouses = {
+            w.id: w
+            for w in scope_queryset(self.request, Warehouse.objects.filter(is_active=True))
+        }
 
         agg = (
             rows.values("warehouse_id", "fabric_id")
@@ -470,12 +505,15 @@ class StockBalanceSetView(APIView):
     POST body: {"fabric": id, "date": "YYYY-MM-DD", "notes": "", "items": [{"warehouse": id, "yards": n}, ...]}
     لكل مخزن يخصم الفرق: زيادة -> تسوية إضافة، نقص -> تسوية خصم.
     """
+    permission_section = "warehouses"
 
     def post(self, request):
         fabric = get_object_or_404(Fabric, pk=request.data.get("fabric"))
         items_data = request.data.get("items") or []
         if not items_data:
             return Response({"detail": "أضف صنفاً واحداً على الأقل"}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed = allowed_branch_ids(request)
 
         lines = []
         seen_warehouses = set()
@@ -497,6 +535,11 @@ class StockBalanceSetView(APIView):
         with transaction.atomic():
             for warehouse_id, target in lines:
                 warehouse = get_object_or_404(Warehouse, pk=warehouse_id)
+                if allowed is not None and warehouse.branch_id not in allowed:
+                    return Response(
+                        {"detail": "لا يمكنك تعديل رصيد مخزن خارج فرعك"},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
                 current = (
                     FabricRoll.objects.filter(
                         warehouse=warehouse, fabric=fabric, status=FabricRoll.Status.AVAILABLE

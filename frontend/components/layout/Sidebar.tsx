@@ -19,8 +19,10 @@ import {
   UserCog,
   Calculator,
   MessageSquareText,
+  Palette,
 } from 'lucide-react';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useAuth } from '@/components/providers/AuthProvider';
 import { logoUrl } from '@/services/settings';
 
 const navItems = [
@@ -37,6 +39,7 @@ const navItems = [
   { key: 'reports', href: '/reports', label: 'التقارير', icon: BarChart3 },
   { key: 'accounting', href: '/accounting', label: 'المحاسبة', icon: Calculator },
   { key: 'messages', href: '/messages', label: 'التواصل', icon: MessageSquareText },
+  { key: 'themes', href: '/themes', label: 'الثيمات والتحكم', icon: Palette },
   { key: 'settings', href: '/settings', label: 'الإعدادات', icon: Settings },
 ];
 
@@ -48,14 +51,38 @@ interface SidebarProps {
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { settings } = useSettings();
+  const { session } = useAuth();
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   };
 
-  const hidden = settings?.hidden_sections || [];
-  const visibleItems = navItems.filter((item) => !hidden.includes(item.key));
+  const visible = (key: string): boolean => {
+    const hidden = new Set([
+      ...(session?.employee.hidden_sections || []),
+      ...(settings?.hidden_sections || []),
+    ]);
+    if (hidden.has(key)) return false;
+    if (key === 'dashboard') return true;
+    // قسم «الثيمات والتحكم» مفتوح لكل الموظفين بغض النظر عن صلاحياتهم —
+    // يظهر ما لم يُخفَ مركزياً من «أقسام القائمة» أو لكل موظف على حدة.
+    if (key === 'themes') return true;
+    const permissions = session?.employee.permissions;
+    const perms = permissions ? permissions[key] : null;
+    // الأقسام المقيدة بالنطاق: يظهر فرعُ الموظف في القائمة فقط بعد اكتمال
+    // تحميل الإعدادات (المركزية) — يمنع الوميضَ الناتج عن إخفاءٍ مركزي
+    // يُطبق متأخراً، ويُبقي الصفوف مقصورةً على نطاقه تطابقاً مع قاعدة الخلفية.
+    const settingsReady = settings !== null;
+    const hasScope =
+      Boolean(session?.employee.branch) ||
+      Boolean(session?.employee.allowed_branches?.length);
+    if (settingsReady && hasScope && ['branches', 'sales', 'sessions'].includes(key))
+      return true;
+    return Boolean(perms && perms.view);
+  };
+
+  const visibleItems = navItems.filter((item) => visible(item.key));
 
   return (
     <>
@@ -91,7 +118,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                 )}
                 <div>
                   <h1 className="text-xl font-bold text-white">{settings?.business_name || 'القماش العربي'}</h1>
-                  <p className="text-xs text-[#d9d3c6]/60">نظام إدارة أعمال الأقمشة</p>
+                  <p className="text-xs text-[#d9d3c6]/60">نظام إدارة الأعمال</p>
                 </div>
               </div>
             <button

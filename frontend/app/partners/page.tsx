@@ -30,6 +30,7 @@ import {
   deletePartner,
   listPartnerOperations,
   createPartnerOperation,
+  updatePartnerOperation,
   deletePartnerOperation,
   getPartnerOperationsSummary,
   getPartnerDistribution,
@@ -116,6 +117,7 @@ export default function PartnersPage() {
   const [opModalOpen, setOpModalOpen] = useState(false);
   const [opForm, setOpForm] = useState<OperationForm>(emptyOperationForm());
   const [opSaving, setOpSaving] = useState(false);
+  const [opEditingId, setOpEditingId] = useState<number | null>(null);
 
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [partnerForm, setPartnerForm] = useState<PartnerForm>(emptyPartnerForm());
@@ -282,7 +284,7 @@ export default function PartnersPage() {
     }
     setOpSaving(true);
     try {
-      await createPartnerOperation({
+      const payload = {
         partner: opForm.partner,
         date: opForm.date,
         operation_type: opForm.operation_type,
@@ -290,9 +292,16 @@ export default function PartnersPage() {
         amount,
         reason: opForm.reason,
         notes: opForm.notes,
-      });
-      toast('success', 'تم تسجيل عملية الشريك');
+      };
+      if (opEditingId) {
+        await updatePartnerOperation(opEditingId, payload);
+        toast('success', 'تم تعديل عملية الشريك');
+      } else {
+        await createPartnerOperation(payload);
+        toast('success', 'تم تسجيل عملية الشريك');
+      }
       setOpModalOpen(false);
+      setOpEditingId(null);
       setOpForm(emptyOperationForm());
       refreshAll();
     } catch (err: any) {
@@ -300,6 +309,26 @@ export default function PartnersPage() {
     } finally {
       setOpSaving(false);
     }
+  };
+
+  const openEditOperation = (op: PartnerOperation) => {
+    setOpEditingId(op.id);
+    setOpForm({
+      partner: op.partner,
+      date: op.date,
+      operation_type: op.operation_type,
+      payment_method: op.payment_method,
+      amount: String(op.amount),
+      reason: op.reason,
+      notes: op.notes,
+    });
+    setOpModalOpen(true);
+  };
+
+  const openCreateOperation = () => {
+    setOpEditingId(null);
+    setOpForm({ ...emptyOperationForm(), partner: partners[0]?.id ?? null });
+    setOpModalOpen(true);
   };
 
   const handleDeleteOperation = async () => {
@@ -406,7 +435,7 @@ export default function PartnersPage() {
               إضافة شريك
             </Button>
             <Button
-              onClick={() => { setOpForm({ ...emptyOperationForm(), partner: partners[0]?.id ?? null }); setOpModalOpen(true); }}
+              onClick={openCreateOperation}
               disabled={partners.length === 0}
             >
               <Plus size={18} />
@@ -585,9 +614,14 @@ export default function PartnersPage() {
                         </Td>
                         <Td className="max-w-[180px] truncate">{op.reason || op.notes || '-'}</Td>
                         <Td>
-                          <button onClick={() => setDeletingOp(op)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors">
-                            <Trash2 size={16} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => openEditOperation(op)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors">
+                              <Pencil size={16} />
+                            </button>
+                            <button onClick={() => setDeletingOp(op)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </Td>
                       </Tr>
                     ))}
@@ -680,10 +714,10 @@ export default function PartnersPage() {
           </div>
         )}
 
-        <Modal open={opModalOpen} onClose={() => setOpModalOpen(false)} title="عملية شريك جديدة" maxWidth="max-w-lg">
+        <Modal open={opModalOpen} onClose={() => { setOpModalOpen(false); setOpEditingId(null); }} title={opEditingId ? 'تعديل عملية شريك' : 'عملية شريك جديدة'} maxWidth="max-w-lg">
           <div className="space-y-4">
             <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
-              تُسجَّل العملية على الشريك المحدد فقط: دعم يزيد رصيده، وسحب يخصمه من رصيده.
+              تُسجَّل العملية على الشريك المحدد فقط: دعم يزيد رصيده، وسحب يخصمه من رصيده. عند التعديل يُعاد احتساب الحركة والرصيد المحاسبي تلقائياً.
             </div>
             <Select
               label="الشريك المسجل عليه العملية"
@@ -732,8 +766,8 @@ export default function PartnersPage() {
               placeholder="ملاحظات اختيارية..."
             />
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={() => setOpModalOpen(false)}>إلغاء</Button>
-              <Button onClick={handleCreateOperation} loading={opSaving}>تسجيل العملية</Button>
+              <Button variant="secondary" onClick={() => { setOpModalOpen(false); setOpEditingId(null); }}>إلغاء</Button>
+              <Button onClick={handleCreateOperation} loading={opSaving}>{opEditingId ? 'حفظ التعديلات' : 'تسجيل العملية'}</Button>
             </div>
           </div>
         </Modal>

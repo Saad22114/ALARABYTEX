@@ -1,6 +1,28 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
 
+const TOKEN_KEY = 'qomash_token';
+
+function authHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    return token ? { Authorization: `Token ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
+function redirectToLogin(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem('qomash_session');
+  } catch {}
+  if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+}
+
 export function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
   const sp = new URLSearchParams();
   Object.entries(params).forEach(([key, val]) => {
@@ -19,14 +41,17 @@ export async function apiRequest<T>(
   const url = `${API_URL}${path}`;
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(url, {
-    headers: isForm
-      ? { ...(options.headers || {}) }
-      : {
-          'Content-Type': 'application/json',
-          ...(options.headers || {}),
-        },
+    headers: {
+      ...authHeaders(),
+      ...(isForm ? {} : { 'Content-Type': 'application/json' }),
+      ...(options.headers || {}),
+    },
     ...options,
   });
+
+  if (res.status === 401 && !path.startsWith('/auth/login/')) {
+    redirectToLogin();
+  }
 
   if (res.status === 204) return undefined as T;
 

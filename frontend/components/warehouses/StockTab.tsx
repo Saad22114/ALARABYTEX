@@ -27,8 +27,7 @@ import { useToast } from '@/components/ui/Toast';
 
 const UNIT_LABEL: Record<string, string> = {
   yard: 'ياردة',
-  meter: 'متر',
-  roll: 'لفة',
+  roll: 'طاقة',
 };
 
 interface OpeningLine {
@@ -209,7 +208,7 @@ export default function StockTab() {
             <p className="text-2xl font-bold text-neutral-800 tabular-nums">{formatNumber(totals.total_yards)}</p>
           </Card>
           <Card>
-            <p className="text-xs text-neutral-500 mb-1">اللفات المتاحة</p>
+            <p className="text-xs text-neutral-500 mb-1">الطاقات المتاحة</p>
             <p className="text-2xl font-bold text-neutral-800 tabular-nums">{formatNumber(totals.rolls_available)}</p>
           </Card>
           <Card>
@@ -272,7 +271,7 @@ export default function StockTab() {
                   <Th>القماش</Th>
                   <Th>الكود</Th>
                   <Th>الوحدة</Th>
-                  <Th>اللفات المتاحة</Th>
+                  <Th>الطاقات المتاحة</Th>
                   <Th>الكمية</Th>
                   <Th>الحد الأدنى</Th>
                   <Th>الحالة</Th>
@@ -442,7 +441,7 @@ export default function StockTab() {
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <Input
-                      label="اللفات"
+                      label="الطاقات"
                       type="number"
                       min="1"
                       step="1"

@@ -36,16 +36,23 @@ import { openSalesInvoice, sessionToDailySales } from '@/lib/invoice';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useAuth } from '@/components/providers/AuthProvider';
+import { toEmployee } from '@/lib/sessionEmployee';
+import { hasWindow } from '@/lib/permissions';
 import { useUrlState } from '@/lib/useUrlState';
 
 export default function SalesPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
+  const { session } = useAuth();
+  const me = session?.employee;
+  const isManager = Boolean(me && (me.role === 'admin' || me.role === 'supervisor'));
   const [tab, setTab] = useUrlState<'sales' | 'sessions'>('tab', 'sales');
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
+  const modalEmployees = isManager ? employees : me ? [toEmployee(me)] : [];
 
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
   const [filterEmployee, setFilterEmployee] = useUrlState('employee', '');
@@ -321,14 +328,18 @@ export default function SalesPage() {
         {/* Tab bar + actions */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex rounded-xl border border-sand-300 overflow-hidden bg-surface">
-            <button type="button" onClick={() => setTab('sales')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'sales' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
-              <Store size={16} />
-              المبيعات
-            </button>
-            <button type="button" onClick={() => setTab('sessions')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'sessions' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
-              <Timer size={16} />
-              ورديات البيع
-            </button>
+            {hasWindow(me?.permissions, 'sales', 'sales') && (
+              <button type="button" onClick={() => setTab('sales')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'sales' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
+                <Store size={16} />
+                المبيعات
+              </button>
+            )}
+            {hasWindow(me?.permissions, 'sales', 'sessions') && (
+              <button type="button" onClick={() => setTab('sessions')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'sessions' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
+                <Timer size={16} />
+                ورديات البيع
+              </button>
+            )}
           </div>
           {tab === 'sales' && (
             <div className="flex items-center gap-2">
@@ -338,10 +349,12 @@ export default function SalesPage() {
                   تصدير Excel
                 </Button>
               </a>
-              <Button onClick={() => setManualOpen(true)}>
-                <Plus size={18} />
-                إضافة وردية كاملة
-              </Button>
+              {hasWindow(me?.permissions, 'sessions', 'manual') && (
+                <Button onClick={() => setManualOpen(true)}>
+                  <Plus size={18} />
+                  إضافة وردية كاملة
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -598,7 +611,7 @@ export default function SalesPage() {
                                     <Tr key={it.id}>
                                       <Td className="font-medium">{it.fabric_name}</Td>
                                       <Td><Badge variant="neutral">{it.sale_type_label}</Badge></Td>
-                                      <Td className="tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'لفة' : 'يارد'}</Td>
+                                      <Td className="tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'طاقة' : 'يارد'}</Td>
                                       <Td className="tabular-nums text-neutral-500">
                                         {it.customer_phone ? it.customer_phone : <span className="text-neutral-300">—</span>}
                                       </Td>
@@ -778,7 +791,7 @@ export default function SalesPage() {
         <SessionEditModal
           open={!!editClosedSession}
           session={editClosedSession}
-          employees={employees}
+          employees={modalEmployees}
           branches={branches}
           onClose={() => setEditClosedSession(null)}
           onSaved={() => {
@@ -809,7 +822,7 @@ export default function SalesPage() {
 
         <ManualSessionModal
           open={manualOpen}
-          employees={employees}
+          employees={modalEmployees}
           onClose={() => setManualOpen(false)}
           onSaved={handleManualSaved}
         />

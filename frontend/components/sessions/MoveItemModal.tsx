@@ -60,7 +60,7 @@ export default function MoveItemModal({ open, session, item, sessions, onClose, 
           <div className="rounded-xl border border-sand-300 bg-sand-50 px-4 py-3 text-sm">
             <div className="font-semibold">{item.fabric_name}</div>
             <div className="mt-1 flex flex-wrap gap-2 text-neutral-500">
-              <span>{item.quantity} {item.sale_type === 'roll' ? 'لفة' : 'ياردة'}</span>
+              <span>{item.quantity} {item.sale_type === 'roll' ? 'طاقة' : 'ياردة'}</span>
               <span>•</span>
               <span>{formatNumber(item.yards_effective)} ياردة</span>
               <span>•</span>

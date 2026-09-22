@@ -114,7 +114,7 @@ export default function MovementsPage() {
                     <Th>المخزن</Th>
                     <Th>الحالة</Th>
                     <Th>القماش</Th>
-                    <Th>اللفة</Th>
+                    <Th>الطاقة</Th>
                     <Th>الكمية</Th>
                     <Th>الرصيد قبل</Th>
                     <Th>الرصيد بعد</Th>

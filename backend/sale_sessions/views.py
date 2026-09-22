@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.branch_scope import scope_queryset
 from .models import Employee, SaleSession, SaleSessionItem
 from .sections import ROLE_PRESETS, SECTIONS
 from .serializers import (
@@ -34,6 +35,7 @@ from .services import (
 
 class SectionsView(APIView):
     """يعيد قائمة أقسام النظام والصلاحيات المتاحة وأدياردة العملاء الجاهزة."""
+    permission_section = "@identity"
 
     def get(self, request):
         return Response(
@@ -45,17 +47,23 @@ class SectionsView(APIView):
 
 
 class EmployeeViewSet(viewsets.ModelViewSet):
-    queryset = Employee.objects.select_related("branch").all()
+    permission_section = "employees"
+    queryset = Employee.objects.select_related("branch").prefetch_related("allowed_branches").all()
     serializer_class = EmployeeSerializer
     search_fields = ["name", "phone", "branch__name"]
     ordering_fields = ["name", "created_at"]
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs)
         branch = self.request.query_params.get("branch")
         if branch:
             qs = qs.filter(branch_id=branch)
         return qs
+
+    def update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -64,11 +72,16 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 {"detail": "لا يمكن حذف موظف لديه ورديات بيع"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        from django.contrib.auth.models import User
+        user = instance.user
         self.perform_destroy(instance)
+        if user is not None:
+            User.objects.filter(pk=user.pk).delete()
         return Response({"detail": settings.API_MESSAGES["deleted"]}, status=status.HTTP_200_OK)
 
 
 class SaleSessionViewSet(viewsets.ModelViewSet):
+    permission_section = "sessions"
     queryset = SaleSession.objects.select_related("employee", "branch").all()
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
@@ -107,6 +120,7 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs)
         status_ = self.request.query_params.get("status")
         if status_:
             qs = qs.filter(status=status_)
@@ -184,14 +198,17 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         sale_group = str(uuid.uuid4())
-        serializers_ = [
-            SaleSessionItemCreateSerializer(data=data, context={"session": session, "sale_group": sale_group})
-            for data in items
-        ]
-        for s in serializers_:
-            s.is_valid(raise_exception=True)
+        # تُتحقق البنود واحدة تلو الأخرى داخل معاملة واحدة: كل بند يُراجع على بنود الوردية
+        # المعلّقة (بما فيها الأصناف المضافة للتو في نفس الدفعة) — أي تجاوز للرصيد يُرفض
+        # ويُلغى كامل الدفعة (كل أو لا شيء).
         with transaction.atomic():
-            created = [s.save() for s in serializers_]
+            created = []
+            for data in items:
+                s = SaleSessionItemCreateSerializer(
+                    data=data, context={"session": session, "sale_group": sale_group}
+                )
+                s.is_valid(raise_exception=True)
+                created.append(s.save())
         return Response(
             SaleSessionItemSerializer(created, many=True).data,
             status=status.HTTP_201_CREATED,
@@ -256,7 +273,9 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="manual")
     def manual(self, request):
-        serializer = SaleSessionManualCreateSerializer(data=request.data)
+        serializer = SaleSessionManualCreateSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         session = serializer.save()
         return Response(
@@ -275,7 +294,9 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         if not target_id:
             return Response({"detail": "حدّد الوردية الهدف"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            target = SaleSession.objects.select_related("branch").get(pk=int(target_id))
+            target = scope_queryset(
+                self.request, SaleSession.objects.select_related("branch")
+            ).get(pk=int(target_id))
         except (ValueError, SaleSession.DoesNotExist):
             return Response({"detail": "الوردية الهدف غير موجودة"}, status=status.HTTP_404_NOT_FOUND)
         try:

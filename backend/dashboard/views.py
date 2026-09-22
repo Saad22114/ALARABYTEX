@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from appsettings.models import AppSettings
 from branches.models import Branch
+from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 from core.daterange import resolve_range
 from expenses.models import Expense
 from partners.models import PartnerOperation
@@ -21,6 +22,7 @@ from reports.cogs import fabric_average_costs, sold_by_fabric
 
 class DashboardAlertsView(APIView):
     """تنبيهات لوحة التحكم: نقص المخزون + ورديات مفتوحة + مشتريات غير مستلمة + ملخص اليوم."""
+    permission_section = "dashboard"
 
     def get(self, request):
         today = timezone.localdate()
@@ -28,7 +30,11 @@ class DashboardAlertsView(APIView):
         low_stock = []
         if AppSettings.load().low_stock_alert_enabled:
             agg = (
-                FabricRoll.objects.filter(status=FabricRoll.Status.AVAILABLE)
+                scope_queryset(
+                    self.request,
+                    FabricRoll.objects.filter(status=FabricRoll.Status.AVAILABLE),
+                    branch_field="warehouse__branch",
+                )
                 .values("fabric_id", "fabric__name", "fabric__code", "fabric__min_stock", "fabric__unit")
                 .annotate(total_yards=Sum("remaining_yards"))
             )
@@ -46,7 +52,12 @@ class DashboardAlertsView(APIView):
             low_stock.sort(key=lambda x: x["fabric_name"])
 
         open_sessions = list(
-            SaleSession.objects.filter(status=SaleSession.Status.OPEN, opened_at__date__lt=today)
+            scope_queryset(
+                self.request,
+                SaleSession.objects.filter(
+                    status=SaleSession.Status.OPEN, opened_at__date__lt=today
+                ),
+            )
             .select_related("employee", "branch")
             .order_by("opened_at")[:10]
         )
@@ -61,7 +72,13 @@ class DashboardAlertsView(APIView):
         ]
 
         pending_purchases = (
-            LedgerEntry.objects.filter(entry_type=LedgerEntry.EntryType.PURCHASE)
+            scope_queryset_or(
+                self.request,
+                LedgerEntry.objects.filter(
+                    entry_type=LedgerEntry.EntryType.PURCHASE
+                ),
+                ["branch", "warehouse__branch"],
+            )
             .annotate(receipt_count=Count("goods_receipts"))
             .filter(receipt_count=0)
             .select_related("supplier")
@@ -80,8 +97,12 @@ class DashboardAlertsView(APIView):
             for e in pending_purchases
         ]
 
-        sales = DailySale.objects.filter(date=today).aggregate(t=Sum("total_sales"))["t"] or 0
-        expenses = Expense.objects.filter(date=today).aggregate(t=Sum("amount"))["t"] or 0
+        sales = scope_queryset(
+            self.request, DailySale.objects.filter(date=today)
+        ).aggregate(t=Sum("total_sales"))["t"] or 0
+        expenses = scope_queryset(
+            self.request, Expense.objects.filter(date=today)
+        ).aggregate(t=Sum("amount"))["t"] or 0
         support = PartnerOperation.objects.filter(date=today, operation_type=PartnerOperation.OperationType.SUPPORT).aggregate(t=Sum("amount"))["t"] or 0
         withdraw = PartnerOperation.objects.filter(date=today, operation_type=PartnerOperation.OperationType.WITHDRAW).aggregate(t=Sum("amount"))["t"] or 0
 
@@ -104,21 +125,40 @@ class DashboardAlertsView(APIView):
 
 
 class DashboardSummaryView(APIView):
+    permission_section = "dashboard"
     def get(self, request):
         start_date, end_date, period = resolve_range(request.query_params)
         branch_id = request.query_params.get("branch")
 
-        sales_qs = DailySale.objects.filter(date__gte=start_date, date__lte=end_date)
-        expense_qs = Expense.objects.filter(date__gte=start_date, date__lte=end_date)
+        allowed = allowed_branch_ids(request)
+        restricted = allowed is not None
+        if restricted:
+            if not branch_id and len(allowed) == 1:
+                branch_id = str(next(iter(allowed)))
+            elif branch_id and branch_id not in {str(b) for b in allowed}:
+                branch_id = None
+
+        sales_qs = scope_queryset(
+            request,
+            DailySale.objects.filter(date__gte=start_date, date__lte=end_date),
+        )
+        expense_qs = scope_queryset(
+            request,
+            Expense.objects.filter(date__gte=start_date, date__lte=end_date),
+        )
 
         if branch_id:
             sales_qs = sales_qs.filter(branch_id=branch_id)
             expense_qs = expense_qs.filter(branch_id=branch_id)
         branch_pk = int(branch_id) if branch_id else None
+        if restricted and branch_pk is None:
+            branch_pk = -1
 
         total_sales = sales_qs.aggregate(total=Sum("total_sales"))["total"] or 0
         total_expenses = expense_qs.aggregate(total=Sum("amount"))["total"] or 0
-        branches_count = Branch.objects.filter(is_active=True).count()
+        branches_count = scope_queryset(
+            request, Branch.objects.filter(is_active=True), branch_field="id"
+        ).count()
         suppliers_count = Supplier.objects.filter(is_active=True).count()
 
         costs = fabric_average_costs()
@@ -136,8 +176,12 @@ class DashboardSummaryView(APIView):
             row["date"]: row["total"]
             for row in expense_qs.values("date").annotate(total=Sum("amount"))
         }
-        daily_sold_qs = DailySaleItem.objects.filter(
-            sale__date__gte=start_date, sale__date__lte=end_date
+        daily_sold_qs = scope_queryset(
+            request,
+            DailySaleItem.objects.filter(
+                sale__date__gte=start_date, sale__date__lte=end_date
+            ),
+            branch_field="sale__branch",
         )
         if branch_id:
             daily_sold_qs = daily_sold_qs.filter(sale__branch_id=branch_id)
@@ -170,8 +214,12 @@ class DashboardSummaryView(APIView):
         prev_end = start_date - timedelta(days=1)
         prev_start = prev_end - timedelta(days=duration)
 
-        prev_sales_qs = DailySale.objects.filter(date__gte=prev_start, date__lte=prev_end)
-        prev_expense_qs = Expense.objects.filter(date__gte=prev_start, date__lte=prev_end)
+        prev_sales_qs = scope_queryset(
+            request, DailySale.objects.filter(date__gte=prev_start, date__lte=prev_end)
+        )
+        prev_expense_qs = scope_queryset(
+            request, Expense.objects.filter(date__gte=prev_start, date__lte=prev_end)
+        )
         if branch_id:
             prev_sales_qs = prev_sales_qs.filter(branch_id=branch_id)
             prev_expense_qs = prev_expense_qs.filter(branch_id=branch_id)
@@ -251,11 +299,15 @@ class DashboardSummaryView(APIView):
 
 class DashboardActivityView(APIView):
     """آخر العمليات: بيع، شراء، دفعة، مصروف."""
+    permission_section = "dashboard"
 
     def get(self, request):
         activities = []
 
-        sales = DailySale.objects.select_related("branch").order_by("-date", "-created_at")[:5]
+        sales = scope_queryset(
+            self.request,
+            DailySale.objects.select_related("branch"),
+        ).order_by("-date", "-created_at")[:5]
         for s in sales:
             activities.append({
                 "type": "sale",
@@ -268,7 +320,13 @@ class DashboardActivityView(APIView):
             })
 
         purchase_qs = (
-            LedgerEntry.objects.filter(entry_type=LedgerEntry.EntryType.PURCHASE)
+            scope_queryset_or(
+                self.request,
+                LedgerEntry.objects.filter(
+                    entry_type=LedgerEntry.EntryType.PURCHASE
+                ),
+                ["branch", "warehouse__branch"],
+            )
             .select_related("supplier")
             .order_by("-date", "-created_at")[:5]
         )
@@ -284,7 +342,13 @@ class DashboardActivityView(APIView):
             })
 
         payment_qs = (
-            LedgerEntry.objects.filter(entry_type=LedgerEntry.EntryType.PAYMENT)
+            scope_queryset_or(
+                self.request,
+                LedgerEntry.objects.filter(
+                    entry_type=LedgerEntry.EntryType.PAYMENT
+                ),
+                ["branch", "warehouse__branch"],
+            )
             .select_related("supplier")
             .order_by("-date", "-created_at")[:5]
         )
@@ -299,7 +363,10 @@ class DashboardActivityView(APIView):
                 "link": f"/suppliers/{e.supplier_id}",
             })
 
-        expense_qs = Expense.objects.select_related("category", "branch").order_by("-date", "-created_at")[:5]
+        expense_qs = scope_queryset(
+            self.request,
+            Expense.objects.select_related("category", "branch"),
+        ).order_by("-date", "-created_at")[:5]
         for e in expense_qs:
             activities.append({
                 "type": "expense",

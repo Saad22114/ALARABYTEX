@@ -49,6 +49,8 @@ import {
   closePeriod,
 } from '@/services/accounting';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { useAuth } from '@/components/providers/AuthProvider';
+import { hasWindow } from '@/lib/permissions';
 
 type Tab = 'journal' | 'accounts' | 'trial-balance' | 'statements' | 'cashbox';
 type StatementTab = 'income' | 'balance' | 'cash-flow';
@@ -120,6 +122,8 @@ interface AccountFormState {
 export default function AccountingPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
+  const { session } = useAuth();
+  const me = session?.employee;
   const pageSize = settings?.default_page_size ?? 10;
 
   const [activeTab, setActiveTab] = useUrlState<Tab>('tab', 'journal');
@@ -495,19 +499,19 @@ export default function AccountingPage() {
 
         {/* Tabs */}
         <div className="flex flex-wrap gap-2">
-          {tabs.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => setActiveTab(t.value)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
-                activeTab === t.value
-                  ? 'bg-brand-600 text-white shadow-sm'
-                  : 'bg-surface text-neutral-600 border border-sand-200 hover:bg-sand-50'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+{tabs.filter((t) => hasWindow(me?.permissions, 'accounting', t.value)).map((t) => (
+              <button
+                key={t.value}
+                onClick={() => setActiveTab(t.value)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
+                  activeTab === t.value
+                    ? 'bg-brand-600 text-white shadow-sm'
+                    : 'bg-surface text-neutral-600 border border-sand-200 hover:bg-sand-50'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
         </div>
 
         {/* Content */}

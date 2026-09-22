@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.test import TestCase
 from rest_framework.test import APIClient
+from core.testsupport import authenticate_admin
 
 from appsettings.models import AppSettings
 from branches.models import Branch
@@ -15,6 +16,7 @@ from sales.models import DailySaleItem
 class DailySaleAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.today = date.today().isoformat()
 
@@ -119,6 +121,7 @@ class DailySaleAPITest(TestCase):
 class SaleStockDeductionTest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.fabric = Fabric.objects.create(name="قماش", code="C1", sale_price_yard=2)
@@ -157,16 +160,15 @@ class SaleStockDeductionTest(TestCase):
         rolls = FabricRoll.objects.get(fabric=self.fabric)
         self.assertEqual(Decimal(str(rolls.remaining_yards)), Decimal("50"))
 
-    def test_negative_stock_allowed_when_setting_on(self):
+    def test_sale_rejected_even_when_negative_stock_setting_on(self):
         s = AppSettings.load()
         s.allow_negative_stock = True
         s.save()
         r = self._sale_with_items(200)
-        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.status_code, 400, r.data)
         rolls = FabricRoll.objects.get(fabric=self.fabric)
-        self.assertEqual(Decimal(str(rolls.remaining_yards)), Decimal("0"))
-        m = StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).order_by("-id").first()
-        self.assertEqual(Decimal(str(m.balance_after)), Decimal("-150"))
+        self.assertEqual(Decimal(str(rolls.remaining_yards)), Decimal("50"))
+        self.assertEqual(StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0)
 
     def test_sale_without_items_unchanged(self):
         r = self.c.post("/api/sales/", {
@@ -229,6 +231,7 @@ class SaleStockDeductionTest(TestCase):
 class SalesByEmployeeTest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.today = date.today().isoformat()
         self.e1 = Employee.objects.create(name="أحمد", branch=self.branch)

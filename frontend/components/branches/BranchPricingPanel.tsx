@@ -171,9 +171,9 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
                 <Th>القماش</Th>
                 <Th>السعر الجاري</Th>
                 <Th>سعر الفرع/ياردة</Th>
-                <Th>سعر الفرع/لفة</Th>
+                <Th>سعر الفرع/طاقة</Th>
                 <Th>الحد الأدنى/ياردة</Th>
-                <Th>الحد الأدنى/لفة</Th>
+                <Th>الحد الأدنى/طاقة</Th>
                 <Th>إجراءات</Th>
               </tr>
             </thead>
@@ -186,7 +186,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
                   </Td>
                   <Td>
                     <div className="tabular-nums">{p.global_sale_price_yard || 0}</div>
-                    <div className="text-xs text-neutral-400">يارد/لفة: {p.global_sale_price_roll ?? '—'}</div>
+                    <div className="text-xs text-neutral-400">يارد/طاقة: {p.global_sale_price_roll ?? '—'}</div>
                   </Td>
                   <Td>
                     <Badge variant={p.sale_price_yard ? 'neutral' : 'danger'}>
@@ -237,7 +237,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
               placeholder="0 = استخدم السعر العام"
             />
             <Input
-              label="سعر بيع اللفة"
+              label="سعر بيع الطاقة"
               type="number"
               min={0}
               value={form.sale_price_roll}
@@ -255,7 +255,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
               placeholder="اختياري"
             />
             <Input
-              label="الحد الأدنى للفة"
+              label="الحد الأدنى للطاقة"
               type="number"
               min={0}
               value={form.min_sale_roll}

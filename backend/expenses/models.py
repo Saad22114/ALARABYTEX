@@ -25,6 +25,10 @@ class Expense(TimeStampedModel):
         CARD = "card", "بطاقة"
         OTHER = "other", "أخرى"
 
+    class RecurringFrequency(models.TextChoices):
+        WEEKLY = "weekly", "أسبوعي"
+        MONTHLY = "monthly", "شهري"
+
     branch = models.ForeignKey(
         "branches.Branch",
         on_delete=models.PROTECT,
@@ -47,6 +51,26 @@ class Expense(TimeStampedModel):
     )
     description = models.CharField(max_length=255, blank=True, verbose_name="الوصف")
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
+
+    # الدورة المتكررة: المصروف الأصلي يحمل دورته، وتُنسَخ منه نسخ تلقائية في المواعيد اللاحقة.
+    is_recurring = models.BooleanField(default=False, verbose_name="مصروف متكرر")
+    recur_frequency = models.CharField(
+        max_length=10,
+        choices=RecurringFrequency.choices,
+        blank=True,
+        verbose_name="دورة التكرار",
+    )
+    next_run_date = models.DateField(
+        null=True, blank=True, verbose_name="موعد الدورة القادمة"
+    )
+    origin = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="recurring_instances",
+        verbose_name="المصدر الأصلي للدورة",
+    )
 
     class Meta:
         verbose_name = "مصروف"

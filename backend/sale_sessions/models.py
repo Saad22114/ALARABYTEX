@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models
 
 from core.models import TimeStampedModel, ActiveModel
@@ -17,12 +18,31 @@ class Employee(TimeStampedModel, ActiveModel):
         CUSTOM = "custom", "مخصص"
 
     name = models.CharField(max_length=150, unique=True, verbose_name="اسم الموظف")
+    avatar = models.CharField(max_length=8, blank=True, default="", verbose_name="الأفاتار")
     phone = models.CharField(max_length=30, blank=True, verbose_name="رقم الهاتف")
     branch = models.ForeignKey(
         "branches.Branch",
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="employees",
         verbose_name="الفرع",
+        help_text="اختياري للمدير والمشرف",
+    )
+    allowed_branches = models.ManyToManyField(
+        "branches.Branch",
+        blank=True,
+        related_name="employees_allowed",
+        verbose_name="الفروع المسموحة",
+        help_text="فروع إضافية يرى الموظف بياناتها بجانب فرعه الأساسي",
+    )
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="employee",
+        verbose_name="حساب المستخدم",
     )
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
     role = models.CharField(
@@ -35,6 +55,21 @@ class Employee(TimeStampedModel, ActiveModel):
         max_digits=5, decimal_places=2, default=Decimal("0"),
         verbose_name="نسبة العمولة (%)",
     )
+    department = models.CharField(max_length=100, blank=True, default="", verbose_name="القسم")
+    position = models.CharField(max_length=100, blank=True, default="", verbose_name="المسمى الوظيفي")
+    email = models.EmailField(blank=True, default="", verbose_name="البريد الإلكتروني")
+    birth_date = models.DateField(null=True, blank=True, verbose_name="تاريخ الميلاد")
+    civil_id = models.CharField(max_length=50, blank=True, default="", verbose_name="الرقم المدني / الهوية")
+    address = models.CharField(max_length=255, blank=True, default="", verbose_name="العنوان")
+    hire_date = models.DateField(null=True, blank=True, verbose_name="تاريخ التوظيف")
+    base_salary = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0, verbose_name="الراتب الأساسي"
+    )
+    employee_code = models.CharField(
+        max_length=50, blank=True, null=True, default=None, verbose_name="رقم الموظف"
+    )
+    multi_branch_access = models.BooleanField(default=False, verbose_name="دخول متعدد الفروع")
+    must_change_password = models.BooleanField(default=False, verbose_name="تغيير كلمة المرور عند أول دخول")
 
     class Meta:
         verbose_name = "موظف"
@@ -59,6 +94,18 @@ class Employee(TimeStampedModel, ActiveModel):
             return bool(self.permissions[section_key].get(action))
         except (KeyError, AttributeError, TypeError):
             return False
+
+    def has_window(self, section_key, window_key):
+        """يعيد هل يملك الموظف نافذةً داخل قسم — غياب قائمة النوافذ يعني عدم التقييد."""
+        perms = self.permissions.get(section_key, {}) if isinstance(self.permissions, dict) else {}
+        windows = perms.get("windows") if isinstance(perms, dict) else None
+        if windows is None:
+            return True
+        if isinstance(windows, list):
+            return window_key in windows
+        if isinstance(windows, dict):
+            return bool(windows.get(window_key))
+        return True
 
     def section_is_hidden(self, section_key):
         return section_key in (self.hidden_sections or [])
@@ -109,7 +156,7 @@ class SaleSession(TimeStampedModel):
 class SaleSessionItem(TimeStampedModel):
     class SaleType(models.TextChoices):
         YARD = "yard", "ياردات"
-        ROLL = "roll", "لفات"
+        ROLL = "roll", "طاقات"
 
     class PaymentMethod(models.TextChoices):
         CASH = "cash", "كاش"

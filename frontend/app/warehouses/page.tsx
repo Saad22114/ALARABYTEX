@@ -33,6 +33,8 @@ import {
   listMovements,
 } from '@/services/warehouses';
 import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/components/providers/AuthProvider';
+import { hasWindow } from '@/lib/permissions';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
 
@@ -117,6 +119,8 @@ function WarehouseForm({
 export default function WarehousesPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
+  const { session } = useAuth();
+  const me = session?.employee;
   const pageSize = settings?.default_page_size ?? 10;
   const [data, setData] = useState<Paginated<Warehouse> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -226,7 +230,7 @@ export default function WarehousesPage() {
             {([
               { k: 'warehouses', label: 'المخازن' },
               { k: 'stock', label: 'المخزون' },
-            ] as const).map((t) => (
+            ] as const).filter((t) => hasWindow(me?.permissions, 'warehouses', t.k)).map((t) => (
               <button
                 key={t.k}
                 onClick={() => setPageTab(t.k)}
@@ -271,7 +275,7 @@ export default function WarehousesPage() {
                 </div>
                 <p className="text-xs text-neutral-500 mb-3">{w.code}</p>
                 <div className="flex gap-4 text-sm">
-                  <span className="text-neutral-600">لفات: <b className="tabular-nums">{w.total_rolls}</b></span>
+                  <span className="text-neutral-600">طاقات: <b className="tabular-nums">{w.total_rolls}</b></span>
                   <span className="text-neutral-600">ياردات: <b className="tabular-nums">{w.total_yards}</b></span>
                 </div>
               </Card>
@@ -296,7 +300,7 @@ export default function WarehousesPage() {
                     <Th>الكود</Th>
                     <Th>الموقع</Th>
                     <Th>أمين المخزن</Th>
-                    <Th>اللفات</Th>
+                    <Th>الطاقات</Th>
                     <Th>الياردات</Th>
                     <Th>الحالة</Th>
                     <Th>إجراءات</Th>
@@ -368,7 +372,7 @@ export default function WarehousesPage() {
       <ConfirmDialog
         open={!!deleting}
         title="حذف المخزن"
-        message="هل أنت متأكد من حذف هذا المخزن؟ لا يمكن حذف مخزن يحتوي على لفات أو حركات."
+        message="هل أنت متأكد من حذف هذا المخزن؟ لا يمكن حذف مخزن يحتوي على طاقات أو حركات."
         confirmLabel="حذف"
         loading={deleteLoading}
         onConfirm={handleDelete}
@@ -387,7 +391,7 @@ export default function WarehousesPage() {
             <div className="flex gap-2 border-b border-sand-100">
               {([
                 { k: 'stock', label: 'الأرصدة' },
-                { k: 'rolls', label: 'اللفات' },
+                { k: 'rolls', label: 'الطاقات' },
                 { k: 'movements', label: 'الحركات' },
               ] as const).map((t) => (
                 <button
@@ -412,7 +416,7 @@ export default function WarehousesPage() {
                       <thead>
                         <tr>
                           <Th>القماش</Th>
-                          <Th>عدد اللفات</Th>
+                          <Th>عدد الطاقات</Th>
                           <Th>إجمالي الياردات</Th>
                         </tr>
                       </thead>
@@ -431,12 +435,12 @@ export default function WarehousesPage() {
 
                 {tab === 'rolls' && (
                   rolls.length === 0 ? (
-                    <EmptyState title="لا توجد لفات" />
+                    <EmptyState title="لا توجد طاقات" />
                   ) : (
                     <Table>
                       <thead>
                         <tr>
-                          <Th>كود اللفة</Th>
+                          <Th>كود الطاقة</Th>
                           <Th>القماش</Th>
                           <Th>الأصلية</Th>
                           <Th>المتبقي</Th>

@@ -6,6 +6,7 @@ import tempfile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
+from core.testsupport import AUTH_ADMIN_BRANCH_CODE, authenticate_admin
 
 from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
@@ -18,6 +19,7 @@ from .models import AppSettings
 class SettingsAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
 
     def test_get_settings_returns_defaults(self):
         r = self.c.get("/api/settings/")
@@ -129,6 +131,7 @@ class SettingsAPITest(TestCase):
 class BackupEncryptionTest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.today = date.today().isoformat()
         self.branch = Branch.objects.create(name="مركز مسقط", code="MHN")
 
@@ -137,7 +140,7 @@ class BackupEncryptionTest(TestCase):
         DailySale.objects.all().delete()
         ExpenseCategory.objects.all().delete()
         Supplier.objects.all().delete()
-        Branch.objects.all().delete()
+        Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).delete()
 
     def test_password_hidden_from_api(self):
         r = self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
@@ -174,7 +177,7 @@ class BackupEncryptionTest(TestCase):
 
         r = self.c.post("/api/settings/restore/", {"content": raw_text}, format="json")
         self.assertEqual(r.status_code, 200, r.data)
-        self.assertEqual(Branch.objects.count(), 1)
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
         self.assertEqual(DailySale.objects.count(), 1)
 
     def test_restore_encrypted_with_wrong_password_fails(self):
@@ -200,12 +203,13 @@ class BackupEncryptionTest(TestCase):
         self._clear_data()
         r = self.c.post("/api/settings/restore/", data, format="json")
         self.assertEqual(r.status_code, 200, r.data)
-        self.assertEqual(Branch.objects.count(), 1)
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
 
 
 class BackupRestoreTest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.today = date.today().isoformat()
         self.branch = Branch.objects.create(name="مركز مسقط", code="MHN")
         self.cat = ExpenseCategory.objects.create(name="تصنيف تجريبي", code="TESTCAT")
@@ -215,7 +219,7 @@ class BackupRestoreTest(TestCase):
         DailySale.objects.all().delete()
         ExpenseCategory.objects.all().delete()
         Supplier.objects.all().delete()
-        Branch.objects.all().delete()
+        Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).delete()
 
     def test_backup_restore_roundtrip(self):
         Supplier.objects.create(name="مورد تجريبي")
@@ -239,18 +243,20 @@ class BackupRestoreTest(TestCase):
         for key in ("version", "branches", "sales", "expenses", "settings"):
             self.assertIn(key, data)
         self.assertEqual(data["version"], 1)
-        self.assertEqual(len(data["branches"]), 1)
+        self.assertEqual(
+            len([b for b in data["branches"] if b["code"] != AUTH_ADMIN_BRANCH_CODE]), 1
+        )
         self.assertEqual(len(data["sales"]), 1)
         self.assertEqual(len(data["expenses"]), 1)
 
         self._clear_data()
-        self.assertEqual(Branch.objects.count(), 0)
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 0)
         self.assertEqual(DailySale.objects.count(), 0)
 
         r = self.c.post("/api/settings/restore/", data, format="json")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(Branch.objects.count(), 1)
-        self.assertEqual(Branch.objects.first().code, "MHN")
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
+        self.assertTrue(Branch.objects.filter(code="MHN").exists())
         self.assertEqual(Supplier.objects.count(), 1)
         self.assertEqual(Supplier.objects.first().name, "مورد تجريبي")
         self.assertEqual(ExpenseCategory.objects.count(), 1)
@@ -290,7 +296,7 @@ class BackupRestoreTest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(DailySale.objects.count(), 0)
         self.assertEqual(Expense.objects.count(), 0)
-        self.assertEqual(Branch.objects.count(), 1)
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
         self.assertEqual(Supplier.objects.count(), 1)
         self.assertEqual(ExpenseCategory.objects.count(), 1)
 
@@ -326,6 +332,7 @@ def _png_bytes(width=64, height=64):
 class LogoUploadAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
 
     def _png(self):
         return SimpleUploadedFile("site.png", _png_bytes(), content_type="image/png")

@@ -89,6 +89,23 @@ class AppSettings(TimeStampedModel):
         ],
         verbose_name="المظهر الافتراضي",
     )
+    font_family = models.CharField(
+        max_length=20,
+        default="cairo",
+        choices=[
+            ("cairo", "Cairo"),
+            ("ibm", "IBM Plex Sans Arabic"),
+            ("amiri", "Amiri"),
+            ("noto", "Noto Sans Arabic"),
+            ("almarai", "Almarai"),
+            ("tajawal", "Tajawal"),
+            ("rubik", "Rubik"),
+            ("changa", "Changa"),
+            ("mada", "Mada"),
+        ],
+        verbose_name="نوع الخط الافتراضي",
+        help_text="الخط الافتراضي للأجهزة الجديدة — كل مستخدم يمكنه تغيير خطه وحجمه لنفسه",
+    )
     receipt_footer = models.CharField(
         max_length=255,
         blank=True,
@@ -179,6 +196,28 @@ class AppSettings(TimeStampedModel):
         default="",
         verbose_name="كلمة مرور النسخ الاحتياطي",
         help_text="عند ضبطها تُشفَّر النسخ الاحتياطية وتتطلب كلمة المرور نفسها للاستعادة",
+    )
+    auto_backup_enabled = models.BooleanField(
+        default=False,
+        verbose_name="تفعيل النسخ الاحتياطي التلقائي",
+        help_text="عند التفعيل تُنشأ نسخة احتياطية تلقائياً حسب الجدول الزمني أدناه",
+    )
+    auto_backup_time = models.TimeField(
+        null=True, blank=True, verbose_name="وقت النسخ التلقائي اليومي",
+        help_text="نشهر عند أداة المجدول (Cron / Task Scheduler) في هذا الوقت يومياً، كبديل عن الفاصل الزمني",
+    )
+    auto_backup_every_hours = models.PositiveIntegerField(
+        default=0,
+        validators=[MaxValueValidator(720)],
+        verbose_name="نسخ احتياطي كل (ساعة)",
+        help_text="0 = إيقاف الفاصل الزمني (يعمل بالوقت اليومي فقط). مثال: 6 تعني نسخة كل 6 ساعات",
+    )
+    last_auto_backup_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="آخر نسخة تلقائية",
+        help_text="يُحدَّث تلقائياً عند نجاح النسخة التلقائية",
+    )
+    last_auto_backup_path = models.CharField(
+        max_length=500, blank=True, default="", verbose_name="مسار آخر نسخة تلقائية",
     )
 
     class Meta:

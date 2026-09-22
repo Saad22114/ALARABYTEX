@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.test import TestCase
 from rest_framework.test import APIClient
+from core.testsupport import authenticate_admin
 
 from branches.models import Branch
 from suppliers.models import Fabric, Supplier
@@ -17,6 +18,7 @@ def create_fabric(name="قماش"):
 class WarehouseAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
 
     def test_create_warehouse(self):
         r = self.c.post("/api/warehouses/", {"name": "مخزن رئيسي", "code": "WH1"})
@@ -42,6 +44,7 @@ class WarehouseAPITest(TestCase):
 class GoodsReceiptAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh = Warehouse.objects.create(name="مخزن", code="W-R")
         self.supplier = Supplier.objects.create(name="مورد")
         self.fabric = create_fabric()
@@ -91,6 +94,7 @@ class GoodsReceiptAPITest(TestCase):
 class StockTransferAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.src = Warehouse.objects.create(name="مخزن أ", code="W-A")
         self.dst = Warehouse.objects.create(name="مخزن ب", code="W-B")
         self.fabric = create_fabric()
@@ -243,6 +247,7 @@ class StockTransferAPITest(TestCase):
 class StockAdjustmentAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh = Warehouse.objects.create(name="مخزن", code="W-ADJ")
         self.fabric = create_fabric()
 
@@ -268,6 +273,7 @@ class StockAdjustmentAPITest(TestCase):
 class StockCountAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh = Warehouse.objects.create(name="مخزن", code="W-CNT")
         self.fabric = create_fabric()
         FabricRoll.objects.create(warehouse=self.wh, fabric=self.fabric, yards=30, remaining_yards=30)
@@ -309,6 +315,7 @@ class StockCountAPITest(TestCase):
 class FabricRollAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh = Warehouse.objects.create(name="مخزن", code="W-RL")
         self.fabric = create_fabric()
 
@@ -331,6 +338,7 @@ class FabricRollAPITest(TestCase):
 class MovementsTest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh = Warehouse.objects.create(name="مخزن", code="W-MV")
         self.fabric = create_fabric()
 
@@ -349,6 +357,7 @@ class MovementsTest(TestCase):
 class OpeningBalanceAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh = Warehouse.objects.create(name="مخزن", code="W-OPN")
         self.fabric = create_fabric()
 
@@ -388,6 +397,7 @@ class OpeningBalanceAPITest(TestCase):
 class StockBalanceAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh = Warehouse.objects.create(name="مخزن", code="W-SB")
         self.fabric = Fabric.objects.create(name="قماش الصيف", code="C-SB", sale_price_yard=2, min_stock=10)
 
@@ -432,6 +442,7 @@ class StockBalanceAPITest(TestCase):
 class StockBalanceSetAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.wh1 = Warehouse.objects.create(name="مخزن أ", code="W-SET1")
         self.wh2 = Warehouse.objects.create(name="مخزن ب", code="W-SET2")
         self.fabric = Fabric.objects.create(name="قماش الشتاء", code="F-SET", sale_price_yard=3, min_stock=10)

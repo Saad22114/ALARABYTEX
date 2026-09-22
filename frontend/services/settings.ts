@@ -1,5 +1,5 @@
 import { apiRequest, API_URL } from './api';
-import { AppSettings } from '@/types';
+import { AppSettings, ThemesControl } from '@/types';
 
 export function getSettings(): Promise<AppSettings> {
   return apiRequest<AppSettings>('/settings/');
@@ -9,14 +9,23 @@ export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSe
   return apiRequest<AppSettings>('/settings/', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
+export function getThemesControl(): Promise<ThemesControl> {
+  return apiRequest<ThemesControl>('/settings/themes-control/');
+}
+
+export async function updateThemesControl(patch: Partial<ThemesControl>): Promise<ThemesControl> {
+  return apiRequest<ThemesControl>('/settings/themes-control/', { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
 function mediaBase(): string {
   return API_URL.replace(/\/?api\/?$/, '');
 }
 
 export function logoUrl(path?: string | null): string {
+  // يُقدَّم الشعار من الباكند مباشرةً (logo-file/) حتى يعمل أون لاين
+  // دون الحاجة لخدمة ملفات media منفصلة، ويعمل أيضاً في صفحة تسجيل الدخول.
   if (!path) return '';
-  if (/^https?:\/\//.test(path)) return path;
-  return `${mediaBase()}/${path.replace(/^\/+/, '')}`;
+  return `${API_URL.replace(/\/+$/, '')}/settings/logo-file/`;
 }
 
 export async function uploadLogo(file: File): Promise<AppSettings> {
@@ -39,4 +48,28 @@ export async function restoreSettings(body: unknown): Promise<unknown> {
 
 export async function resetData(payload: { confirm: boolean; scope: 'transactions' | 'all' }): Promise<unknown> {
   return apiRequest('/settings/reset/', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export interface AutoBackupFile {
+  name: string;
+  size: number;
+  modified: string;
+}
+
+export interface AutoBackupInfo {
+  files: AutoBackupFile[];
+  last_auto_backup_at: string | null;
+  last_auto_backup_path: string;
+}
+
+export function getAutoBackups(): Promise<AutoBackupInfo> {
+  return apiRequest<AutoBackupInfo>('/settings/auto-backup/');
+}
+
+export function runAutoBackup(): Promise<{ detail: string; path: string }> {
+  return apiRequest<{ detail: string; path: string }>('/settings/auto-backup/', { method: 'POST' });
+}
+
+export function autoBackupDownloadUrl(name: string): string {
+  return `${API_URL}/settings/auto-backup/${encodeURIComponent(name)}/`;
 }

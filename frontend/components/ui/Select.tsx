@@ -14,14 +14,18 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   placeholder?: string;
 }
 
-export default function Select({ label, error, options, placeholder, className = '', ...props }: SelectProps) {
+export default function Select({ label, error, options, placeholder, className = '', required, ...props }: SelectProps) {
   return (
     <div className="space-y-1.5">
       {label && (
-        <label className="block text-sm font-medium text-neutral-700">{label}</label>
+        <label className="block text-sm font-medium text-neutral-700">
+          {label}
+          {required && <span className="text-red-500"> *</span>}
+        </label>
       )}
       <select
         dir="rtl"
+        required={required}
         className={`
           w-full rounded-xl border px-4 py-2.5 text-sm
           bg-surface text-neutral-800

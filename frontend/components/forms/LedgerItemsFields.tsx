@@ -153,10 +153,10 @@ export default function LedgerItemsFields({ fabrics, items, onChange, destinatio
             />
             {yardsPerRoll(r.fabric) > 0 ? (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                يُحسب بينهما تلقائياً: 1 لفة = {formatNumber(yardsPerRoll(r.fabric))} ياردة
+                يُحسب بينهما تلقائياً: 1 طاقة = {formatNumber(yardsPerRoll(r.fabric))} ياردة
               </p>
             ) : (
-              <p className="text-xs text-neutral-400">لم يُحدد لهذا القماش معامل لفة — أدخل الكميتين يدوياً</p>
+              <p className="text-xs text-neutral-400">لم يُحدد لهذا القماش معامل طاقة — أدخل الكميتين يدوياً</p>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Input
@@ -169,7 +169,7 @@ export default function LedgerItemsFields({ fabrics, items, onChange, destinatio
                 placeholder=""
               />
               <Input
-                label="عدد اللفات"
+                label="عدد الطاقات"
                 type="number"
                 step="0.01"
                 min="0"

@@ -63,7 +63,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
     const rows = session.items.map((it) => [
       it.fabric_name,
       it.sale_type_label,
-      `${it.quantity} ${it.sale_type === 'roll' ? 'لفة' : 'يارد'}`,
+      `${it.quantity} ${it.sale_type === 'roll' ? 'طاقة' : 'يارد'}`,
       num(it.yards_effective),
       num(it.unit_price),
       it.payment_method_label,
@@ -103,7 +103,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
         <tr>
           <td>${it.fabric_name}</td>
           <td>${it.sale_type_label}</td>
-          <td class="num">${it.quantity} ${it.sale_type === 'roll' ? 'لفة' : 'يارد'}</td>
+          <td class="num">${it.quantity} ${it.sale_type === 'roll' ? 'طاقة' : 'يارد'}</td>
           <td class="num">${num(it.yards_effective)}</td>
           <td class="num">${num(it.unit_price)}</td>
           <td>${paymentName[it.payment_method] ?? it.payment_method_label}</td>
@@ -303,7 +303,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                       <Tr key={item.id}>
                         <Td className="font-medium">{item.fabric_name}</Td>
                         <Td><Badge variant="neutral">{item.sale_type_label}</Badge></Td>
-                        <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'لفة' : 'يارد'}</Td>
+                        <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'طاقة' : 'يارد'}</Td>
                         <Td className="tabular-nums text-neutral-500">{formatNumber(item.yards_effective)} ياردة</Td>
                         <Td className="tabular-nums">{formatCurrency(item.unit_price)}</Td>
                         <Td>

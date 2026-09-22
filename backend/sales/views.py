@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.branch_scope import scope_queryset
 from warehouses.models import FabricRoll, Warehouse
 
 from .models import DailySale, DailySaleItem
@@ -12,6 +13,7 @@ from .serializers import DailySaleReadSerializer, DailySaleWriteSerializer
 
 
 class DailySaleViewSet(viewsets.ModelViewSet):
+    permission_section = "sales"
     queryset = DailySale.objects.select_related("branch", "employee").prefetch_related("sale_items__fabric").all()
     search_fields = ["branch__name", "notes", "employee__name"]
     ordering_fields = ["date", "total_sales", "created_at"]
@@ -78,6 +80,7 @@ class DailySaleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs)
         branch = self.request.query_params.get("branch")
         date_from = self.request.query_params.get("date_from")
         date_to = self.request.query_params.get("date_to")
@@ -103,6 +106,7 @@ class DailySaleViewSet(viewsets.ModelViewSet):
 
 class SalesByEmployeeView(APIView):
     """تجميع المبيعات حسب الموظف للفرع والفترة."""
+    permission_section = "sales"
 
     def get(self, request):
         branch = request.query_params.get("branch")
@@ -110,6 +114,7 @@ class SalesByEmployeeView(APIView):
         date_from = request.query_params.get("date_from")
         date_to = request.query_params.get("date_to")
         qs = DailySale.objects.select_related("employee").filter(employee__isnull=False)
+        qs = scope_queryset(self.request, qs)
         if branch:
             qs = qs.filter(branch_id=branch)
         if employee:
@@ -156,6 +161,7 @@ class SalesByEmployeeView(APIView):
         ]
 
         unassigned = DailySale.objects.filter(employee__isnull=True)
+        unassigned = scope_queryset(self.request, unassigned)
         if branch:
             unassigned = unassigned.filter(branch_id=branch)
         if date_from:
@@ -173,6 +179,7 @@ class SalesByEmployeeView(APIView):
 
 class SaleStockView(APIView):
     """الأرصدة المتاحة لأصناف المبيعات في مخزون الفرع."""
+    permission_section = "sales"
 
     def get(self, request):
         branch = request.query_params.get("branch")

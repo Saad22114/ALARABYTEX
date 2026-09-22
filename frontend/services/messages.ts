@@ -1,9 +1,25 @@
 import { apiRequest, buildQuery } from './api';
-import { ChatMessage, ConversationsResult, MessageThreadResult } from '@/types';
+import { ChatMessage, ConversationsResult, MessageSearchResult, MessageThreadResult, MessageContactListResult } from '@/types';
 
 export async function getConversations(employeeId: number, q?: string): Promise<ConversationsResult> {
   const query = buildQuery({ employee: employeeId, q });
   return apiRequest<ConversationsResult>(`/messaging/conversations/${query}`);
+}
+
+export async function getMessageContacts(): Promise<MessageContactListResult> {
+  return apiRequest<MessageContactListResult>('/messaging/contacts/');
+}
+
+export async function searchMessages(q: string): Promise<MessageSearchResult> {
+  const query = buildQuery({ q });
+  return apiRequest<MessageSearchResult>(`/messaging/search/${query}`);
+}
+
+export async function forwardMessage(receiver: number, messageId: number): Promise<ChatMessage> {
+  return apiRequest<ChatMessage>('/messaging/forward/', {
+    method: 'POST',
+    body: JSON.stringify({ receiver, message_id: messageId }),
+  });
 }
 
 export async function getMessageThread(

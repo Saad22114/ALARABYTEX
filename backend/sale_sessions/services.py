@@ -86,7 +86,7 @@ def _apply_manual_to_daily(session, sign=1):
 def _reverse_manual_session(session):
     if session.manual_date is None:
         return
-    allow_negative = AppSettings.load().allow_negative_stock
+    allow_negative = False
     sale = DailySale.objects.filter(branch=session.branch, date=session.manual_date).first()
     if sale is None:
         return
@@ -183,7 +183,7 @@ def close_session(session):
                     existing[fabric_id] = DailySaleItem.objects.create(sale=sale, fabric_id=fabric_id, yards=yards)
 
             if item_rows:
-                allow_negative = AppSettings.load().allow_negative_stock
+                allow_negative = False
                 sell_from_branch(session.branch, sale, item_rows, allow_negative=allow_negative)
 
         session.status = SaleSession.Status.CLOSED
@@ -240,7 +240,7 @@ def _cleanup_sale(sale, allow_negative):
 
 def _reverse_closed_items(session):
     """عكس استهلاك الوردية المغلق من السجلات اليومية والمخزون."""
-    allow_negative = AppSettings.load().allow_negative_stock
+    allow_negative = False
     rows = list(session.items.select_related("fabric"))
     for item in rows:
         sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
@@ -317,7 +317,7 @@ def clear_session_items(session):
 
 @transaction.atomic
 def delete_session_item(session, item):
-    allow_negative = AppSettings.load().allow_negative_stock
+    allow_negative = False
     if session.status == SaleSession.Status.CLOSED:
         sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if sale:
@@ -332,7 +332,7 @@ def delete_session_item(session, item):
 
 @transaction.atomic
 def update_session_item(session, item, attrs):
-    allow_negative = AppSettings.load().allow_negative_stock
+    allow_negative = False
     closed = session.status == SaleSession.Status.CLOSED
     if closed:
         current_sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()

@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     # Third party
     "corsheaders",
     "rest_framework",
+    "rest_framework.authtoken",
     # Local apps
     "core",
     "appsettings",
@@ -38,10 +39,12 @@ INSTALLED_APPS = [
     "customers",
     "accounting",
     "messaging",
+    "audit",
 ]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
+    "core.middleware.CurrentRequestMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -71,16 +74,29 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # Database - PostgreSQL
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "fabric_arabi"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "postgres"),
-        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL:
+    import dj_database_url
+
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME", "fabric_arabi"),
+            "USER": os.getenv("DB_USER", "postgres"),
+            "PASSWORD": os.getenv("DB_PASSWORD", "postgres"),
+            "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -120,6 +136,12 @@ REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": [
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
+    ],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "core.permissions.SystemPermission",
     ],
 }
 

@@ -6,12 +6,12 @@ import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import { listSuppliers } from '@/services/suppliers';
+import { listFabrics } from '@/services/fabrics';
 import { Fabric, FabricUnit, Supplier } from '@/types';
 
 const UNIT_OPTIONS = [
   { value: 'yard', label: 'ياردة' },
-  { value: 'meter', label: 'متر' },
-  { value: 'roll', label: 'لفة' },
+  { value: 'roll', label: 'طاقة' },
 ];
 
 const FABRIC_TYPE_OPTIONS = [
@@ -59,6 +59,42 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [fabrics, setFabrics] = useState<Fabric[]>([]);
+  const [importSource, setImportSource] = useState('');
+  const [importedName, setImportedName] = useState('');
+
+  useEffect(() => {
+    if (initial?.id) return;
+    let cancelled = false;
+    listFabrics({ page_size: 300 })
+      .then((res) => { if (!cancelled) setFabrics(res.results); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [initial?.id]);
+
+  const fillFromFabric = (f: Fabric) => {
+    setForm((prev) => ({
+      ...prev,
+      unit: f.unit || 'yard',
+      fabric_type: f.fabric_type || '',
+      color: f.color || '',
+      composition: f.composition || '',
+      width_cm: f.width_cm != null ? String(f.width_cm) : '',
+      weight_gsm: f.weight_gsm != null ? String(f.weight_gsm) : '',
+      origin: f.origin || '',
+      manufacturer: f.manufacturer || '',
+      supplier: f.supplier != null ? String(f.supplier) : '',
+      purchase_price: f.purchase_price != null ? String(f.purchase_price) : '',
+      sale_price_yard: f.sale_price_yard != null ? String(f.sale_price_yard) : '',
+      sale_price_roll: f.sale_price_roll != null ? String(f.sale_price_roll) : '',
+      min_sale_yard: f.min_sale_yard != null ? String(f.min_sale_yard) : '',
+      min_sale_roll: f.min_sale_roll != null ? String(f.min_sale_roll) : '',
+      min_stock: f.min_stock != null ? String(f.min_stock) : '',
+      yards_per_roll: f.yards_per_roll != null ? String(f.yards_per_roll) : '',
+      description: f.description || '',
+      is_active: true,
+    }));
+  };
 
   useEffect(() => {
     if (initial) {
@@ -116,6 +152,13 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
   const sale = num(form.sale_price_yard) ?? 0;
   const profit = sale > 0 ? sale - cost : null;
   const margin = sale > 0 ? ((sale - cost) / sale) * 100 : null;
+
+  const rollProfit = (() => {
+    const saleRoll = num(form.sale_price_roll) ?? autoSaleRoll;
+    const ypr = num(form.yards_per_roll);
+    if (saleRoll == null || ypr == null || ypr <= 0) return null;
+    return saleRoll - cost * ypr;
+  })();
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -175,6 +218,32 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {!initial?.id && (
+        <>
+          {sectionTitle('استيراد سريع')}
+          <Select
+            label="انسخ بيانات قماش موجود"
+            value={importSource}
+            onChange={(e) => {
+              const id = e.target.value;
+              setImportSource(id);
+              const f = fabrics.find((x) => String(x.id) === id);
+              if (f) {
+                fillFromFabric(f);
+                setImportedName(f.name);
+              }
+            }}
+            options={[{ value: '', label: 'اختر قماشاً لنسخ بياناته...' }, ...fabrics.map((f) => ({ value: String(f.id), label: `${f.name}${f.code ? ` (${f.code})` : ''}` }))]}
+            placeholder="اختر قماشاً لنسخ بياناته..."
+          />
+          {importedName && (
+            <p className="text-xs text-emerald-600">
+              تم استيراد بيانات «{importedName}» — عدّل الاسم والكود ثم أكمل الإضافة.
+            </p>
+          )}
+        </>
+      )}
+
       {sectionTitle('البيانات الأساسية')}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input label="اسم القماش" value={form.name} onChange={(e) => set('name', e.target.value)} error={errors.name} placeholder="اسم القماش" />
@@ -200,23 +269,31 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         <Input label="تكلفة الشراء (للياردة)" type="number" step="0.001" min="0" value={form.purchase_price} onChange={(e) => set('purchase_price', e.target.value)} placeholder="" />
         <Input label="سعر بيع الياردة" type="number" step="0.001" min="0" value={form.sale_price_yard} onChange={(e) => set('sale_price_yard', e.target.value)} placeholder="" />
         <Input label="الحد الأدنى لسعر بيع الياردة" type="number" step="0.001" min="0" value={form.min_sale_yard} onChange={(e) => set('min_sale_yard', e.target.value)} error={errors.min_sale_yard} placeholder="" />
-        <Input label="سعر بيع اللفة" type="number" step="0.001" min="0" value={form.sale_price_roll} onChange={(e) => set('sale_price_roll', e.target.value)} placeholder="اتركه فارغاً للحساب التلقائي" />
-        <Input label="الحد الأدنى لسعر بيع اللفة" type="number" step="0.001" min="0" value={form.min_sale_roll} onChange={(e) => set('min_sale_roll', e.target.value)} error={errors.min_sale_roll} placeholder="اتركه فارغاً للحساب التلقائي" />
-        <Input label="ياردات اللفة الواحدة" type="number" step="0.001" min="0" value={form.yards_per_roll} onChange={(e) => set('yards_per_roll', e.target.value)} placeholder="مثال: 25" />
+        <Input label="سعر بيع الطاقة" type="number" step="0.001" min="0" value={form.sale_price_roll} onChange={(e) => set('sale_price_roll', e.target.value)} placeholder="اتركه فارغاً للحساب التلقائي" />
+        <Input label="الحد الأدنى لسعر بيع الطاقة" type="number" step="0.001" min="0" value={form.min_sale_roll} onChange={(e) => set('min_sale_roll', e.target.value)} error={errors.min_sale_roll} placeholder="اتركه فارغاً للحساب التلقائي" />
+        <Input label="ياردات الطاقة الواحدة" type="number" step="0.001" min="0" value={form.yards_per_roll} onChange={(e) => set('yards_per_roll', e.target.value)} placeholder="مثال: 25" />
       </div>
 
-      {(autoSaleRoll != null || autoMinRoll != null || profit != null) && (
+      {(autoSaleRoll != null || autoMinRoll != null || profit != null || rollProfit != null) && (
         <div className="rounded-xl bg-sand-50 border border-sand-200 divide-y divide-sand-200">
           {autoSaleRoll != null && (
             <div className="px-4 py-2.5 flex items-center justify-between text-sm">
-              <span className="text-neutral-600">سعر بيع اللفة (تلقائي)</span>
+              <span className="text-neutral-600">سعر بيع الطاقة (تلقائي)</span>
               <span className="font-bold text-brand-700">{autoSaleRoll.toFixed(3)}</span>
             </div>
           )}
           {autoMinRoll != null && (
             <div className="px-4 py-2.5 flex items-center justify-between text-sm">
-              <span className="text-neutral-600">الحد الأدنى لسعر اللفة (تلقائي)</span>
+              <span className="text-neutral-600">الحد الأدنى لسعر الطاقة (تلقائي)</span>
               <span className="font-bold text-brand-700">{autoMinRoll.toFixed(3)}</span>
+            </div>
+          )}
+          {rollProfit != null && (
+            <div className="px-4 py-2.5 flex items-center justify-between text-sm">
+              <span className="text-neutral-600">الربح المتوقع بالطاقة (بيع − شراء)</span>
+              <span className={`font-bold ${rollProfit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                {rollProfit.toFixed(3)}
+              </span>
             </div>
           )}
           {profit != null && (
@@ -243,7 +320,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         <Input label="الحد الأدنى للمخزون" type="number" step="0.01" min="0" value={form.min_stock} onChange={(e) => set('min_stock', e.target.value)} placeholder="مثال: 100" />
       </div>
       <p className="text-xs text-neutral-400 -mt-2">
-        عند تسجيل الأصناف تُحسب الياردات من اللفات والعكس تلقائياً لضمان الاتساق، ويُحظر البيع بأقل من الحد الأدنى المحدد.
+        عند تسجيل الأصناف تُحسب الياردات من الطاقات والعكس تلقائياً لضمان الاتساق، ويُحظر البيع بأقل من الحد الأدنى المحدد.
       </p>
       <Textarea label="الوصف" value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="وصف القماش..." rows={3} />
       <label className="flex items-center gap-3 cursor-pointer">

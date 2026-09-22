@@ -37,15 +37,25 @@ def create_partner_operation(*, partner, date, operation_type, amount, payment_m
             reason=reason,
             notes=notes,
         )
-        movement_type = (
-            PartnerMovement.MovementType.WITHDRAW
-            if operation_type == PartnerOperation.OperationType.WITHDRAW
-            else PartnerMovement.MovementType.SUPPORT
-        )
-        PartnerMovement.objects.create(
-            operation=operation,
-            partner=partner,
-            movement_type=movement_type,
-            amount=amount,
-        )
+        refresh_partner_movement(operation)
     return operation
+
+
+def refresh_partner_movement(operation: PartnerOperation) -> PartnerMovement:
+    """أعد إنشاء حركة الشريك للعملية وفق نوعها ومبلغها — تُستعمل بعد تعديل العملية.
+
+    تحذف الحركات القديمة المرتبطة بالعملية ثم تُنشئ حركة واحدة للشريك
+    المدرج على العملية بنفس منطق الإنشاء في ``create_partner_operation``.
+    """
+    movement_type = (
+        PartnerMovement.MovementType.WITHDRAW
+        if operation.operation_type == PartnerOperation.OperationType.WITHDRAW
+        else PartnerMovement.MovementType.SUPPORT
+    )
+    PartnerMovement.objects.filter(operation=operation).delete()
+    return PartnerMovement.objects.create(
+        operation=operation,
+        partner=operation.partner,
+        movement_type=movement_type,
+        amount=operation.amount,
+    )

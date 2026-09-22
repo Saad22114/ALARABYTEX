@@ -19,6 +19,8 @@ import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
+import { useAuth } from '@/components/providers/AuthProvider';
+import { hasWindow } from '@/lib/permissions';
 
 type Tab = 'sales' | 'expenses' | 'budget' | 'commissions' | 'net' | 'suppliers' | 'branches' | 'inventory' | 'inventory-movements' | 'profit-loss' | 'cogs' | 'journal';
 
@@ -50,12 +52,13 @@ const MOVEMENT_TYPE_OPTIONS = [
 
 const UNIT_LABEL: Record<string, string> = {
   yard: 'ياردة',
-  meter: 'متر',
-  roll: 'لفة',
+  roll: 'طاقة',
 };
 
 export default function ReportsPage() {
   const { toast } = useToast();
+  const { session } = useAuth();
+  const me = session?.employee;
   const [activeTab, setActiveTab] = useUrlState<Tab>('report', 'sales');
   const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
   const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
@@ -311,7 +314,7 @@ export default function ReportsPage() {
         {/* Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            {tabs.map((t) => (
+            {tabs.filter((t) => hasWindow(me?.permissions, 'reports', t.value)).map((t) => (
               <button
                 key={t.value}
                 onClick={() => setActiveTab(t.value)}
@@ -651,7 +654,7 @@ export default function ReportsPage() {
                           <Th>القماش</Th>
                           <Th>الكود</Th>
                           <Th>الوحدة</Th>
-                          <Th>اللفات</Th>
+                          <Th>الطاقات</Th>
                           <Th>الكمية</Th>
                           <Th>الحد الأدنى</Th>
                           <Th>الحالة</Th>

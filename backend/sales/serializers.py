@@ -1,11 +1,12 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Sum
 from rest_framework import serializers
 from django.conf import settings
 
-from appsettings.models import AppSettings
 from suppliers.models import Fabric
+from warehouses.models import FabricRoll, Warehouse
 from warehouses.services import reverse_sale_consumption, sell_from_branch
 
 from .models import DailySale, DailySaleItem
@@ -79,7 +80,47 @@ class DailySaleWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"employee": "الموظف المحدد لا يتبع الفرع المختار"}
             )
+        items = attrs.get("items")
+        if items is not None:
+            self.validate_stock_available(branch, items)
         return attrs
+
+    def validate_stock_available(self, branch, rows):
+        """يرفض البيع منذ البداية إذا كانت الكمية المطلوبة تتجاوز رصيد مخزون الفرع.
+
+        عند التعديل يُحسب المتوفر مضافاً إليه ما يستهلكه البيع الحالي لأنه يُعكس أولاً.
+        """
+        if not rows or branch is None:
+            return
+        warehouse = Warehouse.objects.filter(branch=branch).first()
+        if warehouse is None:
+            return
+        available = {
+            r["fabric_id"]: r["total"]
+            for r in FabricRoll.objects.filter(
+                warehouse=warehouse,
+                status=FabricRoll.Status.AVAILABLE,
+                remaining_yards__gt=0,
+            ).values("fabric_id").annotate(total=Sum("remaining_yards"))
+        }
+        needed = {}
+        for fabric, yards, _unit_price in rows:
+            needed[fabric] = needed.get(fabric, Decimal("0")) + yards
+        used_by_instance = {}
+        if self.instance is not None:
+            for it in self.instance.sale_items.all():
+                used_by_instance[it.fabric_id] = used_by_instance.get(it.fabric_id, Decimal("0")) + it.yards
+        for fabric, yards in needed.items():
+            total = available.get(fabric.pk, Decimal("0")) + used_by_instance.get(fabric.pk, Decimal("0"))
+            if yards > total:
+                raise serializers.ValidationError(
+                    {
+                        "detail": (
+                            f"رصيد المخزن لا يكفي لقماش «{fabric.name}»: "
+                            f"المتوفر {total} ياردة والمطلوب {yards}"
+                        )
+                    }
+                )
 
     def validate_items(self, items):
         rows = []
@@ -111,11 +152,10 @@ class DailySaleWriteSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         items = validated_data.pop("items", None)
-        allow_negative = AppSettings.load().allow_negative_stock
         with transaction.atomic():
             sale = DailySale.objects.create(**validated_data)
             if items:
-                sell_from_branch(sale.branch, sale, [(f, y) for f, y, _ in items], allow_negative=allow_negative)
+                sell_from_branch(sale.branch, sale, [(f, y) for f, y, _ in items], allow_negative=False)
                 for fabric, yards, unit_price in items:
                     DailySaleItem.objects.create(sale=sale, fabric=fabric, yards=yards, unit_price=unit_price)
         return sale
@@ -124,14 +164,13 @@ class DailySaleWriteSerializer(serializers.ModelSerializer):
         if "items" not in validated_data:
             return super().update(instance, validated_data)
 
-        allow_negative = AppSettings.load().allow_negative_stock
         with transaction.atomic():
             reverse_sale_consumption(instance)
             items = validated_data.pop("items") or []
             instance = super().update(instance, validated_data)
             instance.sale_items.all().delete()
             if items:
-                sell_from_branch(instance.branch, instance, [(f, y) for f, y, _ in items], allow_negative=allow_negative)
+                sell_from_branch(instance.branch, instance, [(f, y) for f, y, _ in items], allow_negative=False)
                 for fabric, yards, unit_price in items:
                     DailySaleItem.objects.create(
                         sale=instance, fabric=fabric, yards=yards, unit_price=unit_price,

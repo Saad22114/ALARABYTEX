@@ -30,7 +30,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
 
-const UNIT_LABEL: Record<string, string> = { yard: 'ياردة', meter: 'متر', roll: 'لفة' };
+const UNIT_LABEL: Record<string, string> = { yard: 'ياردة', roll: 'طاقة' };
 
 const FABRIC_TYPE_OPTIONS = [
   { value: '', label: 'كل الأنواع' },
@@ -48,8 +48,7 @@ const FABRIC_TYPE_OPTIONS = [
 const UNIT_FILTER_OPTIONS = [
   { value: '', label: 'كل الوحدات' },
   { value: 'yard', label: 'ياردة' },
-  { value: 'meter', label: 'متر' },
-  { value: 'roll', label: 'لفة' },
+  { value: 'roll', label: 'طاقة' },
 ];
 
 const STATUS_FILTER_OPTIONS = [
@@ -176,7 +175,7 @@ export default function FabricsPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={<Tags size={20} />} label="إجمالي الأقمشة" value={summary ? formatNumber(summary.fabric_count) : '—'} sub={summary ? `${formatNumber(summary.active_count)} نشط` : undefined} />
           <StatCard icon={<AlertTriangle size={20} />} iconBg="bg-amber-50 text-amber-600" label="منخفضة المخزون" value={summary ? formatNumber(summary.low_stock_count) : '—'} sub="تحت الحد الأدنى" />
-          <StatCard icon={<Boxes size={20} />} label="اللفات المتاحة" value={summary ? formatNumber(summary.total_rolls) : '—'} sub={summary ? `${formatNumber(summary.total_stock_yards)} ياردة` : undefined} />
+          <StatCard icon={<Boxes size={20} />} label="الطاقات المتاحة" value={summary ? formatNumber(summary.total_rolls) : '—'} sub={summary ? `${formatNumber(summary.total_stock_yards)} ياردة` : undefined} />
           <StatCard icon={<IndianRupee size={20} />} iconBg="bg-emerald-50 text-emerald-600" label="قيمة المخزون" value={summary ? formatCurrency(summary.inventory_cost_value) : '—'} sub={summary ? `قيمة بيع: ${formatCurrency(summary.inventory_retail_value)}` : undefined} />
         </div>
 
@@ -238,15 +237,15 @@ export default function FabricsPage() {
                         </Td>
                         <Td>
                           <span className="block text-sm tabular-nums">{formatCurrency(f.sale_price_yard)} <span className="text-xs text-neutral-400">/ياردة</span></span>
-                          <span className="block text-xs tabular-nums text-neutral-500">{f.sale_price_roll_display != null ? formatCurrency(f.sale_price_roll_display) : '-'} <span className="text-neutral-400">/لفة</span></span>
+                          <span className="block text-xs tabular-nums text-neutral-500">{f.sale_price_roll_display != null ? formatCurrency(f.sale_price_roll_display) : '-'} <span className="text-neutral-400">/طاقة</span></span>
                         </Td>
                         <Td>
                           <span className="block text-xs tabular-nums text-neutral-500">ي: {formatCurrency(f.min_sale_yard)}</span>
-                          {f.min_sale_roll_display != null && <span className="block text-xs tabular-nums text-neutral-500">ل: {formatCurrency(f.min_sale_roll_display)}</span>}
+                          {f.min_sale_roll_display != null && <span className="block text-xs tabular-nums text-neutral-500">ط: {formatCurrency(f.min_sale_roll_display)}</span>}
                         </Td>
                         <Td>
                           <span className="block text-sm tabular-nums">{formatNumber(f.stock_yards)} <span className="text-xs text-neutral-400">ياردة</span></span>
-                          <span className="block text-xs tabular-nums text-neutral-500">{formatNumber(f.total_rolls)} <span className="text-neutral-400">لفة</span></span>
+                          <span className="block text-xs tabular-nums text-neutral-500">{formatNumber(f.total_rolls)} <span className="text-neutral-400">طاقة</span></span>
                           {f.low_stock && <Badge variant="warning">منخفض</Badge>}
                         </Td>
                         <Td className="tabular-nums">
@@ -302,7 +301,7 @@ export default function FabricsPage() {
                   <p className="text-sm font-semibold">{UNIT_LABEL[details.unit] || details.unit}</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
-                  <p className="text-xs text-neutral-500 mb-1">ياردات اللفة</p>
+                  <p className="text-xs text-neutral-500 mb-1">ياردات الطاقة</p>
                   <p className="text-sm font-semibold tabular-nums">{details.yards_per_roll != null ? formatNumber(details.yards_per_roll) : '-'}</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
@@ -314,7 +313,7 @@ export default function FabricsPage() {
                   <p className="text-sm font-semibold tabular-nums">{formatCurrency(details.sale_price_yard)}</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
-                  <p className="text-xs text-neutral-500 mb-1">سعر بيع اللفة</p>
+                  <p className="text-xs text-neutral-500 mb-1">سعر بيع الطاقة</p>
                   <p className="text-sm font-semibold tabular-nums">{details.sale_price_roll_display != null ? formatCurrency(details.sale_price_roll_display) : '-'}</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
@@ -322,7 +321,7 @@ export default function FabricsPage() {
                   <p className="text-sm font-semibold tabular-nums">{formatCurrency(details.min_sale_yard)}</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
-                  <p className="text-xs text-neutral-500 mb-1">حد أدنى لفة</p>
+                  <p className="text-xs text-neutral-500 mb-1">حد أدنى طاقة</p>
                   <p className="text-sm font-semibold tabular-nums">{details.min_sale_roll_display != null ? formatCurrency(details.min_sale_roll_display) : '-'}</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
@@ -400,7 +399,7 @@ export default function FabricsPage() {
                 {stockLoading ? (
                   <div className="flex justify-center py-6"><Spinner size={24} /></div>
                 ) : !stock || stock.items.length === 0 ? (
-                  <p className="text-sm text-neutral-400">لا توجد لفات متاحة لهذا القماش</p>
+                  <p className="text-sm text-neutral-400">لا توجد طاقات متاحة لهذا القماش</p>
                 ) : (
                   <>
                     <div className="divide-y divide-sand-200">
@@ -408,7 +407,7 @@ export default function FabricsPage() {
                         <div key={it.warehouse} className="py-2.5 flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-neutral-700">{it.warehouse_name}</p>
-                            <p className="text-xs text-neutral-400 tabular-nums">{it.rolls} لفة • {formatNumber(it.yards)} ياردة</p>
+                            <p className="text-xs text-neutral-400 tabular-nums">{it.rolls} طاقة • {formatNumber(it.yards)} ياردة</p>
                           </div>
                           <span className="text-sm text-neutral-500 tabular-nums">{formatCurrency(it.cost_value)}</span>
                         </div>
@@ -417,7 +416,7 @@ export default function FabricsPage() {
                     <div className="mt-3 pt-3 border-t border-sand-200 flex items-center justify-between">
                       <span className="text-sm font-medium text-neutral-700">الإجمالي</span>
                       <div className="text-left">
-                        <p className="text-sm font-bold text-neutral-800 tabular-nums">{stock.totals.rolls} لفة • {formatNumber(stock.totals.yards)} ياردة</p>
+                        <p className="text-sm font-bold text-neutral-800 tabular-nums">{stock.totals.rolls} طاقة • {formatNumber(stock.totals.yards)} ياردة</p>
                         <p className="text-xs text-neutral-500 tabular-nums">قيمة التكلفة: {formatCurrency(stock.totals.cost_value)}</p>
                       </div>
                     </div>
@@ -433,7 +432,7 @@ export default function FabricsPage() {
           onClose={() => setDeleting(null)}
           onConfirm={handleDelete}
           loading={deleteLoading}
-          message={`هل أنت متأكد من حذف قماش "${deleting?.name}"؟ لا يمكن التراجع عن هذا الإجراء.`}
+          message={`هل أنت متأكد من حذف قماش "${deleting?.name}"؟ لا يمكن التراجع عن هذا الإجراء.${(deleting?.total_rolls ?? 0) > 0 ? ' ملاحظة: إذا كان للقماش طاقات أو مشتريات أو مبيعات أو حركات مرتبطة، فلن يسمح النظام بحذفه حفاظاً على السجل المالي، ويمكنك إيقافه بدلاً من ذلك من خلال التعديل وتحديد الحالة «غير نشط».' : ''}`}
         />
       </div>
     </AppShell>

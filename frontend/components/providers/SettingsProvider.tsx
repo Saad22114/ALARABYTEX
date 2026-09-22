@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { AppSettings, SettingsContextValue } from '@/types';
 import { getSettings, updateSettings as apiUpdateSettings } from '@/services/settings';
 import { configureCurrency, configureDateFormat } from '@/lib/format';
-import { STORAGE_KEYS, THEME_PRESETS } from '@/lib/themes';
+import { FONT_PRESETS, STORAGE_KEYS, THEME_PRESETS } from '@/lib/themes';
 
 const SettingsContext = createContext<SettingsContextValue>({
   settings: null,
@@ -44,6 +44,18 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
         if (!t) {
           localStorage.setItem(STORAGE_KEYS.theme, validTheme);
           document.documentElement.dataset.theme = validTheme;
+        }
+      } catch {}
+    }
+    const validFont = FONT_PRESETS.some((p) => p.id === s.font_family) ? s.font_family : null;
+    if (validFont) {
+      try {
+        const f = localStorage.getItem(STORAGE_KEYS.font);
+        if (!f) {
+          localStorage.setItem(STORAGE_KEYS.font, validFont);
+          const fontVar = `var(--font-${validFont === 'ibm' ? 'ibm' : validFont})`;
+          document.documentElement.style.setProperty('--app-font', fontVar);
+          document.body.style.fontFamily = fontVar;
         }
       } catch {}
     }

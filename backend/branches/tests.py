@@ -1,5 +1,6 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
+from core.testsupport import AUTH_ADMIN_BRANCH_CODE, authenticate_admin
 
 from branches.models import Branch
 from sales.models import DailySale
@@ -10,6 +11,7 @@ from warehouses.models import Warehouse
 class BranchAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
 
     def test_create_branch(self):
         r = self.c.post("/api/branches/", {"name": "Muscat", "code": "MUS-01"})
@@ -36,7 +38,10 @@ class BranchAPITest(TestCase):
         self.c.post("/api/branches/", {"name": "B", "code": "B"})
         r = self.c.get("/api/branches/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.data["count"], 2)
+        self.assertEqual(
+            {b["name"] for b in r.data["results"] if b["code"] != AUTH_ADMIN_BRANCH_CODE},
+            {"A", "B"},
+        )
 
     def test_retrieve_branch(self):
         r = self.c.post("/api/branches/", {"name": "X", "code": "X"})
@@ -57,7 +62,7 @@ class BranchAPITest(TestCase):
         bid = r.data["id"]
         r = self.c.delete(f"/api/branches/{bid}/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(Branch.objects.count(), 0)
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 0)
 
     def test_search(self):
         self.c.post("/api/branches/", {"name": "Al Khuwair", "code": "KH"})
@@ -65,10 +70,27 @@ class BranchAPITest(TestCase):
         r = self.c.get("/api/branches/", {"search": "Khuwair"})
         self.assertEqual(r.data["count"], 1)
 
+    def test_list_for_scoped_employee(self):
+        from django.contrib.auth import get_user_model
+        from sale_sessions.models import Employee
+
+        branch = Branch.objects.create(name="C", code="C")
+        Branch.objects.create(name="D", code="D")
+        user = get_user_model().objects.create_user(username="scope_emp", password="x")
+        emp = Employee(name="مندوب", branch=branch, user=user, is_active=True)
+        emp.apply_role_preset(Employee.Role.SALES)
+        emp.save()
+        client = APIClient()
+        client.force_authenticate(user=user)
+        r = client.get("/api/branches/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual({b["id"] for b in r.data["results"]}, {branch.id})
+
 
 class BranchTargetAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(
             name="Muscat", code="MUS-01", monthly_sales_target=50000
         )
@@ -94,6 +116,7 @@ class BranchTargetAPITest(TestCase):
 class FabricBranchPriceAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="Muscat", code="MUS-01")
         self.fabric = Fabric.objects.create(
             name="قطن", code="FAB-1", sale_price_yard=5, sale_price_roll=50, yards_per_roll=11

@@ -12,16 +12,17 @@ import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import StatCard from '@/components/ui/StatCard';
 import {
   ArrowRight, Download, TrendingUp, TrendingDown, Scale, Wallet,
-  Plus, Percent, Users, Sparkles, FileText,
+  Plus, Percent, Users, Sparkles, FileText, Pencil, Trash2,
 } from 'lucide-react';
-import { PartnerMovementsResult, PartnerDistributionResult, PartnerOperationType, PartnerPaymentMethod } from '@/types';
-import { getPartnerMovements, getPartnerDistribution, createPartnerOperation } from '@/services/partners';
+import { PartnerMovementsResult, PartnerMovementRecord, PartnerDistributionResult, PartnerOperationType, PartnerPaymentMethod } from '@/types';
+import { getPartnerMovements, getPartnerDistribution, createPartnerOperation, updatePartnerOperation, deletePartnerOperation } from '@/services/partners';
 import { API_URL } from '@/services/api';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
@@ -65,6 +66,11 @@ export default function PartnerDetailPage() {
   const [opReason, setOpReason] = useState('');
   const [opNotes, setOpNotes] = useState('');
   const [opSaving, setOpSaving] = useState(false);
+  const [editingOpId, setEditingOpId] = useState<number | null>(null);
+  const [editingOpNumber, setEditingOpNumber] = useState('');
+  const [deletingOpId, setDeletingOpId] = useState<number | null>(null);
+  const [deletingOpNumber, setDeletingOpNumber] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     if (!opModalOpen) return;
@@ -114,7 +120,7 @@ export default function PartnerDetailPage() {
 
   const isCurrent = (otherId: number) => otherId === id;
 
-  const handleCreateOperation = async () => {
+  const handleSaveOperation = async () => {
     const amount = parseFloat(opAmount);
     if (!opDate || !amount || amount <= 0) {
       toast('error', 'يرجى إدخال التاريخ ومبلغ صحيح أكبر من صفر');
@@ -122,7 +128,7 @@ export default function PartnerDetailPage() {
     }
     setOpSaving(true);
     try {
-      await createPartnerOperation({
+      const payload = {
         partner: id,
         date: opDate,
         operation_type: opType,
@@ -130,9 +136,17 @@ export default function PartnerDetailPage() {
         amount,
         reason: opReason,
         notes: opNotes,
-      });
-      toast('success', 'تم تسجيل العملية على حساب الشريك');
+      };
+      if (editingOpId) {
+        await updatePartnerOperation(editingOpId, payload);
+        toast('success', 'تم تعديل العملية وأعيد احتساب الرصيد');
+      } else {
+        await createPartnerOperation(payload);
+        toast('success', 'تم تسجيل العملية على حساب الشريك');
+      }
       setOpModalOpen(false);
+      setEditingOpId(null);
+      setEditingOpNumber('');
       setOpAmount('');
       setOpReason('');
       setOpNotes('');
@@ -145,7 +159,26 @@ export default function PartnerDetailPage() {
     }
   };
 
+  const handleDeleteOperation = async () => {
+    if (!deletingOpId) return;
+    setDeleteLoading(true);
+    try {
+      await deletePartnerOperation(deletingOpId);
+      toast('success', 'تم حذف العملية وحركتها من حساب الشريك');
+      setDeletingOpId(null);
+      setDeletingOpNumber('');
+      fetchData(dateFrom, dateTo);
+      fetchDistribution();
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const openOpModal = () => {
+    setEditingOpId(null);
+    setEditingOpNumber('');
     setOpType('support');
     setOpPayment('cash');
     setOpDate(new Date().toISOString().slice(0, 10));
@@ -153,6 +186,23 @@ export default function PartnerDetailPage() {
     setOpReason('');
     setOpNotes('');
     setOpModalOpen(true);
+  };
+
+  const openEditMovement = (m: PartnerMovementRecord) => {
+    setEditingOpId(m.operation_id);
+    setEditingOpNumber(m.number);
+    setOpType(m.movement_type);
+    setOpPayment(m.payment_method);
+    setOpDate(m.date);
+    setOpAmount(String(m.amount));
+    setOpReason(m.reason || '');
+    setOpNotes(m.notes || '');
+    setOpModalOpen(true);
+  };
+
+  const openDeleteMovement = (m: PartnerMovementRecord) => {
+    setDeletingOpId(m.operation_id);
+    setDeletingOpNumber(m.number);
   };
 
   return (
@@ -264,6 +314,7 @@ export default function PartnerDetailPage() {
                       <Th>الرصيد الجاري</Th>
                       <Th>السبب</Th>
                       <Th>ملاحظات</Th>
+                      <Th>إجراءات</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -289,6 +340,24 @@ export default function PartnerDetailPage() {
                         <Td className="tabular-nums">{formatCurrency(m.running_balance)}</Td>
                         <Td className="max-w-[180px] truncate">{m.reason || '-'}</Td>
                         <Td className="max-w-[160px] truncate">{m.notes || '-'}</Td>
+                        <Td>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => openEditMovement(m)}
+                              title="تعديل العملية"
+                              className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              onClick={() => openDeleteMovement(m)}
+                              title="حذف العملية"
+                              className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </Td>
                       </Tr>
                     ))}
                   </tbody>
@@ -416,10 +485,10 @@ export default function PartnerDetailPage() {
           </div>
         )}
 
-        <Modal open={opModalOpen} onClose={() => setOpModalOpen(false)} title={`تسجيل عملية — ${data?.partner.name || ''}`} maxWidth="max-w-lg">
+        <Modal open={opModalOpen} onClose={() => { setOpModalOpen(false); setEditingOpId(null); setEditingOpNumber(''); }} title={`${editingOpId ? 'تعديل العملية' : 'تسجيل عملية'} — ${editingOpNumber ? editingOpNumber : data?.partner.name || ''}`} maxWidth="max-w-lg">
           <div className="space-y-4">
             <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
-              تُسجَّل العملية على الشريك المحدد فقط: دعم يزيد رصيده، وسحب يخصمه من رصيده.
+              تُسجَّل العملية على الشريك المحدد فقط: دعم يزيد رصيده، وسحب يخصمه من رصيده. عند التعديل يُعاد احتساب الحركة والرصيد المحاسبي تلقائياً.
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Select
@@ -460,11 +529,19 @@ export default function PartnerDetailPage() {
               placeholder="ملاحظات اختيارية..."
             />
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={() => setOpModalOpen(false)}>إلغاء</Button>
-              <Button onClick={handleCreateOperation} loading={opSaving}>تسجيل العملية</Button>
+              <Button variant="secondary" onClick={() => { setOpModalOpen(false); setEditingOpId(null); setEditingOpNumber(''); }}>إلغاء</Button>
+              <Button onClick={handleSaveOperation} loading={opSaving}>{editingOpId ? 'حفظ التعديلات' : 'تسجيل العملية'}</Button>
             </div>
           </div>
         </Modal>
+
+        <ConfirmDialog
+          open={!!deletingOpId}
+          onClose={() => { setDeletingOpId(null); setDeletingOpNumber(''); }}
+          onConfirm={handleDeleteOperation}
+          loading={deleteLoading}
+          message={`هل أنت متأكد من حذف العملية رقم ${deletingOpNumber}؟ سيتم حذف الحركة المرتبطة بها من حساب الشريك.`}
+        />
       </div>
     </AppShell>
   );

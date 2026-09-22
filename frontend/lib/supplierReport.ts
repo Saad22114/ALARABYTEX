@@ -57,7 +57,7 @@ function entryItems(e: LedgerEntry, settings: AppSettings | null): string {
       <td colspan="5" class="items-cell">
         <div class="items-head">تفاصيل الفاتورة</div>
         <table class="items">
-          <thead><tr><th>القماش</th><th>الكمية (ياردة)</th><th>عدد اللفات</th><th>سعر الياردة</th><th>الإجمالي</th><th>الوجهة</th></tr></thead>
+          <thead><tr><th>القماش</th><th>الكمية (ياردة)</th><th>عدد الطاقات</th><th>سعر الياردة</th><th>الإجمالي</th><th>الوجهة</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </td>

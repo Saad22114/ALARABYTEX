@@ -3,6 +3,7 @@ from datetime import date
 from django.core.management import call_command
 from django.test import TestCase
 from rest_framework.test import APIClient
+from core.testsupport import authenticate_admin
 
 from branches.models import Branch
 from expenses.models import ExpenseCategory
@@ -11,6 +12,7 @@ from expenses.models import ExpenseCategory
 class ExpenseAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         call_command("seed_categories", verbosity=0)
         self.branch = Branch.objects.create(name="B", code="B")
         self.cat = ExpenseCategory.objects.create(name="Test", code="TST")
@@ -82,6 +84,7 @@ class ExpenseAPITest(TestCase):
 class ExpenseBudgetAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.cat = ExpenseCategory.objects.create(name="Test", code="TST")
         self.month = date.today().replace(day=1)

@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.conf import settings
 from datetime import date
+from core.branch_scope import scope_queryset
 from .models import Expense, ExpenseBudget, ExpenseCategory
 from .serializers import (
     ExpenseBudgetSerializer,
@@ -12,6 +13,7 @@ from .serializers import (
 
 
 class ExpenseCategoryViewSet(viewsets.ModelViewSet):
+    permission_section = "@themes"
     queryset = ExpenseCategory.objects.all()
     serializer_class = ExpenseCategorySerializer
     search_fields = ["name", "code"]
@@ -37,6 +39,7 @@ class ExpenseCategoryViewSet(viewsets.ModelViewSet):
 
 
 class ExpenseViewSet(viewsets.ModelViewSet):
+    permission_section = "expenses"
     queryset = Expense.objects.select_related("branch", "category").all()
     search_fields = ["branch__name", "category__name", "description", "notes"]
     ordering_fields = ["date", "amount", "created_at"]
@@ -48,6 +51,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs)
         branch = self.request.query_params.get("branch")
         category = self.request.query_params.get("category")
         date_from = self.request.query_params.get("date_from")
@@ -104,11 +108,13 @@ def _normalize_month(value):
 
 
 class ExpenseBudgetViewSet(viewsets.ModelViewSet):
+    permission_section = "expenses"
     queryset = ExpenseBudget.objects.select_related("branch", "category").all()
     serializer_class = ExpenseBudgetSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = scope_queryset(self.request, qs)
         branch = self.request.query_params.get("branch")
         category = self.request.query_params.get("category")
         month = self.request.query_params.get("month")

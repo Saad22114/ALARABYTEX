@@ -1,0 +1,36 @@
+import { Employee, SessionEmployee } from '@/types';
+
+export function toEmployee(me: SessionEmployee): Employee {
+  return {
+    id: me.id,
+    name: me.name,
+    phone: me.phone,
+    avatar: me.avatar,
+    branch: me.branch,
+    branch_name: me.branch_name,
+    allowed_branches: me.allowed_branches || [],
+    allowed_branches_names: me.allowed_branches_names || [],
+    notes: '',
+    is_active: me.is_active,
+    role: me.role,
+    role_label: me.role_label,
+    permissions: me.permissions,
+    hidden_sections: me.hidden_sections,
+    commission_active: me.commission_active,
+    commission_percent: 0,
+    department: '',
+    position: '',
+    email: '',
+    employee_code: null,
+    multi_branch_access: false,
+    must_change_password: false,
+    birth_date: null,
+    civil_id: '',
+    address: '',
+    hire_date: null,
+    base_salary: 0,
+    username: me.username,
+    created_at: '',
+    updated_at: '',
+  };
+}

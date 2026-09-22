@@ -179,7 +179,8 @@ class GoodsReceipt(TimeStampedModel):
         ordering = ["-date", "-id"]
 
     def __str__(self):
-        return f"{self.number} - {self.warehouse.name}"
+        dest = self.warehouse or self.branch
+        return f"{self.number} - {dest.name if dest else 'بدون وجهة'}"
 
 
 class GoodsReceiptItem(TimeStampedModel):
@@ -240,7 +241,8 @@ class StockTransfer(TimeStampedModel):
         ordering = ["-date", "-id"]
 
     def __str__(self):
-        return f"{self.number} - {self.from_warehouse.name} إلى {self.to_warehouse.name}"
+        to = self.to_warehouse or self.to_branch
+        return f"{self.number} - {self.from_warehouse.name} إلى {to.name if to else 'بدون وجهة'}"
 
     @property
     def total_yards(self):
@@ -250,7 +252,7 @@ class StockTransfer(TimeStampedModel):
 class StockTransferItem(TimeStampedModel):
     class QuantityMode(models.TextChoices):
         YARD = "yard", "ياردات"
-        ROLL = "roll", "لفات"
+        ROLL = "roll", "طاقات"
 
     transfer = models.ForeignKey(StockTransfer, on_delete=models.CASCADE, related_name="items", verbose_name="التحويل")
     fabric = models.ForeignKey("suppliers.Fabric", on_delete=models.PROTECT, verbose_name="القماش")

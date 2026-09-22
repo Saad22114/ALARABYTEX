@@ -8,26 +8,23 @@ import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
-import Textarea from '@/components/ui/Textarea';
 import Badge from '@/components/ui/Badge';
 import Spinner from '@/components/ui/Spinner';
 import EmptyState from '@/components/ui/EmptyState';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Switch from '@/components/ui/Switch';
 import {
-  Plus, Trash2, Download, Upload, RotateCcw, Check, Sun, Moon, Pencil,
-  Store, Coins, SlidersHorizontal, Palette, LayoutGrid, Printer, Database, Tags, Info, ImagePlus, Wallet,
+  Plus, Trash2, Download, Upload, RotateCcw, Pencil, Check,
+  Store, Coins, SlidersHorizontal, LayoutGrid, Database, Info, Wallet,
 } from 'lucide-react';
 import { ExpenseCategory, ExpenseBudget, Branch, AppSection } from '@/types';
-import { listExpenseCategories, createExpenseCategory, deleteExpenseCategory, listExpenseBudgets, createExpenseBudget, updateExpenseBudget, deleteExpenseBudget } from '@/services/expenses';
+import { listExpenseCategories, listExpenseBudgets, createExpenseBudget, updateExpenseBudget, deleteExpenseBudget } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
-import { backupUrl, restoreSettings, resetData, logoUrl } from '@/services/settings';
+import { backupUrl, restoreSettings, resetData, getAutoBackups, runAutoBackup, autoBackupDownloadUrl, AutoBackupInfo } from '@/services/settings';
 import { getSectionsInfo } from '@/services/sections';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
-import { useTheme } from '@/components/providers/ThemeProvider';
-import { THEME_PRESETS } from '@/lib/themes';
 import { useUrlState } from '@/lib/useUrlState';
 import { formatCurrency } from '@/lib/format';
 
@@ -74,16 +71,11 @@ const DATE_FORMAT_OPTIONS = [
   { value: 'MM-DD-YYYY', label: '09-13-2026' },
 ];
 
-const DEFAULT_THEME_OPTIONS = THEME_PRESETS.map((p) => ({ value: p.id, label: p.swatch }));
-
 const TABS = [
   { key: 'business', label: 'النشاط', icon: Store },
   { key: 'currency', label: 'العملة والتنسيق', icon: Coins },
   { key: 'prefs', label: 'التفضيلات والمخزون', icon: SlidersHorizontal },
-  { key: 'appearance', label: 'المظهر', icon: Palette },
   { key: 'sections', label: 'أقسام القائمة', icon: LayoutGrid },
-  { key: 'print', label: 'الطباعة', icon: Printer },
-  { key: 'categories', label: 'تصنيفات المصاريف', icon: Tags },
   { key: 'budgets', label: 'الميزانيات', icon: Wallet },
   { key: 'data', label: 'إدارة البيانات', icon: Database },
   { key: 'system', label: 'بيانات النظام', icon: Info },
@@ -92,7 +84,6 @@ const TABS = [
 export default function SettingsPage() {
   const { toast } = useToast();
   const { settings, loading, error, updateSettings, refreshSettings } = useSettings();
-  const { theme, setTheme, dark, toggleDark } = useTheme();
 
   const [tab, setTab] = useUrlState('tab', 'business');
 
@@ -100,7 +91,6 @@ export default function SettingsPage() {
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [savingSections, setSavingSections] = useState(false);
-  const [savingPrint, setSavingPrint] = useState(false);
 
   const [businessForm, setBusinessForm] = useState({
     business_name: '',
@@ -123,7 +113,6 @@ export default function SettingsPage() {
   const [prefsForm, setPrefsForm] = useState<{
     default_period: 'today' | 'week' | 'month';
     default_page_size: number;
-    allow_negative_stock: boolean;
     low_stock_threshold: number;
     low_stock_alert_enabled: boolean;
     session_warn_hours: number;
@@ -134,7 +123,6 @@ export default function SettingsPage() {
   }>({
     default_period: 'today',
     default_page_size: 10,
-    allow_negative_stock: false,
     low_stock_threshold: 50,
     low_stock_alert_enabled: true,
     session_warn_hours: 2,
@@ -143,7 +131,6 @@ export default function SettingsPage() {
     discount_max_percent: 100,
     previous_day_cutoff_hour: 2,
   });
-  const [printForm, setPrintForm] = useState({ receipt_footer: '', invoice_notes: '', receipt_show_tax: false, receipt_show_phone: true });
   const [hiddenSections, setHiddenSections] = useState<string[]>([]);
 
   useEffect(() => {
@@ -169,7 +156,6 @@ export default function SettingsPage() {
       setPrefsForm({
         default_period: settings.default_period || 'today',
         default_page_size: settings.default_page_size ?? 10,
-        allow_negative_stock: settings.allow_negative_stock,
         low_stock_threshold: Number(settings.low_stock_threshold ?? 50),
         low_stock_alert_enabled: settings.low_stock_alert_enabled,
         session_warn_hours: settings.session_warn_hours ?? 2,
@@ -177,12 +163,6 @@ export default function SettingsPage() {
         default_payment_method: settings.default_payment_method || 'transfer',
         discount_max_percent: Number(settings.discount_max_percent ?? 100),
         previous_day_cutoff_hour: settings.previous_day_cutoff_hour ?? 2,
-      });
-      setPrintForm({
-        receipt_footer: settings.receipt_footer || '',
-        invoice_notes: settings.invoice_notes || '',
-        receipt_show_tax: settings.receipt_show_tax,
-        receipt_show_phone: settings.receipt_show_phone,
       });
       setHiddenSections(settings.hidden_sections || []);
     }
@@ -205,14 +185,15 @@ export default function SettingsPage() {
   const [savingPassword, setSavingPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [autoBackupInfo, setAutoBackupInfo] = useState<AutoBackupInfo | null>(null);
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
+  const [autoBackupTime, setAutoBackupTime] = useState('');
+  const [autoBackupEveryHours, setAutoBackupEveryHours] = useState(0);
+  const [autoBackupLoading, setAutoBackupLoading] = useState(false);
+  const [runningNow, setRunningNow] = useState(false);
+
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [addOpen, setAddOpen] = useState(false);
-  const [catName, setCatName] = useState('');
-  const [catCode, setCatCode] = useState('');
-  const [catLoading, setCatLoading] = useState(false);
-  const [deletingCat, setDeletingCat] = useState<ExpenseCategory | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const [budgets, setBudgets] = useState<ExpenseBudget[]>([]);
   const [budgetsLoading, setBudgetsLoading] = useState(true);
@@ -257,6 +238,50 @@ export default function SettingsPage() {
   };
   useEffect(() => fetchBudgetBranches(), []);
   useEffect(() => fetchBudgets(), []);
+
+  const fetchAutoBackups = () => {
+    getAutoBackups()
+      .then((info) => setAutoBackupInfo(info))
+      .catch(() => {});
+  };
+  useEffect(() => { fetchAutoBackups(); }, []);
+  useEffect(() => {
+    if (settings) {
+      setAutoBackupEnabled(!!settings.auto_backup_enabled);
+      setAutoBackupTime(settings.auto_backup_time || '');
+      setAutoBackupEveryHours(Number(settings.auto_backup_every_hours || 0));
+    }
+  }, [settings]);
+
+  const handleSaveAutoBackup = async () => {
+    setAutoBackupLoading(true);
+    try {
+      const patch: any = {
+        auto_backup_enabled: autoBackupEnabled,
+        auto_backup_time: autoBackupTime || null,
+        auto_backup_every_hours: autoBackupEveryHours,
+      };
+      await updateSettings(patch);
+      toast('success', 'تم حفظ إعدادات النسخ التلقائي بنجاح');
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setAutoBackupLoading(false);
+    }
+  };
+
+  const handleRunAutoBackupNow = async () => {
+    setRunningNow(true);
+    try {
+      await runAutoBackup();
+      toast('success', 'تم إنشاء نسخة احتياطية الآن');
+      fetchAutoBackups();
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setRunningNow(false);
+    }
+  };
 
   const handleSaveBusiness = async () => {
     setSavingBusiness(true);
@@ -312,31 +337,8 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSavePrint = async () => {
-    setSavingPrint(true);
-    try {
-      await updateSettings({
-        receipt_footer: printForm.receipt_footer,
-        invoice_notes: printForm.invoice_notes,
-        receipt_show_tax: printForm.receipt_show_tax,
-        receipt_show_phone: printForm.receipt_show_phone,
-      });
-      toast('success', 'تم حفظ إعدادات الطباعة بنجاح');
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setSavingPrint(false);
-    }
-  };
-
   const toggleSection = (key: string) => {
     setHiddenSections((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-  };
-
-  const handleThemeSelect = (id: string) => {
-    setTheme(id);
-    updateSettings({ default_theme: id }).catch(() => {});
-    toast('success', 'تم تغيير المظهر بنجاح');
   };
 
   const handleBackup = () => {
@@ -391,41 +393,6 @@ export default function SettingsPage() {
       toast('error', err.message);
     } finally {
       setResetting(false);
-    }
-  };
-
-  const handleAdd = async () => {
-    if (!catName.trim()) {
-      toast('error', 'اسم التصنيف مطلوب');
-      return;
-    }
-    setCatLoading(true);
-    try {
-      await createExpenseCategory({ name: catName, code: catCode });
-      toast('success', 'تمت إضافة التصنيف بنجاح');
-      setCatName('');
-      setCatCode('');
-      setAddOpen(false);
-      fetchCategories();
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setCatLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deletingCat) return;
-    setDeleteLoading(true);
-    try {
-      await deleteExpenseCategory(deletingCat.id);
-      toast('success', 'تم حذف التصنيف بنجاح');
-      setDeletingCat(null);
-      fetchCategories();
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setDeleteLoading(false);
     }
   };
 
@@ -707,18 +674,6 @@ export default function SettingsPage() {
                   onChange={(v) => setPrefsForm({ ...prefsForm, low_stock_alert_enabled: v })}
                 />
               </div>
-              <div className="flex items-center justify-between py-2">
-                <div>
-                  <p className="text-sm font-medium text-neutral-700">السماح بالرصيد السالب</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">
-                    السماح بتسجيل مبيعات تتجاوز المخزون المتاح وخصمه حتى لو أصبح الرصيد سالباً
-                  </p>
-                </div>
-                <Switch
-                  checked={prefsForm.allow_negative_stock}
-                  onChange={(v) => setPrefsForm({ ...prefsForm, allow_negative_stock: v })}
-                />
-              </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <Input
                   label="تنبيه مدة الوردية (ساعات)"
@@ -769,106 +724,6 @@ export default function SettingsPage() {
           </Card>
         )}
 
-        {tab === 'appearance' && (
-          <>
-            <Card title="شعار الموقع" subtitle="صورة ثابتة تُعرض في الشريط الجانبي وفوق إيصالات الطباعة">
-              <div className="flex items-start gap-6">
-                <div className="w-28 h-28 rounded-2xl border-2 border-sand-200 bg-surface flex items-center justify-center overflow-hidden">
-                  {logoUrl(settings?.logo) ? (
-                    <img src={logoUrl(settings?.logo)} alt="شعار الموقع" className="w-full h-full object-contain p-2" />
-                  ) : (
-                    <ImagePlus size={32} className="text-neutral-300" />
-                  )}
-                </div>
-                <p className="text-sm text-neutral-600 leading-relaxed max-w-md">
-                  شعار الموقع ثابت في النظام ولا يمكن تبديله أو حذفه. يظهر في الشريط الجانبي، وفي إيصالات إغلاق الورديات
-                  وتفاصيلها المطبوعة.
-                </p>
-              </div>
-            </Card>
-
-            <Card title="المظهر" subtitle="اختر لون النظام — يُحفظ كإعداد عام وللمتصفح">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-3xl">
-                {THEME_PRESETS.map((preset) => {
-                  const active = theme === preset.id;
-                  return (
-                    <button
-                      key={preset.id}
-                      onClick={() => handleThemeSelect(preset.id)}
-                      className={`relative flex flex-col items-start gap-2 p-3 rounded-xl border transition-all duration-150 ${
-                        active
-                          ? 'border-brand-600 ring-2 ring-brand-200 bg-brand-50'
-                          : 'border-sand-200 hover:border-sand-300 bg-surface'
-                      }`}
-                    >
-                      <span className="w-8 h-8 rounded-full" style={{ backgroundColor: preset.swatch }} />
-                      <span className="text-sm font-medium text-neutral-700">{preset.name}</span>
-                      {active && (
-                        <span className="absolute top-2 left-2 w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center">
-                          <Check size={12} />
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-neutral-400 mt-3">اختيارك يُحفظ الآن في إعدادات النظام (لجميع الأجهزة) وفي المتصفح الحالي.</p>
-            </Card>
-
-            <Card title="الوضع الليلي" subtitle="المظهر الفاتح أو الداكن">
-              <div className="flex gap-2 max-w-md">
-                <button
-                  type="button"
-                  onClick={() => dark && toggleDark()}
-                  className={`flex items-center justify-center flex-1 gap-2 py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-150 ${
-                    !dark
-                      ? 'border-brand-600 ring-2 ring-brand-200 bg-brand-50 text-brand-700'
-                      : 'border-sand-200 bg-surface text-neutral-600'
-                  }`}
-                >
-                  <Sun size={16} />
-                  نهاري
-                </button>
-                <button
-                  type="button"
-                  onClick={() => !dark && toggleDark()}
-                  className={`flex items-center justify-center flex-1 gap-2 py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-150 ${
-                    dark
-                      ? 'border-brand-600 ring-2 ring-brand-200 bg-brand-50 text-brand-700'
-                      : 'border-sand-200 bg-surface text-neutral-600'
-                  }`}
-                >
-                  <Moon size={16} />
-                  ليلي
-                </button>
-              </div>
-              <p className="text-xs text-neutral-400 mt-3">الوضع الليلي يُحفظ على المتصفح الحالي فقط.</p>
-            </Card>
-
-            <Card title="المظهر الافتراضي عند فتح النظام" subtitle="يُطبق على الأجهزة الجديدة التي لم تختار مظهراً بعد">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-w-xl">
-                {DEFAULT_THEME_OPTIONS.map((opt) => {
-                  const active = (settings?.default_theme || 'green') === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => updateSettings({ default_theme: opt.value }).then(() => toast('success', 'تم حفظ المظهر الافتراضي')).catch((e) => toast('error', e.message))}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-150 ${
-                        active ? 'border-brand-600 ring-2 ring-brand-200' : 'border-sand-200 hover:border-sand-300'
-                      }`}
-                    >
-                      <span className="w-8 h-8 rounded-full" style={{ backgroundColor: opt.label }} />
-                      <span className="text-xs font-medium text-neutral-600">{opt.value}</span>
-                      {active && <Check size={12} className="text-brand-600" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </Card>
-          </>
-        )}
-
         {tab === 'sections' && (
           <Card title="إظهار/إخفاء أقسام القائمة" subtitle="اختر الأقسام التي تظهر في القائمة الجانبية لجميع المستخدمين">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-w-4xl">
@@ -887,6 +742,7 @@ export default function SettingsPage() {
                 { key: 'reports', label: 'التقارير', fixed: false },
                 { key: 'accounting', label: 'المحاسبة', fixed: false },
                 { key: 'messages', label: 'التواصل', fixed: false },
+                { key: 'themes', label: 'الثيمات والتحكم', fixed: false },
                 { key: 'settings', label: 'الإعدادات', fixed: true },
               ] as AppSection[]).map((sec) => {
                 const checked = sec.fixed || !hiddenSections.includes(sec.key);
@@ -915,111 +771,6 @@ export default function SettingsPage() {
             <div className="mt-4">
               <Button onClick={handleSaveSections} loading={savingSections}>حفظ</Button>
             </div>
-          </Card>
-        )}
-
-        {tab === 'print' && (
-          <Card title="إعدادات الطباعة" subtitle="النصوص والمعلومات التي تظهر على الفواتير المطبوعة">
-            <div className="space-y-4 max-w-2xl">
-              <Textarea
-                label="تذييل الفواتير"
-                value={printForm.receipt_footer}
-                onChange={(e) => setPrintForm({ ...printForm, receipt_footer: e.target.value })}
-                placeholder="مثال: شكراً لتعاملكم معنا — البضاعة المباعة لا تُرد بعد الاستلام"
-                rows={3}
-              />
-              <p className="text-xs text-neutral-400">
-                سوف يظهر هذا النص أسفل الفواتير المطبوعة (تسليم/نقل/مبيعات).
-              </p>
-              <Textarea
-                label="ملاحظات الفاتورة"
-                value={printForm.invoice_notes}
-                onChange={(e) => setPrintForm({ ...printForm, invoice_notes: e.target.value })}
-                placeholder="مثال: تُسلم البضاعة المرفقة حسب المواصفات المتفق عليها"
-                rows={3}
-              />
-              <p className="text-xs text-neutral-400 -mt-2">
-                نص اختياري يظهر أعلى خانتي التوقيع في الفاتورة لتصبح فاتورة رسمية.
-              </p>
-              <div className="flex items-center justify-between py-2">
-                <div>
-                  <p className="text-sm font-medium text-neutral-700">إظهار الضريبة في الإيصال المطبوع</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">
-                    يُضاف سطر ضريبة ({businessForm.tax_rate}%) إلى إجمالي الإيصال المطبوع (بدون تغيير المبيعات المحاسبية)
-                  </p>
-                </div>
-                <Switch
-                  checked={printForm.receipt_show_tax}
-                  onChange={(v) => setPrintForm({ ...printForm, receipt_show_tax: v })}
-                />
-              </div>
-              <div className="flex items-center justify-between py-2">
-                <div>
-                  <p className="text-sm font-medium text-neutral-700">إظهار رقم الهاتف في الإيصال المطبوع</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">
-                    عرض رقم هاتف النشاط مع بيانات التواصل في الطباعة
-                  </p>
-                </div>
-                <Switch
-                  checked={printForm.receipt_show_phone}
-                  onChange={(v) => setPrintForm({ ...printForm, receipt_show_phone: v })}
-                />
-              </div>
-              <div className="flex gap-3">
-                <Button onClick={handleSavePrint} loading={savingPrint}>حفظ</Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {tab === 'categories' && (
-          <Card
-            title="تصنيفات المصاريف"
-            action={
-              <Button size="sm" onClick={() => setAddOpen(true)}>
-                <Plus size={16} />
-                إضافة تصنيف
-              </Button>
-            }
-          >
-            {categoriesLoading ? (
-              <div className="flex justify-center py-8"><Spinner size={28} /></div>
-            ) : categories.length === 0 ? (
-              <EmptyState title="لا توجد تصنيفات" />
-            ) : (
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>الاسم</Th>
-                    <Th>الكود</Th>
-                    <Th>النوع</Th>
-                    <Th>عدد المصاريف</Th>
-                    <Th>إجراءات</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {categories.map((c) => (
-                    <Tr key={c.id}>
-                      <Td className="font-medium">{c.name}</Td>
-                      <Td><span className="font-mono text-xs bg-sand-100 px-2 py-1 rounded">{c.code || '-'}</span></Td>
-                      <Td>
-                        <Badge variant={c.is_system ? 'neutral' : 'success'}>
-                          {c.is_system ? 'نظامي' : 'مخصص'}
-                        </Badge>
-                      </Td>
-                      <Td className="tabular-nums">{c.expense_count}</Td>
-                      <Td>
-                        {!c.is_system && (
-                          <button onClick={() => setDeletingCat(c)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors">
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
-            )}
           </Card>
         )}
 
@@ -1079,7 +830,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 bg-sand-50 rounded-xl flex flex-col items-start gap-3">
                 <p className="text-sm font-medium text-neutral-700">تصدير نسخة احتياطية</p>
-                <p className="text-xs text-neutral-500">تنزيل جميع بيانات النظام كملف JSON.</p>
+                <p className="text-xs text-neutral-500">تنزيل جميع بيانات النظام كملف JSON (الفرع، الموظفون، الزبائن، الأقمشة والمخزون، المبيعات، المصاريف، المحاسبة، الرسائل، الشعار والإعدادات).</p>
                 <Button variant="secondary" onClick={handleBackup}>
                   <Download size={16} />
                   تصدير نسخة احتياطية
@@ -1135,6 +886,99 @@ export default function SettingsPage() {
                   حفظ كلمة المرور
                 </Button>
               </div>
+            </div>
+          <div className="mt-6 p-4 bg-sand-50 rounded-xl">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-medium text-neutral-700">النسخ الاحتياطي التلقائي</p>
+                <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
+              </div>
+              <p className="text-xs text-neutral-500 mb-3">
+                عند التفعيل تُنشأ نسخة احتياطية تلقائياً في مجلد النسخ الاحتياطية. حدد موعداً يومياً (الوقت) أو
+                نسخة دورية كل عدة ساعات (أو كليهما معاً). لتشغيلها تلقائياً أنشئ مهمة مجدولة على الخادم تشغّل
+                <span className="font-mono text-[11px] bg-sand-100 px-1.5 py-0.5 rounded mx-1" dir="ltr">python manage.py auto_backup</span>
+                بشكل متكرر.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-neutral-500 block mb-1">وقت يومي (اختياري)</label>
+                  <input
+                    type="time"
+                    value={autoBackupTime}
+                    onChange={(e) => setAutoBackupTime(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-neutral-500 block mb-1">كل (ساعة)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="720"
+                    value={autoBackupEveryHours}
+                    onChange={(e) => setAutoBackupEveryHours(Math.max(0, Number(e.target.value)))}
+                    className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  />
+                  <p className="text-[11px] text-neutral-400 mt-1">0 = إيقاف الفاصل الزمني</p>
+                </div>
+                <div className="flex items-end">
+                  <Button variant="secondary" onClick={handleSaveAutoBackup} loading={autoBackupLoading}>
+                    <Check size={16} />
+                    حفظ الإعدادات
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button variant="secondary" onClick={handleRunAutoBackupNow} loading={runningNow}>
+                  <Download size={16} />
+                  إنشاء نسخة الآن
+                </Button>
+                {autoBackupInfo?.last_auto_backup_path && (
+                  <span className="text-xs text-neutral-500">
+                    آخر نسخة تلقائية:{' '}
+                    <span className="font-mono" dir="ltr">{autoBackupInfo.last_auto_backup_path}</span>
+                    {' '}({autoBackupInfo.last_auto_backup_at ? new Date(autoBackupInfo.last_auto_backup_at).toLocaleString('ar') : '—'})
+                  </span>
+                )}
+              </div>
+
+              {autoBackupInfo?.files?.length ? (
+                <div className="mt-4 overflow-x-auto">
+                  <Table>
+                    <thead>
+                      <tr>
+                        <Th>الملف</Th>
+                        <Th>الحجم</Th>
+                        <Th>التاريخ</Th>
+                        <Th>تنزيل</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {autoBackupInfo.files.slice(0, 10).map((f) => (
+                        <Tr key={f.name}>
+                          <Td>
+                            <span className="font-mono text-xs" dir="ltr">{f.name}</span>
+                          </Td>
+                          <Td>{(f.size / 1024).toFixed(1)} KB</Td>
+                          <Td>{new Date(f.modified).toLocaleString('ar')}</Td>
+                          <Td className="text-left">
+                            <a
+                              href={autoBackupDownloadUrl(f.name)}
+                              download={f.name}
+                              className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-sm font-medium"
+                            >
+                              <Download size={14} />
+                              تحميل
+                            </a>
+                          </Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-400 mt-3">لا توجد نسخ تلقائية بعد.</p>
+              )}
             </div>
           </Card>
         )}
@@ -1199,36 +1043,6 @@ export default function SettingsPage() {
             </div>
           </Card>
         )}
-
-        {/* Add Category Modal */}
-        <Modal open={addOpen} onClose={() => setAddOpen(false)} title="إضافة تصنيف جديد">
-          <div className="space-y-4">
-            <Input
-              label="اسم التصنيف"
-              value={catName}
-              onChange={(e) => setCatName(e.target.value)}
-              placeholder="اسم التصنيف"
-            />
-            <Input
-              label="الكود (اختياري)"
-              value={catCode}
-              onChange={(e) => setCatCode(e.target.value)}
-              placeholder="مثال: CAT-001"
-            />
-            <div className="flex justify-start gap-3 pt-2">
-              <Button onClick={handleAdd} loading={catLoading}>إضافة</Button>
-              <Button variant="secondary" onClick={() => setAddOpen(false)}>إلغاء</Button>
-            </div>
-          </div>
-        </Modal>
-
-        <ConfirmDialog
-          open={!!deletingCat}
-          onClose={() => setDeletingCat(null)}
-          onConfirm={handleDelete}
-          loading={deleteLoading}
-          message={`هل أنت متأكد من حذف تصنيف "${deletingCat?.name}"؟`}
-        />
 
         <ConfirmDialog
           open={resetOpen}

@@ -1,12 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { useAuth } from './AuthProvider';
 
 export interface CurrentEmployee {
   id: number;
   name: string;
   role_label?: string;
-  branch_name?: string;
+  branch_name?: string | null;
 }
 
 interface CurrentEmployeeContextValue {
@@ -41,10 +42,22 @@ export function readStoredEmployee(): CurrentEmployee | null {
 
 export default function CurrentEmployeeProvider({ children }: { children: React.ReactNode }) {
   const [currentEmployee, setCurrentEmployeeState] = useState<CurrentEmployee | null>(null);
+  const { session } = useAuth();
 
   useEffect(() => {
     setCurrentEmployeeState(readStoredEmployee());
   }, []);
+
+  useEffect(() => {
+    if (session?.employee) {
+      setCurrentEmployeeState({
+        id: session.employee.id,
+        name: session.employee.name,
+        role_label: session.employee.role_label,
+        branch_name: session.employee.branch_name,
+      });
+    }
+  }, [session]);
 
   const setCurrentEmployee = useCallback((emp: CurrentEmployee | null) => {
     setCurrentEmployeeState(emp);

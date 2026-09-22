@@ -1,10 +1,13 @@
 from datetime import date
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.db.models import Sum
 from django.test import TestCase
 from rest_framework.test import APIClient
+
+from core.testsupport import authenticate_admin
 
 from accounting.chart_of_accounts import ensure_seeded
 from accounting.models import Account, JournalEntry
@@ -22,6 +25,7 @@ class E2EBase(TestCase):
         ensure_seeded()
         call_command("seed_categories", verbosity=0)
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.today = date.today().isoformat()
 
         r = self.c.post(
@@ -461,30 +465,47 @@ class ReportsDashboardMessagingE2ETest(E2EBase):
         self.assertEqual(r.status_code, 400, r.data)
 
     def test_messaging_flow(self):
-        r = self.c.post(
+        User = get_user_model()
+        user_sender = User.objects.create_user(username="e2e_sender", password="x")
+        user_receiver = User.objects.create_user(username="e2e_receiver", password="x")
+        self.emp.user = user_sender
+        self.emp.apply_role_preset(Employee.Role.ADMIN)
+        self.emp.save()
+        self.emp2.user = user_receiver
+        self.emp2.apply_role_preset(Employee.Role.ADMIN)
+        self.emp2.save()
+
+        c_sender = APIClient()
+        c_sender.force_authenticate(user=user_sender)
+        c_receiver = APIClient()
+        c_receiver.force_authenticate(user=user_receiver)
+
+        r = c_sender.post(
             "/api/messaging/send/",
-            {"sender": self.emp.id, "receiver": self.emp2.id, "body": "مرحبا"},
+            {"receiver": self.emp2.id, "body": "مرحبا"},
             format="json",
         )
         self.assertEqual(r.status_code, 201, r.data)
         mid = r.data["id"]
-        r = self.c.get(f"/api/messaging/unread/?employee={self.emp2.id}")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.data["count"], 1)
-        r = self.c.get(f"/api/messaging/conversations/?employee={self.emp.id}")
+
+        r = c_receiver.get("/api/messaging/unread/")
         self.assertEqual(r.status_code, 200, r.data)
-        r = self.c.get(f"/api/messaging/messages/?employee={self.emp2.id}&partner={self.emp.id}")
+        self.assertEqual(r.data["count"], 1)
+
+        r = c_receiver.get("/api/messaging/conversations/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["unread_total"], 1)
+
+        r = c_receiver.get(f"/api/messaging/messages/?partner={self.emp.id}")
         self.assertEqual(r.status_code, 200, r.data)
         self.assertEqual(len(r.data["messages"]), 1)
-        r = self.c.post(
+
+        r = c_sender.post(
             f"/api/messaging/messages/{mid}/edit/",
-            {"body": "مرحبا معدّل", "employee": self.emp.id},
+            {"body": "مرحبا معدّل"},
             format="json",
         )
         self.assertEqual(r.status_code, 200, r.data)
-        r = self.c.post(
-            f"/api/messaging/messages/{mid}/delete/",
-            {"employee": self.emp.id},
-            format="json",
-        )
+
+        r = c_sender.post(f"/api/messaging/messages/{mid}/delete/", format="json")
         self.assertEqual(r.status_code, 200, r.data)

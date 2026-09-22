@@ -37,7 +37,25 @@ interface EmployeeForm {
   is_active: boolean;
   commission_active: boolean;
   commission_percent: number;
+  role: EmployeeRole;
+  username: string;
+  password: string;
+  department: string;
+  position: string;
+  email: string;
+  employee_code: string;
+  multi_branch_access: boolean;
+  birth_date: string;
+  civil_id: string;
+  address: string;
+  hire_date: string;
+  base_salary: string;
+  cloneFrom: number | null;
+  permissions: EmployeePermissions | null;
+  hiddenSections: string[] | null;
 }
+
+const MANAGER_ROLES: EmployeeRole[] = ['admin', 'supervisor'];
 
 const ROLE_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'neutral' | 'danger'> = {
   admin: 'danger',
@@ -55,7 +73,31 @@ const ROLE_OPTIONS = [
   { value: 'custom', label: 'مخصص' },
 ];
 
-const emptyForm = (): EmployeeForm => ({ name: '', phone: '', branch: null, notes: '', is_active: true, commission_active: false, commission_percent: 0 });
+const emptyForm = (): EmployeeForm => ({
+  name: '',
+  phone: '',
+  branch: null,
+  notes: '',
+  is_active: true,
+  commission_active: false,
+  commission_percent: 0,
+  role: 'admin',
+  username: '',
+  password: '',
+  department: '',
+  position: '',
+  email: '',
+  employee_code: '',
+  multi_branch_access: false,
+  birth_date: '',
+  civil_id: '',
+  address: '',
+  hire_date: '',
+  base_salary: '',
+  cloneFrom: null,
+  permissions: null,
+  hiddenSections: null,
+});
 
 export default function EmployeesPage() {
   const { toast } = useToast();
@@ -136,9 +178,54 @@ export default function EmployeesPage() {
           is_active: emp.is_active,
           commission_active: emp.commission_active,
           commission_percent: Number(emp.commission_percent ?? 0),
+          role: emp.role,
+          username: emp.username || '',
+          password: '',
+          department: emp.department || '',
+          position: emp.position || '',
+          email: emp.email || '',
+          employee_code: emp.employee_code || '',
+          multi_branch_access: emp.multi_branch_access,
+          birth_date: emp.birth_date || '',
+          civil_id: emp.civil_id || '',
+          address: emp.address || '',
+          hire_date: emp.hire_date || '',
+          base_salary: String(emp.base_salary ?? 0),
+          cloneFrom: null,
+          permissions: null,
+          hiddenSections: null,
         }
       : emptyForm());
     setModalOpen(true);
+  };
+
+  const handleCloneChange = (id: number) => {
+    const src = employees.find((e) => e.id === id);
+    setForm((prev) => {
+      if (!src) return { ...prev, cloneFrom: id };
+      return {
+        ...prev,
+        cloneFrom: id,
+        role: src.role,
+        permissions: src.permissions,
+        hiddenSections: src.hidden_sections || [],
+      };
+    });
+  };
+
+  const buildPayload = () => {
+    const { cloneFrom, permissions, hiddenSections, ...base } = form;
+    const payload: Partial<Employee> = {
+      ...base,
+      base_salary: Number(base.base_salary || 0),
+      birth_date: base.birth_date || null,
+      hire_date: base.hire_date || null,
+    };
+    if (permissions && hiddenSections) {
+      payload.permissions = permissions;
+      payload.hidden_sections = hiddenSections;
+    }
+    return payload;
   };
 
   const handleSave = async () => {
@@ -146,17 +233,17 @@ export default function EmployeesPage() {
       toast('error', 'يرجى إدخال اسم الموظف');
       return;
     }
-    if (!form.branch) {
+    if (!form.branch && !MANAGER_ROLES.includes(form.role)) {
       toast('error', 'يرجى اختيار الفرع');
       return;
     }
     setSaving(true);
     try {
       if (editing) {
-        await updateEmployee(editing.id, { ...form, branch: form.branch! });
+        await updateEmployee(editing.id, buildPayload());
         toast('success', 'تم تحديث بيانات الموظف');
       } else {
-        await createEmployee({ ...form, branch: form.branch! });
+        await createEmployee(buildPayload());
         toast('success', 'تم إضافة الموظف بنجاح');
       }
       setModalOpen(false);
@@ -187,6 +274,7 @@ export default function EmployeesPage() {
     role: EmployeeRole;
     permissions: EmployeePermissions;
     hidden_sections: string[];
+    allowed_branches: number[];
   }) => {
     if (!permsTarget) return;
     setPermsSaving(true);
@@ -195,6 +283,7 @@ export default function EmployeesPage() {
         role: data.role,
         permissions: data.permissions,
         hidden_sections: data.hidden_sections,
+        allowed_branches: data.allowed_branches,
       });
       toast('success', 'تم حفظ صلاحيات الموظف');
       setPermsTarget(null);
@@ -366,34 +455,167 @@ export default function EmployeesPage() {
           )}
         </Card>
 
-        <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'تعديل موظف' : 'إضافة موظف'} maxWidth="max-w-md">
+        <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'تعديل موظف' : 'إضافة موظف'} maxWidth="max-w-lg">
           <div className="space-y-4">
-            <Input
-              label="اسم الموظف"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="مثال: محمد عبدالله"
-            />
-            <Input
-              label="رقم الهاتف"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="05xxxxxxxx"
-              dir="ltr"
-            />
-            <Select
-              label="الفرع"
-              value={form.branch ?? ''}
-              onChange={(e) => setForm({ ...form, branch: Number(e.target.value) })}
-              options={branches.map((b) => ({ value: b.id, label: b.name }))}
-              placeholder="اختر الفرع"
-            />
-            <Textarea
-              label="ملاحظات"
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              placeholder="ملاحظات اختيارية..."
-            />
+            <div className="rounded-xl bg-sand-50 border border-sand-200 p-4 space-y-3">
+              <p className="text-xs font-medium text-neutral-500">البيانات الأساسية</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  label="اسم الموظف"
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="مثال: محمد عبدالله"
+                />
+                <Input
+                  label="رقم الهاتف"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  placeholder="05xxxxxxxx"
+                  dir="ltr"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Select
+                  label={MANAGER_ROLES.includes(form.role) ? 'الفرع (اختياري)' : 'الفرع'}
+                  required={!MANAGER_ROLES.includes(form.role)}
+                  value={form.branch ?? ''}
+                  onChange={(e) => setForm({ ...form, branch: e.target.value === '' ? null : Number(e.target.value) })}
+                  options={[
+                    ...(MANAGER_ROLES.includes(form.role) ? [{ value: '', label: 'بدون فرع' }] : []),
+                    ...branches.map((b) => ({ value: b.id, label: b.name })),
+                  ]}
+                  placeholder={MANAGER_ROLES.includes(form.role) ? undefined : 'اختر الفرع'}
+                />
+                <Select
+                  label="الدور"
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value as EmployeeRole })}
+                  options={ROLE_OPTIONS}
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  label="المسمى الوظيفي"
+                  value={form.position}
+                  onChange={(e) => setForm({ ...form, position: e.target.value })}
+                  placeholder="مثال: بائع أول"
+                />
+                <Input
+                  label="القسم"
+                  value={form.department}
+                  onChange={(e) => setForm({ ...form, department: e.target.value })}
+                  placeholder="مثال: قسم المبيعات"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  label="رقم الموظف (كود)"
+                  value={form.employee_code}
+                  onChange={(e) => setForm({ ...form, employee_code: e.target.value })}
+                  placeholder="مثال: EMP-001"
+                  dir="ltr"
+                />
+                <Input
+                  label="البريد الإلكتروني"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  placeholder="name@example.com"
+                  dir="ltr"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  label="تاريخ الميلاد"
+                  type="date"
+                  value={form.birth_date}
+                  onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
+                />
+                <Input
+                  label="الرقم المدني / الهوية"
+                  value={form.civil_id}
+                  onChange={(e) => setForm({ ...form, civil_id: e.target.value })}
+                  placeholder="مثال: 123456789"
+                  dir="ltr"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  label="تاريخ التوظيف"
+                  type="date"
+                  value={form.hire_date}
+                  onChange={(e) => setForm({ ...form, hire_date: e.target.value })}
+                />
+                <Input
+                  label="الراتب الأساسي"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.base_salary}
+                  onChange={(e) => setForm({ ...form, base_salary: e.target.value })}
+                  placeholder="0.00"
+                  dir="ltr"
+                />
+              </div>
+              <Input
+                label="العنوان"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                placeholder="العنوان الكامل..."
+              />
+              <Textarea
+                label="ملاحظات"
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                placeholder="ملاحظات اختيارية..."
+              />
+            </div>
+
+            <div className="rounded-xl bg-sand-50 border border-sand-200 p-4 space-y-3">
+              <p className="text-xs font-medium text-neutral-500">بيانات تسجيل الدخول</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  label="اسم المستخدم"
+                  value={form.username}
+                  onChange={(e) => setForm({ ...form, username: e.target.value })}
+                  placeholder={editing ? (form.username || 'لا يوجد حساب بعد') : 'يُولَّد تلقائياً عند التعارض'}
+                  dir="ltr"
+                />
+                <Input
+                  label={editing ? 'كلمة المرور الجديدة' : 'كلمة المرور'}
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder={editing ? 'اتركها فارغة للإبقاء على الحالية' : 'الافتراضية: Qomash@123'}
+                  dir="ltr"
+                />
+              </div>
+              <p className="text-xs text-neutral-500">
+                {editing
+                  ? 'عدّل اسم المستخدم لتغييره — وأدخل كلمة مرور جديدة فقط إن أردت تغييرها.'
+                  : 'اتركهما فارغين لتوليد الحساب تلقائياً (اسم المستخدم = الهاتف أو الاسم، كلمة المرور الافتراضية).'}
+              </p>
+            </div>
+
+            {!editing && (
+              <div className="rounded-xl bg-sand-50 border border-sand-200 p-4 space-y-3">
+                <p className="text-xs font-medium text-neutral-500">استنساخ الصلاحيات</p>
+                <Select
+                  label="استنساخ الدور والصلاحيات من موظف"
+                  value={form.cloneFrom ?? ''}
+                  onChange={(e) => handleCloneChange(Number(e.target.value))}
+                  options={employees.map((e) => ({ value: e.id, label: `${e.name} — ${e.role_label}` }))}
+                  placeholder="اختر الموظف المصدر (اختياري)"
+                />
+                {form.cloneFrom && (
+                  <p className="text-xs text-neutral-500">
+                    سيتم نسخ الدور والصلاحيات والأقسام المخفية من الموظف المحدد — يمكنك تعديلها بعد الحفظ من زر الصلاحيات.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="rounded-xl bg-sand-50 border border-sand-200 p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -421,21 +643,39 @@ export default function EmployeesPage() {
                 />
               )}
             </div>
-            {editing && (
+
+            <div className="rounded-xl bg-sand-50 border border-sand-200 p-3 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-neutral-700">موظف نشط</span>
+                <div>
+                  <p className="text-sm font-medium text-neutral-700">دخول متعدد الفروع</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">
+                    يتيح للموظف فتح ورديات في أكثر من فرع
+                  </p>
+                </div>
                 <input
                   type="checkbox"
-                  checked={form.is_active}
-                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                  checked={form.multi_branch_access}
+                  onChange={(e) => setForm({ ...form, multi_branch_access: e.target.checked })}
                   className="h-4 w-4 accent-brand-600"
                 />
               </div>
-            )}
+              {editing && (
+                <div className="flex items-center justify-between border-t border-sand-200 pt-3">
+                  <span className="text-sm font-medium text-neutral-700">موظف نشط</span>
+                  <input
+                    type="checkbox"
+                    checked={form.is_active}
+                    onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                    className="h-4 w-4 accent-brand-600"
+                  />
+                </div>
+              )}
+            </div>
+
             {!editing && (
               <div className="rounded-xl bg-sand-50 border border-sand-200 p-3 text-xs text-neutral-500 flex items-start gap-2">
                 <Shield size={14} className="mt-0.5 shrink-0 text-brand-600" />
-                الموظف الجديد يُنشأ بصلاحيات «مدير النظام» — يمكنك تعديل صلاحياته بعد إنشائه من زر الصلاحيات في الجدول.
+                يُنشأ الموظف بصلاحيات الدور المختار — يمكنك تعديل الصلاحيات لاحقاً من زر الصلاحيات في الجدول.
               </div>
             )}
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -454,6 +694,8 @@ export default function EmployeesPage() {
           initialRole={permsTarget?.role || 'admin'}
           initialPermissions={permsTarget?.permissions}
           initialHidden={permsTarget?.hidden_sections || []}
+          initialAllowedBranches={permsTarget?.allowed_branches || []}
+          branches={branches}
           saving={permsSaving}
           onClose={() => setPermsTarget(null)}
           onSave={handleSavePermissions}

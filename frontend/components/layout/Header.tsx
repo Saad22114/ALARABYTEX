@@ -1,10 +1,13 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
-import { Menu, Sun, Moon } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Menu, Sun, Moon, LogOut } from 'lucide-react';
 import { formatArabicDate } from '@/lib/format';
 import { useTheme } from '@/components/providers/ThemeProvider';
+import { useAuth } from '@/components/providers/AuthProvider';
 import NotificationsBell from './NotificationsBell';
+import Avatar from '@/components/ui/Avatar';
+import EmployeeInfoModal from '@/components/employees/EmployeeInfoModal';
 import { useEffect, useState } from 'react';
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
@@ -32,10 +35,22 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const [mounted, setMounted] = useState(false);
   const today = formatArabicDate(new Date());
   const { dark, toggleDark } = useTheme();
+  const { session, logout, updateEmployee } = useAuth();
+  const router = useRouter();
+  const [infoOpen, setInfoOpen] = useState(false);
+  const me = session?.employee ?? null;
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      router.push('/login');
+    }
+  };
 
   let match = titles[pathname];
   if (!match) {
@@ -74,13 +89,47 @@ export default function Header({ onMenuClick }: HeaderProps) {
           {mounted && <span className="hidden md:inline text-sm text-neutral-500">{today}</span>}
           <div className="hidden md:block w-px h-6 bg-sand-200" />
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center">
-              <span className="text-brand-700 dark:text-brand-300 text-sm font-semibold">م</span>
+          <div className="flex items-center gap-2">
+            <Avatar
+              name={me?.name || ''}
+              avatar={me?.avatar}
+              size="md"
+              onClick={() => setInfoOpen(true)}
+              title="معلوماتي وتغيير الأفاتار"
+            />
+            <div className="hidden sm:block leading-tight">
+              <span className="block text-sm font-medium text-neutral-600 dark:text-neutral-300">
+                مرحباً، {session?.employee.name || '—'}
+              </span>
+              <span className="block text-[11px] text-neutral-400">
+                {session?.employee.role_label}
+                {session?.employee.branch_name ? ` · ${session.employee.branch_name}` : ''}
+              </span>
             </div>
-            <span className="hidden sm:inline text-sm font-medium text-neutral-600">عميل</span>
+            <button
+              onClick={handleLogout}
+              title="تسجيل الخروج"
+              aria-label="تسجيل الخروج"
+              className="p-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-500/10 text-neutral-500 dark:text-neutral-400 hover:text-red-600 transition-colors"
+            >
+              <LogOut size={18} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
+      {me && (
+        <EmployeeInfoModal
+          open={infoOpen}
+          employee={me}
+          isMe
+          onClose={() => setInfoOpen(false)}
+          onAvatarChanged={(avatar) => {
+            updateEmployee({ avatar });
+            setInfoOpen(false);
+          }}
+        />
+      )}
     </header>
   );
 }

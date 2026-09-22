@@ -7,6 +7,7 @@ export function emptyPermissions(sections: AppSection[]): EmployeePermissions {
       create: false,
       edit: false,
       delete: false,
+      windows: (s.windows || []).map((w) => w.key),
     };
     return acc;
   }, {});
@@ -25,10 +26,30 @@ export function setPermission(
   return {
     ...perms,
     [sectionKey]: {
-      ...(perms[sectionKey] || { view: false, create: false, edit: false, delete: false }),
+      ...(perms[sectionKey] || { view: false, create: false, edit: false, delete: false, windows: [] }),
       [action]: value,
     },
   };
+}
+
+export function sectionWindows(perms: EmployeePermissions | null | undefined, sectionKey: string): string[] {
+  const w = perms?.[sectionKey]?.windows;
+  return Array.isArray(w) ? w : [];
+}
+
+export function hasWindow(perms: EmployeePermissions | null | undefined, sectionKey: string, windowKey: string): boolean {
+  const w = perms?.[sectionKey]?.windows;
+  if (!Array.isArray(w)) return true;
+  return w.includes(windowKey);
+}
+
+export function toggleSectionWindow(perms: EmployeePermissions, sectionKey: string, windowKey: string): EmployeePermissions {
+  const cur = perms[sectionKey] || { view: false, create: false, edit: false, delete: false };
+  const windows = Array.isArray(cur.windows) ? [...cur.windows] : [];
+  const next = windows.includes(windowKey)
+    ? windows.filter((k) => k !== windowKey)
+    : [...windows, windowKey];
+  return { ...perms, [sectionKey]: { ...cur, windows: next } };
 }
 
 export function normalizePermissions(
@@ -40,11 +61,13 @@ export function normalizePermissions(
   const out: EmployeePermissions = {};
   for (const s of sections) {
     const cur = perms[s.key];
+    const allWindows = (s.windows || []).map((w) => w.key);
     out[s.key] = {
       view: Boolean(cur?.view),
       create: Boolean(cur?.create),
       edit: Boolean(cur?.edit),
       delete: Boolean(cur?.delete),
+      windows: Array.isArray(cur?.windows) ? cur.windows : allWindows,
     };
   }
   return out;

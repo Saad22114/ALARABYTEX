@@ -25,8 +25,7 @@ class Supplier(TimeStampedModel, ActiveModel):
 class Fabric(TimeStampedModel, ActiveModel):
     class Unit(models.TextChoices):
         YARD = "yard", "ياردة"
-        METER = "meter", "متر"
-        ROLL = "roll", "لفة"
+        ROLL = "roll", "طاقة"
 
     name = models.CharField(max_length=200, verbose_name="اسم القماش")
     code = models.CharField(max_length=30, unique=True, blank=True, verbose_name="كود القماش")

@@ -99,7 +99,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
     if (saleType === 'roll') {
       const fabricObj = fabrics.find((f) => f.id === fabric);
       if (fabricObj && !fabricObj.yards_per_roll) {
-        toast('error', `القماش «${fabricObj.name}» لا توجد له ياردات اللفة`);
+        toast('error', `القماش «${fabricObj.name}» لا توجد له ياردات الطاقة`);
         return;
       }
     }
@@ -131,7 +131,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
             label="القماش"
             value={fabric ?? ''}
             onChange={(e) => handleFabricOrType({ fabric: Number(e.target.value) })}
-            options={fabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
+            options={fabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ط: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
             placeholder="اختر القماش"
           />
           <div>
@@ -149,12 +149,12 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
                 onClick={() => handleFabricOrType({ sale_type: 'roll' })}
                 className={`flex-1 py-2.5 text-sm font-medium transition-colors ${saleType === 'roll' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
               >
-                لفة (بالطاقة)
+                طاقة (بالطاقة)
               </button>
             </div>
           </div>
           <Input
-            label={saleType === 'roll' ? 'عدد اللفات' : 'الكمية (ياردات)'}
+            label={saleType === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
             type="number"
             min="0"
             step={saleType === 'roll' ? '1' : '0.25'}
@@ -190,7 +190,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-sand-50 border border-sand-200 px-4 py-3">
           <span className="text-sm text-neutral-600">
-            الإجمالي ({saleType === 'roll' ? `${quantity || '0'} لفة` : `${quantity || '0'} ياردة`} × {formatCurrency(priceNum)})
+            الإجمالي ({saleType === 'roll' ? `${quantity || '0'} طاقة` : `${quantity || '0'} ياردة`} × {formatCurrency(priceNum)})
             {discountNum > 0 ? ` - خصم ${formatCurrency(discountNum)}` : ''}:
           </span>
           <span className="text-xl font-bold tabular-nums text-brand-700">

@@ -53,8 +53,7 @@ const tabs: { value: Tab; label: string; icon: React.ReactNode }[] = [
 
 const UNIT_LABEL: Record<string, string> = {
   yard: 'ياردة',
-  meter: 'متر',
-  roll: 'لفة',
+  roll: 'طاقة',
 };
 
 function previousRange(from: string, to: string): { from: string; to: string } {
@@ -527,7 +526,7 @@ export default function BranchDetailPage() {
                     <Th>القماش</Th>
                     <Th>الكود</Th>
                     <Th>الوحدة</Th>
-                    <Th>اللفات</Th>
+                    <Th>الطاقات</Th>
                     <Th>الكمية</Th>
                     <Th>الحد الأدنى</Th>
                     <Th>الحالة</Th>
@@ -929,7 +928,7 @@ export default function BranchDetailPage() {
                       <Th>القماش</Th>
                       <Th>الكود</Th>
                       <Th>الوحدة</Th>
-                      <Th>اللفات</Th>
+                      <Th>الطاقات</Th>
                       <Th>الكمية</Th>
                       <Th>الحد الأدنى</Th>
                       <Th>الحالة</Th>

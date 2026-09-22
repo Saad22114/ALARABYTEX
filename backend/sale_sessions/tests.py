@@ -1,10 +1,13 @@
 from datetime import date, time, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
+from django.contrib.auth import get_user_model
 from django.db.models import Sum
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from core.testsupport import authenticate_admin
 
 from branches.models import Branch, FabricBranchPrice
 from sales.models import DailySale, DailySaleItem
@@ -47,6 +50,7 @@ class EffectiveDateTest(TestCase):
 class EmployeeAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
 
     def test_create_employee(self):
@@ -106,10 +110,117 @@ class EmployeeAPITest(TestCase):
         self.assertFalse(r.data["permissions"]["sales"]["edit"])
         self.assertIn("reports", r.data["hidden_sections"])
 
+    def test_update_permissions_only_via_put_succeeds(self):
+        r = self.c.post("/api/employees/", {"name": "ليلى", "branch": self.branch.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        emp_id = r.data["id"]
+        perms = {"sales": {"view": True, "create": True, "edit": False, "delete": False}}
+        r = self.c.put(f"/api/employees/{emp_id}/", {
+            "role": "custom",
+            "permissions": perms,
+            "hidden_sections": ["reports"],
+        }, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["role"], "custom")
+        self.assertEqual(r.data["name"], "ليلى")
+        self.assertTrue(r.data["permissions"]["sales"]["create"])
+        self.assertFalse(r.data["permissions"]["sales"]["edit"])
+        self.assertIn("reports", r.data["hidden_sections"])
+
+    def test_update_employee_username_and_password(self):
+        r = self.c.post("/api/employees/", {
+            "name": "أحمد", "branch": self.branch.id,
+            "username": "ahmed", "password": "OldPass@123",
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        emp_id = r.data["id"]
+        r = self.c.patch(f"/api/employees/{emp_id}/", {
+            "username": "ahmed_new", "password": "NewPass@456",
+        }, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["username"], "ahmed_new")
+        user = Employee.objects.get(id=emp_id).user
+        self.assertEqual(user.username, "ahmed_new")
+        self.assertTrue(user.check_password("NewPass@456"))
+
+    def test_update_employee_blank_password_keeps_current(self):
+        r = self.c.post("/api/employees/", {
+            "name": "مريم", "branch": self.branch.id,
+            "username": "mariam", "password": "KeepMe@123",
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        emp_id = r.data["id"]
+        r = self.c.patch(f"/api/employees/{emp_id}/", {"password": ""}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertTrue(Employee.objects.get(id=emp_id).user.check_password("KeepMe@123"))
+
+    def test_update_employee_rejects_conflicting_username(self):
+        r1 = self.c.post("/api/employees/", {
+            "name": "أول", "branch": self.branch.id, "username": "taken",
+        }, format="json")
+        self.assertEqual(r1.status_code, 201, r1.data)
+        r2 = self.c.post("/api/employees/", {
+            "name": "ثاني", "branch": self.branch.id, "username": "other",
+        }, format="json")
+        self.assertEqual(r2.status_code, 201, r2.data)
+        r = self.c.patch(f"/api/employees/{r2.data['id']}/", {"username": "taken"}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertEqual(Employee.objects.get(id=r2.data["id"]).user.username, "other")
+
+    def test_create_employees_with_blank_employee_code(self):
+        for i in range(2):
+            r = self.c.post("/api/employees/", {
+                "name": f"بلا كود {i}",
+                "branch": self.branch.id,
+                "employee_code": "",
+            }, format="json")
+            self.assertEqual(r.status_code, 201, r.data)
+            self.assertIsNone(r.data["employee_code"])
+
+    def test_duplicate_employee_code_rejected(self):
+        r1 = self.c.post("/api/employees/", {
+            "name": "الأول", "branch": self.branch.id, "employee_code": "EMP-100",
+        }, format="json")
+        self.assertEqual(r1.status_code, 201, r1.data)
+        r2 = self.c.post("/api/employees/", {
+            "name": "الثاني", "branch": self.branch.id, "employee_code": "EMP-100",
+        }, format="json")
+        self.assertEqual(r2.status_code, 400)
+        self.assertIn("employee_code", r2.data)
+
+    def test_update_duplicate_employee_code_rejected(self):
+        e1 = Employee.objects.create(name="الأول", branch=self.branch, employee_code="EMP-1")
+        e2 = Employee.objects.create(name="الثاني", branch=self.branch, employee_code="EMP-2")
+        r = self.c.patch(f"/api/employees/{e2.id}/", {"employee_code": "EMP-1"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        e2.refresh_from_db()
+        self.assertEqual(e2.employee_code, "EMP-2")
+
+    def test_update_own_employee_code_unchanged(self):
+        e1 = Employee.objects.create(name="الأول", branch=self.branch, employee_code="EMP-1")
+        r = self.c.patch(f"/api/employees/{e1.id}/", {"employee_code": "EMP-1"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["employee_code"], "EMP-1")
+
+    def test_rejected_create_leaves_no_orphan_user(self):
+        from django.contrib.auth.models import User
+
+        r1 = self.c.post("/api/employees/", {
+            "name": "الأول", "branch": self.branch.id, "employee_code": "EMP-999",
+        }, format="json")
+        self.assertEqual(r1.status_code, 201, r1.data)
+        r = self.c.post("/api/employees/", {
+            "name": "المكرر", "branch": self.branch.id, "employee_code": "EMP-999",
+            "username": "dupcode",
+        }, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(User.objects.filter(username="dupcode").exists())
+
 
 class SectionsAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
 
     def test_sections_endpoint_returns_sections_and_roles(self):
         r = self.c.get("/api/sections/")
@@ -133,6 +244,7 @@ class SectionsAPITest(TestCase):
 class SaleSessionAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.emp = Employee.objects.create(name="علي", branch=self.branch)
@@ -265,6 +377,18 @@ class SaleSessionAPITest(TestCase):
                          {"fabric": f2.id, "sale_type": "roll", "quantity": 3,
                           "payment_method": "cash"}, format="json")
         self.assertEqual(r2.status_code, 400)
+
+    def test_cumulative_session_items_exceeding_stock_rejected(self):
+        # رصيد المخزن 500 — بنود الوردية المعلّقة تُخصم من المتاح عند إضافة أي بند
+        sid = self._open_session()["id"]
+        r1 = self._add_item(sid, quantity=300)
+        self.assertEqual(r1.status_code, 201, r1.data)
+        r2 = self._add_item(sid, quantity=250)  # 300 + 250 = 550 > 500 → مرفوض
+        self.assertEqual(r2.status_code, 400, r2.data)
+        r3 = self._add_item(sid, quantity=200)  # 300 + 200 = 500 بالضبط → مقبول
+        self.assertEqual(r3.status_code, 201, r3.data)
+        r4 = self._add_item(sid, quantity=1)  # 500 + 1 = 501 > 500 → مرفوض
+        self.assertEqual(r4.status_code, 400, r4.data)
 
     def test_roll_auto_price_uses_sale_price_roll(self):
         f2 = Fabric.objects.create(
@@ -548,6 +672,7 @@ class SaleSessionAPITest(TestCase):
 class ManualSessionAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.emp = Employee.objects.create(name="علي", branch=self.branch)
@@ -642,6 +767,7 @@ class ManualSessionAPITest(TestCase):
 class ClosedSessionEditDeleteTest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.emp = Employee.objects.create(name="علي", branch=self.branch)
@@ -834,6 +960,7 @@ class ClosedSessionEditDeleteTest(TestCase):
 class SessionItemExtrasTest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.emp = Employee.objects.create(name="علي", branch=self.branch)
@@ -969,6 +1096,7 @@ class SessionItemExtrasTest(TestCase):
 class CommissionAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.emp = Employee.objects.create(
@@ -1032,3 +1160,144 @@ class CommissionAPITest(TestCase):
         self.c.post(f"/api/sale-sessions/{sid}/reopen/")
         session = self.c.get(f"/api/sale-sessions/{sid}/").data
         self.assertEqual(Decimal(str(session["commission_amount"])), Decimal("0"))
+
+
+class SessionOpeningPermissionTest(TestCase):
+    """فتح الوردية مقصور على الموظف نفسه — المدير فقط يفتح لأي موظف."""
+
+    User = get_user_model()
+
+    def setUp(self):
+        self.branch_a = Branch.objects.create(name="فرع أ", code="A")
+        self.branch_b = Branch.objects.create(name="فرع ب", code="B")
+        self.other_branch = Branch.objects.create(name="فرع آخر", code="C")
+        self.emp_a = self._employee("مندوب أ", Employee.Role.SALES, self.branch_a)
+        self.emp_b = self._employee("مندوب ب", Employee.Role.SALES, self.branch_a)
+        self.branchless = self._employee("بلا فرع", Employee.Role.SALES, None)
+        self.admin_emp = self._employee("مشرف النظام", Employee.Role.ADMIN, self.branch_a)
+
+    def _employee(self, name, role, branch):
+        user = self.User.objects.create_user(username=f"t_{uuid4().hex[:8]}", password="pass1234")
+        emp = Employee(name=name, branch=branch, user=user)
+        emp.apply_role_preset(role)
+        emp.save()
+        return emp
+
+    def _login(self, employee):
+        client = APIClient()
+        client.force_authenticate(user=employee.user)
+        return client
+
+    def test_sales_opens_own_session(self):
+        c = self._login(self.emp_a)
+        r = c.post("/api/sale-sessions/", {"employee": self.emp_a.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["branch"], self.branch_a.id)
+
+    def test_sales_cannot_open_session_for_other(self):
+        c = self._login(self.emp_a)
+        r = c.post("/api/sale-sessions/", {"employee": self.emp_b.id}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("باسمك", str(r.data))
+
+    def test_manager_opens_session_for_any_employee(self):
+        c = self._login(self.admin_emp)
+        r = c.post("/api/sale-sessions/", {"employee": self.emp_b.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["branch"], self.branch_a.id)
+
+    def test_manager_opening_branchless_employee_friendly_error(self):
+        c = self._login(self.admin_emp)
+        r = c.post("/api/sale-sessions/", {"employee": self.branchless.id}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("غير مرتبط بفرع", str(r.data))
+
+    def test_sales_manual_only_for_self(self):
+        c = self._login(self.emp_a)
+        ok = c.post("/api/sale-sessions/manual/", {"employee": self.emp_a.id, "date": "2026-09-21", "cash": 100}, format="json")
+        self.assertEqual(ok.status_code, 201, ok.data)
+        r = c.post("/api/sale-sessions/manual/", {"employee": self.emp_b.id, "date": "2026-09-21", "cash": 50}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("باسمك", str(r.data))
+
+    def test_sales_cannot_reassign_or_move_own_session(self):
+        c = self._login(self.emp_a)
+        sid = c.post("/api/sale-sessions/", {"employee": self.emp_a.id}, format="json").data["id"]
+        r = c.patch(f"/api/sale-sessions/{sid}/", {"employee": self.emp_b.id}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("موظف الوردية", str(r.data))
+        r = c.patch(f"/api/sale-sessions/{sid}/", {"branch": self.other_branch.id}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("فرع آخر", str(r.data))
+        r = c.patch(f"/api/sale-sessions/{sid}/", {"notes": "ملاحظة"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+
+    def test_sales_branches_list_scoped_to_own_branch(self):
+        c = self._login(self.emp_a)
+        r = c.get("/api/branches/")
+        self.assertEqual(r.status_code, 200)
+        ids = [b["id"] for b in r.data["results"]]
+        self.assertEqual(ids, [self.branch_a.id])
+
+    def test_sales_employees_list_forbidden(self):
+        c = self._login(self.emp_a)
+        r = c.get("/api/employees/")
+        self.assertEqual(r.status_code, 403)
+
+
+class AvatarAndProfileAPITest(TestCase):
+    """الأفاتارات الجاهزة + بطاقة معلومات الموظف."""
+
+    def setUp(self):
+        self.c = APIClient()
+        self.user, self.emp = authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="فرع أ", code="AVBR")
+
+    def test_avatar_roundtrip_via_employees_endpoint(self):
+        r = self.c.post("/api/employees/", {
+            "name": "علي", "branch": self.branch.id, "avatar": "🦁",
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["avatar"], "🦁")
+
+    def test_user_can_change_own_avatar(self):
+        r = self.c.patch("/api/account/avatar/", {"avatar": "🐼"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["employee"]["avatar"], "🐼")
+        self.emp.refresh_from_db()
+        self.assertEqual(self.emp.avatar, "🐼")
+
+    def test_user_cannot_set_arbitrary_avatar(self):
+        r = self.c.patch("/api/account/avatar/", {"avatar": "😀"}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_avatar_in_me_payload(self):
+        self.emp.avatar = "🦄"
+        self.emp.save(update_fields=["avatar"])
+        r = self.c.get("/api/auth/me/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["employee"]["avatar"], "🦄")
+
+    def test_profile_card_returns_safe_fields(self):
+        other = Employee.objects.create(branch=self.branch, name="زيد", phone="055")
+        other.department = "قسم المبيعات"
+        other.position = "بائع"
+        other.email = "z@example.com"
+        other.avatar = "🐯"
+        other.save()
+        r = self.c.get(f"/api/account/profile/?employee_id={other.id}")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["name"], "زيد")
+        self.assertEqual(r.data["position"], "بائع")
+        self.assertEqual(r.data["avatar"], "🐯")
+        self.assertEqual(r.data["branch_name"], "فرع أ")
+
+    def test_profile_requires_id_and_404(self):
+        self.assertEqual(self.c.get("/api/account/profile/").status_code, 400)
+        self.assertEqual(self.c.get("/api/account/profile/?employee_id=999999").status_code, 404)
+
+    def test_profile_also_in_messaging_contacts(self):
+        other = Employee.objects.create(branch=self.branch, name="هند", avatar="🐸")
+        r = self.c.get("/api/messaging/contacts/")
+        emp = next(e for e in r.data["employees"] if e["id"] == other.id)
+        self.assertEqual(emp["avatar"], "🐸")

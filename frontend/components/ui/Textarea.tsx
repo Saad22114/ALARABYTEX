@@ -7,14 +7,18 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
   error?: string;
 }
 
-export default function Textarea({ label, error, className = '', ...props }: TextareaProps) {
+export default function Textarea({ label, error, className = '', required, ...props }: TextareaProps) {
   return (
     <div className="space-y-1.5">
       {label && (
-        <label className="block text-sm font-medium text-neutral-700">{label}</label>
+        <label className="block text-sm font-medium text-neutral-700">
+          {label}
+          {required && <span className="text-red-500"> *</span>}
+        </label>
       )}
       <textarea
         dir="rtl"
+        required={required}
         className={`
           w-full rounded-xl border px-4 py-2.5 text-sm
           bg-surface text-neutral-800 placeholder:text-neutral-400

@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets
@@ -21,6 +22,7 @@ from .services import signed_movement_amount
 
 
 class PartnerViewSet(viewsets.ModelViewSet):
+    permission_section = "partners"
     serializer_class = PartnerSerializer
     search_fields = ["name", "notes"]
 
@@ -250,6 +252,7 @@ class PartnerViewSet(viewsets.ModelViewSet):
 
 
 class PartnerOperationViewSet(viewsets.ModelViewSet):
+    permission_section = "partners"
     search_fields = ["number", "notes", "reason"]
 
     def get_serializer_class(self):
@@ -339,6 +342,28 @@ class PartnerOperationViewSet(viewsets.ModelViewSet):
         return Response(
             PartnerOperationReadSerializer(instance, context=self.get_serializer_context()).data,
             status=201,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        obj = self.get_object()
+        serializer = self.get_serializer(obj, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            from accounting.models import JournalEntry
+            from accounting.services import post_partner_operation, unpost_source
+            from .services import refresh_partner_movement
+            unpost_source(JournalEntry.Source.PARTNER, obj.pk)
+            obj.movements.all().delete()
+            instance = serializer.save()
+            refresh_partner_movement(instance)
+            try:
+                post_partner_operation(instance)
+            except Exception:
+                pass
+        return Response(
+            PartnerOperationReadSerializer(instance, context=self.get_serializer_context()).data,
+            status=200,
         )
 
     def destroy(self, request, *args, **kwargs):

@@ -70,7 +70,7 @@ export default function CloseSessionModal({ open, session, loading, onClose, onC
                       <tr key={it.id} className="border-b border-sand-100">
                         <td className="py-2">{it.fabric_name}</td>
                         <td className="py-2 text-neutral-500">{it.sale_type_label}</td>
-                        <td className="py-2 tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'لفة' : 'يارد'}</td>
+                        <td className="py-2 tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'طاقة' : 'يارد'}</td>
                         <td className="py-2 tabular-nums text-neutral-500">{formatNumber(it.yards_effective)}</td>
                         <td className="py-2 tabular-nums">{formatCurrency(it.unit_price)}</td>
                         <td className="py-2 tabular-nums text-red-500">{it.discount_amount > 0 ? formatCurrency(it.discount_amount) : '—'}</td>

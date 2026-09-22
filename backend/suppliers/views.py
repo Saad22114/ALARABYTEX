@@ -1,7 +1,8 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Count, F, Q, Sum, Window
+from django.db.models import Count, F, IntegerField, Q, OuterRef, Subquery, Sum, Window
+from django.db.models.deletion import ProtectedError
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status, viewsets
@@ -9,6 +10,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from core.daterange import resolve_range
+from core.branch_scope import scope_queryset, scope_queryset_or
+from sale_sessions.models import SaleSessionItem
 from warehouses.models import FabricRoll
 from warehouses.services import create_purchase_receipts
 
@@ -22,6 +25,7 @@ from .serializers import (
 
 
 class SupplierViewSet(viewsets.ModelViewSet):
+    permission_section = "suppliers"
     queryset = Supplier.objects.annotate(
         current_balance=Coalesce(Sum("ledger_entries__amount"), Decimal("0"))
     ).order_by("name")
@@ -38,6 +42,9 @@ class SupplierViewSet(viewsets.ModelViewSet):
         start_date, end_date, _ = resolve_range(request.query_params)
         entries = LedgerEntry.objects.filter(
             date__gte=start_date, date__lte=end_date
+        )
+        entries = scope_queryset_or(
+            self.request, entries, ["branch", "warehouse__branch"]
         )
         warehouse_id = request.query_params.get("warehouse")
         branch_id = request.query_params.get("branch")
@@ -93,16 +100,39 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
 
 class FabricViewSet(viewsets.ModelViewSet):
+    permission_section = "fabrics"
     serializer_class = FabricSerializer
     search_fields = ["name", "code", "barcode", "fabric_type", "color", "origin"]
     ordering_fields = ["name", "code", "sale_price_yard", "created_at"]
 
+    def _apply_filters(self, qs, params=None):
+        params = params or {}
+        unit = params.get("unit")
+        if unit:
+            qs = qs.filter(unit=unit)
+        fabric_type = params.get("fabric_type")
+        if fabric_type:
+            qs = qs.filter(fabric_type=fabric_type)
+        is_active = params.get("is_active")
+        if is_active is not None:
+            active = str(is_active).strip().lower() in ("true", "1", "yes", "on")
+            qs = qs.filter(is_active=active)
+        return qs
+
     def get_queryset(self):
         available = Q(rolls__status=FabricRoll.Status.AVAILABLE)
-        return (
+        sold = (
+            SaleSessionItem.objects.filter(fabric=OuterRef("pk"))
+            .order_by()
+            .values("fabric")
+            .annotate(c=Count("id"))
+            .values("c")
+        )
+        qs = (
             Fabric.objects.all()
             .select_related("supplier")
             .annotate(
+                sold_count=Coalesce(Subquery(sold), 0, output_field=IntegerField()),
                 total_rolls=Count("rolls", filter=available),
                 stock_yards=Coalesce(
                     Sum("rolls__remaining_yards", filter=available), Decimal("0")
@@ -117,6 +147,7 @@ class FabricViewSet(viewsets.ModelViewSet):
             )
             .order_by("name")
         )
+        return self._apply_filters(qs, self.request.query_params)
 
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):
@@ -156,12 +187,15 @@ class FabricViewSet(viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         export = request.query_params.get("export") == "xlsx"
         if export:
-            qs = self.filter_queryset(self.get_queryset())
+            qs = self._apply_filters(
+                self.filter_queryset(self.get_queryset()),
+                self.request.query_params,
+            )
             headers = [
                 "اسم القماش", "الكود", "الباركود", "النوع", "اللون", "الوحدة",
-                "تكلفة الشراء", "سعر بيع الياردة", "سعر بيع اللفة",
-                "حد أدنى ياردة", "حد أدنى لفة", "المورد",
-                "لفات متاحة", "ياردات متاحة", "قيمة التكلفة", "الحد الأدنى للمخزون",
+                "تكلفة الشراء", "سعر بيع الياردة", "سعر بيع الطاقة",
+                "حد أدنى ياردة", "حد أدنى طاقة", "المورد",
+                "طاقات متاحة", "ياردات متاحة", "قيمة التكلفة", "الحد الأدنى للمخزون",
                 "الحالة",
             ]
             rows = [
@@ -196,10 +230,11 @@ class FabricViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="stock")
     def stock(self, request, pk=None):
         fabric = self.get_object()
+        rolls_qs = FabricRoll.objects.filter(
+            fabric=fabric, status=FabricRoll.Status.AVAILABLE
+        )
         rows = (
-            FabricRoll.objects.filter(
-                fabric=fabric, status=FabricRoll.Status.AVAILABLE
-            )
+            scope_queryset(request, rolls_qs, branch_field="warehouse__branch")
             .values("warehouse_id", "warehouse__name")
             .annotate(
                 rolls=Count("id"),
@@ -237,17 +272,41 @@ class FabricViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        self.perform_destroy(instance)
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {
+                    "detail": (
+                        f"لا يمكن حذف القماش «{instance.name}» لأنه مرتبط بلفات أو مشتريات أو "
+                        "مبيعات أو حركات مخزون. يمكنك إيقافه بدلاً من ذلك بالضغط على تعديل "
+                        "وتحديد الحالة «غير نشط»."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(
             {"detail": settings.API_MESSAGES["deleted"]},
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["get"], url_path="ledger")
+    def ledger(self, request, pk=None):
+        supplier = self.get_object()
+        entries = LedgerEntry.objects.filter(
+            supplier=supplier
+        ).order_by("date", "id")
+
 
 class SupplierLedgerViewSet(viewsets.GenericViewSet):
+    permission_section = "suppliers"
     def _annotated_ledger(self, supplier):
         return (
-            LedgerEntry.objects.filter(supplier=supplier)
+            scope_queryset_or(
+                self.request,
+                LedgerEntry.objects.filter(supplier=supplier),
+                ["branch", "warehouse__branch"],
+            )
             .select_related("supplier", "warehouse", "branch")
             .prefetch_related("items__fabric", "goods_receipts")
             .annotate(
@@ -271,7 +330,10 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
 
     def summary(self, request, pk=None):
         supplier = get_object_or_404(Supplier, pk=pk)
-        qs = LedgerEntry.objects.filter(supplier=supplier)
+        qs = scope_queryset_or(
+            self.request, LedgerEntry.objects.filter(supplier=supplier),
+            ["branch", "warehouse__branch"],
+        )
         agg = qs.aggregate(
             opening_balance=Sum(
                 "amount", filter=Q(entry_type=LedgerEntry.EntryType.OPENING)

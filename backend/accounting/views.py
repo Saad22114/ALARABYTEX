@@ -25,6 +25,7 @@ from .models import ClosedPeriod
 
 
 class AccountViewSet(viewsets.ModelViewSet):
+    permission_section = "accounting"
     queryset = Account.objects.select_related("parent").all()
     serializer_class = AccountSerializer
     search_fields = ["code", "name"]
@@ -59,6 +60,7 @@ class AccountViewSet(viewsets.ModelViewSet):
 
 
 class JournalEntryViewSet(viewsets.ModelViewSet):
+    permission_section = "accounting"
     queryset = JournalEntry.objects.select_related("created_by").prefetch_related("lines__account").all()
     serializer_class = JournalEntrySerializer
     http_method_names = ["get", "post", "delete", "head", "options"]
@@ -115,6 +117,7 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
 
 class ClosePeriodView(APIView):
     """إغلاق الفترة: تحويل نتائج الدخل إلى الأرباح المحتجزة."""
+    permission_section = "accounting"
 
     def get(self, request):
         periods = ClosedPeriod.objects.all()
@@ -134,6 +137,7 @@ class ClosePeriodView(APIView):
 
 
 class TrialBalanceView(APIView):
+    permission_section = "accounting"
     def get(self, request):
         date_to = request.query_params.get("to") or request.query_params.get("date")
         show_zero = request.query_params.get("show_zero") in ("1", "true")
@@ -143,6 +147,7 @@ class TrialBalanceView(APIView):
 
 
 class IncomeStatementView(APIView):
+    permission_section = "accounting"
     def get(self, request):
         df = request.query_params.get("from")
         dt = request.query_params.get("to")
@@ -155,12 +160,14 @@ class IncomeStatementView(APIView):
 
 
 class BalanceSheetView(APIView):
+    permission_section = "accounting"
     def get(self, request):
         dt = request.query_params.get("to") or request.query_params.get("date")
         return Response(balance_sheet(date.fromisoformat(str(dt)) if dt else None))
 
 
 class CashFlowView(APIView):
+    permission_section = "accounting"
     def get(self, request):
         df = request.query_params.get("from")
         dt = request.query_params.get("to")
@@ -173,6 +180,7 @@ class CashFlowView(APIView):
 
 
 class CashBoxView(APIView):
+    permission_section = "accounting"
     def get(self, request):
         d = request.query_params.get("date")
         return Response(cash_box(date.fromisoformat(str(d)) if d else None))

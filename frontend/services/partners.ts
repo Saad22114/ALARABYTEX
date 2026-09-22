@@ -37,6 +37,10 @@ export async function createPartnerOperation(data: PartnerOperationWrite): Promi
   return apiRequest<PartnerOperation>('/partner-operations/', { method: 'POST', body: JSON.stringify(data) });
 }
 
+export async function updatePartnerOperation(id: number, data: PartnerOperationWrite): Promise<PartnerOperation> {
+  return apiRequest<PartnerOperation>(`/partner-operations/${id}/`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
 export async function deletePartnerOperation(id: number): Promise<void> {
   return apiRequest<void>(`/partner-operations/${id}/`, { method: 'DELETE' });
 }

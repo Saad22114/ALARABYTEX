@@ -5,11 +5,14 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from core.testsupport import authenticate_admin
+
 from .models import Partner, PartnerOperation, PartnerMovement
 
 
 class PartnerCRUDTests(APITestCase):
     def setUp(self):
+        authenticate_admin(self.client)
         self.p1 = Partner.objects.create(name="أحمد", share_percent=Decimal("60.00"))
         self.p2 = Partner.objects.create(name="محمد", share_percent=Decimal("40.00"))
 
@@ -74,6 +77,7 @@ class PartnerCRUDTests(APITestCase):
 
 class PartnerOperationTests(APITestCase):
     def setUp(self):
+        authenticate_admin(self.client)
         self.p1 = Partner.objects.create(name="شريك أول", share_percent=50)
         self.p2 = Partner.objects.create(name="شريك ثاني", share_percent=50)
 
@@ -170,6 +174,103 @@ class PartnerOperationTests(APITestCase):
         self.assertFalse(PartnerOperation.objects.filter(pk=op_id).exists())
         self.assertEqual(PartnerMovement.objects.count(), 0)
 
+    def test_update_operation_recreates_movement(self):
+        r = self._create_op(amount=1000)
+        op_id = r.data["id"]
+        resp = self.client.patch(
+            f"/api/partner-operations/{op_id}/",
+            {"amount": 700, "reason": "تعديل مبلغ الدعم"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(float(resp.data["amount"]), 700.0)
+        self.assertEqual(resp.data["reason"], "تعديل مبلغ الدعم")
+        self.assertEqual(resp.data["number"], r.data["number"])
+        movements = PartnerMovement.objects.filter(operation_id=op_id)
+        self.assertEqual(movements.count(), 1)
+        self.assertEqual(float(movements[0].amount), 700.0)
+        self.assertEqual(movements[0].movement_type, "support")
+
+    def test_update_operation_type_changes_movement_sign(self):
+        r = self._create_op(amount=1000)
+        op_id = r.data["id"]
+        resp = self.client.patch(
+            f"/api/partner-operations/{op_id}/",
+            {"operation_type": "withdraw", "amount": 400},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        mov = PartnerMovement.objects.get(operation_id=op_id)
+        self.assertEqual(mov.movement_type, "withdraw")
+        self.assertEqual(float(mov.amount), 400.0)
+        self.assertEqual(mov.partner_id, self.p1.id)
+
+    def test_update_operation_reposts_accounting(self):
+        from accounting.models import JournalEntry
+        r = self._create_op(amount=1000)
+        op_id = r.data["id"]
+        entry = JournalEntry.objects.filter(
+            source=JournalEntry.Source.PARTNER, source_id=op_id
+        ).first()
+        self.assertIsNotNone(entry)
+        old_debit = entry.lines.first().debit
+        resp = self.client.patch(
+            f"/api/partner-operations/{op_id}/",
+            {"amount": 2500},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        entry = JournalEntry.objects.filter(
+            source=JournalEntry.Source.PARTNER, source_id=op_id
+        ).first()
+        self.assertIsNotNone(entry)
+        new_debit = entry.lines.first().debit
+        self.assertNotEqual(float(old_debit), float(new_debit))
+        self.assertEqual(float(new_debit), 2500.0)
+
+    def test_update_operation_rejects_bad_values(self):
+        r = self._create_op(amount=1000)
+        op_id = r.data["id"]
+        resp = self.client.patch(
+            f"/api/partner-operations/{op_id}/",
+            {"amount": 0},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.patch(
+            f"/api/partner-operations/{op_id}/",
+            {"amount": -5},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.p2.is_active = False
+        self.p2.save()
+        resp = self.client.patch(
+            f"/api/partner-operations/{op_id}/",
+            {"partner": self.p2.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        mov = PartnerMovement.objects.get(operation_id=op_id)
+        self.assertEqual(mov.partner_id, self.p1.id)
+        self.assertEqual(float(mov.amount), 1000.0)
+
+    def test_update_operation_keep_old_journal_removed_on_fail(self):
+        from accounting.models import JournalEntry
+        r = self._create_op(amount=1000)
+        op_id = r.data["id"]
+        entry = JournalEntry.objects.filter(
+            source=JournalEntry.Source.PARTNER, source_id=op_id
+        ).first()
+        self.assertIsNotNone(entry)
+        resp = self.client.patch(
+            f"/api/partner-operations/{op_id}/",
+            {"amount": -50},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(JournalEntry.objects.filter(pk=entry.pk).exists())
+
     def test_balance_annotations(self):
         self._create_op(amount=1000)
         self._create_op(operation_type="withdraw", amount=300)
@@ -243,6 +344,7 @@ class PartnerOperationTests(APITestCase):
 
 class PartnerMovementReportTests(APITestCase):
     def setUp(self):
+        authenticate_admin(self.client)
         self.p1 = Partner.objects.create(name="شريك أول", share_percent=50)
         self.p2 = Partner.objects.create(name="شريك ثاني", share_percent=50)
 
@@ -318,6 +420,7 @@ class PartnerMovementReportTests(APITestCase):
 
 class PartnerDistributionTests(APITestCase):
     def setUp(self):
+        authenticate_admin(self.client)
         self.p1 = Partner.objects.create(name="شريك أول", share_percent=60)
         self.p2 = Partner.objects.create(name="شريك ثاني", share_percent=40)
 

@@ -1,5 +1,5 @@
 -- ============================================================================
--- القماش العربي - نظام إدارة أعمال الأقمشة - مخطط قاعدة البيانات
+-- القماش العربي - نظام إدارة الأعمال - مخطط قاعدة البيانات
 -- Al Qomash Al Arabi - Fabric Business Management - Database Schema
 -- Engine: PostgreSQL 17+ | Charset: UTF8 (Arabic)
 -- This schema is the reference DDL for the Phase 1 (MVP) build.

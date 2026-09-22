@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
 from partners.models import Partner, PartnerOperation
+from sale_sessions.models import Employee
 from suppliers.models import Fabric, LedgerEntry, Supplier
 from warehouses.models import FabricRoll, Warehouse
 
@@ -38,9 +39,14 @@ class AccountingSetup(TestCase):
     def setUpTestData(cls):
         ensure_seeded()
         cls.user = User.objects.create_user("admin", password="pass1234")
-        cls.client = APIClient()
-        cls.client.force_authenticate(user=cls.user)
         cls.branch = Branch.objects.create(name="فرع 1", code="BR1")
+        cls.employee = Employee(
+            name="محاسب الاختبار",
+            branch=cls.branch,
+            user=cls.user,
+        )
+        cls.employee.apply_role_preset(Employee.Role.ADMIN)
+        cls.employee.save()
         cls.supplier = Supplier.objects.create(name="مورد 1")
         cls.fabric = Fabric.objects.create(
             name="قماش",
@@ -61,6 +67,10 @@ class AccountingSetup(TestCase):
             remaining_yards=Decimal("100"),
             unit_cost=cls.fabric.purchase_price,
         )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
 
 
 class AccountTests(AccountingSetup):

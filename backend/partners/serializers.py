@@ -107,6 +107,17 @@ class PartnerOperationWriteSerializer(serializers.ModelSerializer):
         model = PartnerOperation
         fields = ["partner", "date", "operation_type", "payment_method", "amount", "reason", "notes"]
 
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("المبلغ يجب أن أكبر من صفر")
+        return value
+
+    def validate(self, attrs):
+        partner = attrs.get("partner", getattr(self.instance, "partner", None))
+        if partner is not None and not partner.is_active:
+            raise serializers.ValidationError({"partner": "الشريك المحدد غير نشط"})
+        return attrs
+
     def create(self, validated_data):
         try:
             return create_partner_operation(
@@ -121,8 +132,20 @@ class PartnerOperationWriteSerializer(serializers.ModelSerializer):
         except PartnerOperationError as exc:
             raise serializers.ValidationError(str(exc))
 
+    def update(self, instance, validated_data):
+        instance.partner = validated_data.get("partner", instance.partner)
+        instance.date = validated_data.get("date", instance.date)
+        instance.operation_type = validated_data.get("operation_type", instance.operation_type)
+        instance.payment_method = validated_data.get("payment_method", instance.payment_method)
+        instance.amount = validated_data.get("amount", instance.amount)
+        instance.reason = validated_data.get("reason", instance.reason)
+        instance.notes = validated_data.get("notes", instance.notes)
+        instance.save()
+        return instance
+
 
 class PartnerMovementReportSerializer(serializers.ModelSerializer):
+    operation_id = serializers.IntegerField(source="operation.id", read_only=True)
     date = serializers.DateField(source="operation.date")
     number = serializers.CharField(source="operation.number")
     movement_type_label = serializers.CharField(source="get_movement_type_display")
@@ -136,6 +159,7 @@ class PartnerMovementReportSerializer(serializers.ModelSerializer):
         model = PartnerMovement
         fields = [
             "id",
+            "operation_id",
             "date",
             "number",
             "movement_type",

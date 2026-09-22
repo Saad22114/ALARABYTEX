@@ -62,6 +62,7 @@ export interface Customer {
   notes: string;
   branch: number | null;
   branch_name: string;
+  last_purchase_date?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -108,6 +109,7 @@ export interface Fabric {
   total_rolls: number;
   stock_yards: number;
   stock_cost_value: number;
+  sold_count?: number;
   low_stock: boolean;
   min_stock: number;
   yards_per_roll: number | null;
@@ -196,6 +198,7 @@ export interface PartnerOperationWrite {
 
 export interface PartnerMovementRecord {
   id: number;
+  operation_id: number;
   date: string;
   number: string;
   movement_type: PartnerOperationType;
@@ -588,12 +591,12 @@ export interface AppSettings {
   currency_position: 'after' | 'before';
   default_period: 'today' | 'week' | 'month';
   default_page_size: number;
-  allow_negative_stock: boolean;
   hidden_sections: string[];
   low_stock_threshold: number;
   low_stock_alert_enabled: boolean;
   date_format: string;
   default_theme: string;
+  font_family: string;
   receipt_footer: string;
   invoice_notes: string;
   invoice_prefix: string;
@@ -608,6 +611,11 @@ export interface AppSettings {
   logo: string;
   backup_password?: string;
   has_backup_password?: boolean;
+  auto_backup_enabled?: boolean;
+  auto_backup_time?: string | null;
+  auto_backup_every_hours?: number;
+  last_auto_backup_at?: string | null;
+  last_auto_backup_path?: string;
   created_at: string;
   updated_at: string;
 }
@@ -618,6 +626,17 @@ export interface SettingsContextValue {
   error: string | null;
   updateSettings: (partial: Partial<AppSettings>) => Promise<AppSettings>;
   refreshSettings: () => Promise<void>;
+}
+
+export interface ThemesControl {
+  logo: string;
+  default_theme: string;
+  font_family: string;
+  receipt_footer: string;
+  invoice_notes: string;
+  receipt_show_tax: boolean;
+  receipt_show_phone: boolean;
+  tax_rate: number;
 }
 
 export interface Warehouse {
@@ -1062,7 +1081,7 @@ export interface DashboardActivityItem {
   link: string;
 }
 
-export type EmployeeRole = 'admin' | 'supervisor' | 'sales' | 'viewer' | 'custom';
+export type EmployeeRole = 'admin' | 'supervisor' | 'sales' | 'accountant' | 'viewer' | 'custom';
 
 export interface EmployeePermissions {
   [sectionKey: string]: {
@@ -1070,15 +1089,19 @@ export interface EmployeePermissions {
     create: boolean;
     edit: boolean;
     delete: boolean;
+    windows?: string[];
   };
 }
 
 export interface Employee {
   id: number;
   name: string;
+  avatar: string;
   phone: string;
-  branch: number;
-  branch_name: string;
+  branch: number | null;
+  branch_name: string | null;
+  allowed_branches: number[];
+  allowed_branches_names: string[];
   notes: string;
   is_active: boolean;
   role: EmployeeRole;
@@ -1087,6 +1110,19 @@ export interface Employee {
   hidden_sections: string[];
   commission_active: boolean;
   commission_percent: number;
+  department: string;
+  position: string;
+  email: string;
+  employee_code: string | null;
+  multi_branch_access: boolean;
+  must_change_password: boolean;
+  birth_date: string | null;
+  civil_id: string;
+  address: string;
+  hire_date: string | null;
+  base_salary: number | string;
+  username: string | null;
+  password?: string;
   created_at: string;
   updated_at: string;
 }
@@ -1096,6 +1132,7 @@ export interface AppSection {
   label: string;
   fixed: boolean;
   actions: string[];
+  windows?: { key: string; label: string }[];
 }
 
 export interface RolePreset {
@@ -1106,6 +1143,31 @@ export interface RolePreset {
 }
 
 export interface SectionsInfo {
+  sections: AppSection[];
+  roles: Record<string, RolePreset>;
+}
+
+export interface SessionEmployee {
+  id: number;
+  name: string;
+  avatar: string;
+  phone: string;
+  branch: number | null;
+  branch_name: string | null;
+  allowed_branches: number[];
+  allowed_branches_names: string[];
+  role: EmployeeRole;
+  role_label: string;
+  permissions: EmployeePermissions;
+  hidden_sections: string[];
+  is_active: boolean;
+  username: string | null;
+  commission_active: boolean;
+}
+
+export interface AuthSession {
+  token: string;
+  employee: SessionEmployee;
   sections: AppSection[];
   roles: Record<string, RolePreset>;
 }
@@ -1353,6 +1415,7 @@ export interface ChatContactSummary {
   employee: {
     id: number;
     name: string;
+    avatar: string;
     phone: string;
     role_label: string;
     branch_name: string;
@@ -1364,7 +1427,7 @@ export interface ChatContactSummary {
 }
 
 export interface ConversationsResult {
-  me: { id: number; name: string };
+  me: { id: number; name: string; avatar: string; role_label: string };
   conversations: ChatContactSummary[];
   unread_total: number;
 }
@@ -1373,8 +1436,72 @@ export interface MessageThreadResult {
   with_employee: {
     id: number;
     name: string;
+    avatar: string;
     branch_name: string;
     role_label: string;
   };
   messages: ChatMessage[];
+}
+
+export interface MessagingContact {
+  id: number;
+  name: string;
+  avatar: string;
+  phone: string;
+  role_label: string;
+  branch_name: string;
+}
+
+export interface MessageContactListResult {
+  me: { id: number; name: string; avatar: string; role_label: string };
+  employees: MessagingContact[];
+}
+
+export interface MessageSearchMatch {
+  id: number;
+  sender: number;
+  sender_name: string;
+  receiver: number;
+  receiver_name: string;
+  body: string;
+  read_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  is_deleted: boolean;
+  reply_to_id: number | null;
+  reply_to_body: string;
+  reply_from_name: string;
+  created_at: string;
+}
+
+export interface MessageSearchGroup {
+  employee: MessagingContact;
+  matches: MessageSearchMatch[];
+  last_at: string;
+}
+
+export interface MessageSearchResult {
+  q: string;
+  groups: MessageSearchGroup[];
+}
+
+export interface EmployeeProfile {
+  id: number;
+  name: string;
+  avatar: string;
+  role: EmployeeRole;
+  role_label: string;
+  branch: number | null;
+  branch_name: string;
+  phone: string;
+  email: string;
+  department: string;
+  position: string;
+  employee_code: string;
+  hire_date: string | null;
+  is_active: boolean;
+}
+
+export interface AccountAvatarResult {
+  employee: SessionEmployee;
 }

@@ -70,7 +70,7 @@ export async function getWarehouseSummary(id: number): Promise<WarehouseBalance[
   return apiRequest<WarehouseBalance[]>(`/warehouses/${id}/summary/`);
 }
 
-// اللفات
+// الطاقات
 export async function listRolls(params?: Record<string, string | number | undefined | null>): Promise<Paginated<FabricRoll>> {
   return apiRequest<Paginated<FabricRoll>>(`/warehouses/rolls/${buildQuery(params || {})}`);
 }

@@ -15,12 +15,19 @@ class MessagingSetup(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user("admin", password="pass1234")
-        cls.client = APIClient()
-        cls.client.force_authenticate(user=cls.user)
+        cls.partner_user = User.objects.create_user("partner", password="pass1234")
         cls.branch = Branch.objects.create(name="فرع 1", code="BR1")
-        cls.me = Employee.objects.create(name="أحمد", branch=cls.branch)
-        cls.partner = Employee.objects.create(name="محمد", branch=cls.branch)
+        cls.me = Employee(branch=cls.branch, user=cls.user, name="أحمد")
+        cls.me.apply_role_preset(Employee.Role.ADMIN)
+        cls.me.save()
+        cls.partner = Employee(branch=cls.branch, user=cls.partner_user, name="محمد")
+        cls.partner.apply_role_preset(Employee.Role.ADMIN)
+        cls.partner.save()
         cls.silent = Employee.objects.create(name="خالد", branch=cls.branch)
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
 
 
 class SendMessageTests(MessagingSetup):
@@ -87,7 +94,8 @@ class ConversationListTests(MessagingSetup):
 
     def test_requires_employee(self):
         res = self.client.get("/api/messaging/conversations/")
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["me"]["id"], self.me.pk)
 
 
 class MessageThreadTests(MessagingSetup):
@@ -157,15 +165,14 @@ class DeleteMessageTests(MessagingSetup):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(res.data["is_deleted"])
         self.assertEqual(res.data["body"], "")
-        # الطرفان يشاهدان «تم حذف رسالة»
-        conv = self.client.get(
-            f"/api/messaging/conversations/?employee={self.partner.pk}"
-        ).data
+        # جهة منظوري (أحمد): تظهر الرسالة كمحذوفة مع محمد
+        conv = self.client.get("/api/messaging/conversations/").data
         by_name = {c["employee"]["name"]: c for c in conv["conversations"]}
-        self.assertEqual(by_name["أحمد"]["last_message"], "تم حذف رسالة")
+        self.assertEqual(by_name["محمد"]["last_message"], "تم حذف رسالة")
 
     def test_receiver_cannot_delete(self):
         msg = Message.objects.create(sender=self.me, receiver=self.partner, body="رسالة")
+        self.client.force_authenticate(user=self.partner_user)
         res = self.client.post(
             f"/api/messaging/messages/{msg.pk}/delete/",
             {"employee": self.partner.pk},
@@ -201,6 +208,7 @@ class EditMessageTests(MessagingSetup):
 
     def test_receiver_cannot_edit(self):
         msg = Message.objects.create(sender=self.me, receiver=self.partner, body="نص")
+        self.client.force_authenticate(user=self.partner_user)
         res = self.client.post(
             f"/api/messaging/messages/{msg.pk}/edit/",
             {"employee": self.partner.pk, "body": "تعديل"},
@@ -242,11 +250,13 @@ class ReplyAndSearchTests(MessagingSetup):
 
     def test_reply_to_deleted_shows_placeholder(self):
         original = Message.objects.create(sender=self.partner, receiver=self.me, body="سيُحذف")
+        self.client.force_authenticate(user=self.partner_user)
         self.client.post(
             f"/api/messaging/messages/{original.pk}/delete/",
             {"employee": self.partner.pk},
             format="json",
         )
+        self.client.force_authenticate(user=self.user)
         res = self.client.post(
             "/api/messaging/send/",
             {
@@ -276,3 +286,125 @@ class ReplyAndSearchTests(MessagingSetup):
         )
         names = {c["employee"]["name"] for c in res.data["conversations"]}
         self.assertEqual(names, {"محمد"})
+
+
+class ContactsListTests(MessagingSetup):
+    def test_lists_active_employees_excluding_self(self):
+        res = self.client.get("/api/messaging/contacts/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = {e["id"] for e in res.data["employees"]}
+        self.assertIn(self.partner.pk, ids)
+        self.assertIn(self.silent.pk, ids)
+        self.assertNotIn(self.me.pk, ids)
+
+    def test_sales_employee_can_list_contacts(self):
+        sales_user = User.objects.create_user("sales1", password="pass1234")
+        sales_emp = Employee(branch=self.branch, user=sales_user, name="مندوب")
+        sales_emp.apply_role_preset(Employee.Role.SALES)
+        sales_emp.save()
+        client = APIClient()
+        client.force_authenticate(user=sales_user)
+        res = client.get("/api/messaging/contacts/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = {e["id"] for e in res.data["employees"]}
+        self.assertIn(self.me.pk, ids)  # me هو أحمد الآن من منظوري المندوب
+
+    def test_inactive_employees_excluded(self):
+        self.silent.is_active = False
+        self.silent.save(update_fields=["is_active"])
+        res = self.client.get("/api/messaging/contacts/")
+        ids = {e["id"] for e in res.data["employees"]}
+        self.assertNotIn(self.silent.pk, ids)
+
+    def test_contacts_requires_messages_permission(self):
+        restricted_user = User.objects.create_user("viewer1", password="pass1234")
+        restricted_emp = Employee(branch=self.branch, user=restricted_user, name="مشاهد")
+        restricted_emp.apply_role_preset(Employee.Role.CUSTOM)
+        restricted_emp.permissions["messages"] = {"view": False, "create": False}
+        restricted_emp.save()
+        client = APIClient()
+        client.force_authenticate(user=restricted_user)
+        res = client.get("/api/messaging/contacts/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class MessageSearchTests(MessagingSetup):
+    def test_searches_my_conversations_only(self):
+        Message.objects.create(sender=self.me, receiver=self.partner, body="مناقشة الكمية")
+        Message.objects.create(sender=self.partner, receiver=self.me, body="أقصى كمية")
+        # لا ينبغي أن تظهر محادثة لا تشملني حتى لو تطابق النص
+        Message.objects.create(sender=self.silent, receiver=self.partner, body="كمية بينهما")
+        res = self.client.get("/api/messaging/search/?q=كمية")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        partners = {g["employee"]["id"] for g in res.data["groups"]}
+        self.assertEqual(partners, {self.partner.pk})
+        bodies = [m["body"] for g in res.data["groups"] for m in g["matches"]]
+        self.assertIn("الكمية", "".join(bodies))
+
+    def test_groups_sorted_by_latest_match(self):
+        Message.objects.create(sender=self.me, receiver=self.silent, body="ملف قديم")
+        Message.objects.create(sender=self.me, receiver=self.partner, body="ملف حديث")
+        res = self.client.get("/api/messaging/search/?q=ملف")
+        names = [g["employee"]["name"] for g in res.data["groups"]]
+        self.assertEqual(names[0], "محمد")
+
+    def test_requires_query(self):
+        res = self.client.get("/api/messaging/search/")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_thread_search_highlights_only_matching(self):
+        Message.objects.create(sender=self.me, receiver=self.partner, body="المطلوب: قماش")
+        Message.objects.create(sender=self.me, receiver=self.partner, body="لا يطابق")
+        res = self.client.get(
+            f"/api/messaging/messages/?employee={self.me.pk}&partner={self.partner.pk}&q=قماش"
+        )
+        self.assertEqual(len(res.data["messages"]), 1)
+        self.assertEqual(res.data["messages"][0]["body"], "المطلوب: قماش")
+
+
+class ForwardMessageTests(MessagingSetup):
+    def test_forward_received_message(self):
+        msg = Message.objects.create(sender=self.partner, receiver=self.me, body="نص أصلي")
+        res = self.client.post(
+            "/api/messaging/forward/",
+            {"receiver": self.silent.pk, "message_id": msg.pk},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["sender"], self.me.pk)
+        self.assertEqual(res.data["receiver"], self.silent.pk)
+        self.assertEqual(res.data["body"], "نص أصلي")
+
+    def test_forward_rejects_message_outside_my_threads(self):
+        msg = Message.objects.create(sender=self.silent, receiver=self.partner, body="غير متعلق بي")
+        res = self.client.post(
+            "/api/messaging/forward/",
+            {"receiver": self.partner.pk, "message_id": msg.pk},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_forward_rejects_self(self):
+        msg = Message.objects.create(sender=self.partner, receiver=self.me, body="نص")
+        res = self.client.post(
+            "/api/messaging/forward/",
+            {"receiver": self.me.pk, "message_id": msg.pk},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_forward_rejects_deleted_message(self):
+        msg = Message.objects.create(sender=self.partner, receiver=self.me, body="نص")
+        self.client.force_authenticate(user=self.partner_user)
+        self.client.post(
+            f"/api/messaging/messages/{msg.pk}/delete/",
+            {"employee": self.partner.pk},
+            format="json",
+        )
+        self.client.force_authenticate(user=self.user)
+        res = self.client.post(
+            "/api/messaging/forward/",
+            {"receiver": self.silent.pk, "message_id": msg.pk},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)

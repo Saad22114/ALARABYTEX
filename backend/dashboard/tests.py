@@ -1,8 +1,11 @@
 from datetime import date, timedelta
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.db.models import Sum
 from django.test import TestCase
 from rest_framework.test import APIClient
+from core.testsupport import authenticate_admin
 
 from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
@@ -16,6 +19,7 @@ class DashboardAPITest(TestCase):
     def setUp(self):
         call_command("seed_categories", verbosity=0)
         self.c = APIClient()
+        authenticate_admin(self.c)
         self.branch = Branch.objects.create(name="B", code="B")
         self.cat = ExpenseCategory.objects.get(name="إيجار")
         self.today = date.today()
@@ -41,14 +45,30 @@ class DashboardAPITest(TestCase):
         self.assertEqual(r.data["net"], 800)
 
     def test_summary_week(self):
+        from core.daterange import resolve_range
+
+        start, end, _ = resolve_range({"period": "week"})
+        expected = (
+            DailySale.objects.filter(date__gte=start, date__lte=end)
+            .aggregate(total=Sum("total_sales"))["total"]
+            or 0
+        )
         r = self.c.get("/api/dashboard/summary/", {"period": "week"})
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.data["total_sales"], 1500)
+        self.assertEqual(r.data["total_sales"], expected)
 
     def test_summary_month(self):
+        from core.daterange import resolve_range
+
+        start, end, _ = resolve_range({"period": "month"})
+        expected = (
+            DailySale.objects.filter(date__gte=start, date__lte=end)
+            .aggregate(total=Sum("total_sales"))["total"]
+            or 0
+        )
         r = self.c.get("/api/dashboard/summary/", {"period": "month"})
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.data["total_sales"], 1500)
+        self.assertEqual(r.data["total_sales"], expected)
 
     def test_summary_custom_range(self):
         r = self.c.get("/api/dashboard/summary/", {
@@ -67,6 +87,30 @@ class DashboardAPITest(TestCase):
     def test_branches_count(self):
         r = self.c.get("/api/dashboard/summary/", {"period": "today"})
         self.assertEqual(r.data["branches_count"], 1)
+
+    def test_summary_for_scoped_employee(self):
+        User = get_user_model()
+        user = User.objects.create_user(username="sales_scope", password="x")
+        emp = Employee(name="مندوب", branch=self.branch, user=user, is_active=True)
+        emp.apply_role_preset(Employee.Role.SALES)
+        emp.save()
+        client = APIClient()
+        client.force_authenticate(user=user)
+        r = client.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["branches_count"], 1)
+
+    def test_summary_for_scoped_employee_without_branch(self):
+        User = get_user_model()
+        user = User.objects.create_user(username="sales_nobranch", password="x")
+        emp = Employee(name="مندوب بلا فرع", user=user, is_active=True)
+        emp.apply_role_preset(Employee.Role.SALES)
+        emp.save()
+        client = APIClient()
+        client.force_authenticate(user=user)
+        r = client.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["branches_count"], 0)
 
     def test_profit_fields(self):
         r = self.c.get("/api/dashboard/summary/", {"period": "today"})

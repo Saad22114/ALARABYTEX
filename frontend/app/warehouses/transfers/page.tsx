@@ -157,7 +157,7 @@ function TransferForm({
               onChange={(e) => updateItem(i, { quantity_mode: e.target.value as TransferQuantityMode })}
               options={[
                 { value: 'yard', label: 'بالياردات' },
-                { value: 'roll', label: 'باللفات' },
+                { value: 'roll', label: 'بالطاقات' },
               ]}
             />
             {it.quantity_mode === 'roll' ? (
@@ -166,7 +166,7 @@ function TransferForm({
                 min={1}
                 value={it.rolls_count}
                 onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })}
-                placeholder="عدد اللفات"
+                placeholder="عدد الطاقات"
                 required
               />
             ) : (
@@ -185,7 +185,7 @@ function TransferForm({
                   min={0}
                   value={it.rolls_count}
                   onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })}
-                  placeholder="لفات"
+                  placeholder="طاقات"
                   className="w-20"
                 />
               </div>
@@ -196,7 +196,7 @@ function TransferForm({
           </div>
         ))}
         {items.some((it) => it.quantity_mode === 'roll') && (
-          <p className="text-xs text-neutral-500">وضع «باللفات» ينقل لفافات كاملة (أقدم لفة أولاً) بحسب رصيد المخزن.</p>
+          <p className="text-xs text-neutral-500">وضع «بالطاقات» ينقل طاقات كاملة (أقدم طاقة أولاً) بحسب رصيد المخزن.</p>
         )}
       </div>
 

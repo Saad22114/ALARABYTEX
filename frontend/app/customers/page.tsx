@@ -50,6 +50,8 @@ export default function CustomersPage() {
     const params: Record<string, string | number | undefined | null> = {
       page, page_size: pageSize, search: search || undefined,
       branch: filterBranch || undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
     };
     listCustomers(params)
       .then((res) => { if (!cancelled) setData(res); })
@@ -58,7 +60,7 @@ export default function CustomersPage() {
     return () => { cancelled = true; };
   };
 
-  useEffect(() => fetchData(), [page, search, settings?.default_page_size, filterBranch]);
+  useEffect(() => fetchData(), [page, search, settings?.default_page_size, filterBranch, dateFrom, dateTo]);
 
   useEffect(() => {
     getCustomersSummary({
@@ -210,7 +212,7 @@ export default function CustomersPage() {
         </Card>
 
         <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="إضافة زبون جديد" maxWidth="max-w-2xl">
-          <CustomerForm onSubmit={handleCreate} onCancel={() => setModalOpen(false)} />
+          <CustomerForm defaultBranch={filterBranch ? Number(filterBranch) : null} onSubmit={handleCreate} onCancel={() => setModalOpen(false)} />
         </Modal>
 
         <Modal open={!!editing} onClose={() => setEditing(null)} title="تعديل الزبون" maxWidth="max-w-2xl">
