@@ -301,7 +301,12 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                   <tbody>
                     {session.items.map((item) => (
                       <Tr key={item.id}>
-                        <Td className="font-medium">{item.fabric_name}</Td>
+                        <Td className="font-medium">
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            {item.fabric_name}
+                            {item.is_returned && <Badge variant="danger">مسترجع</Badge>}
+                          </span>
+                        </Td>
                         <Td><Badge variant="neutral">{item.sale_type_label}</Badge></Td>
                         <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'طاقة' : 'يارد'}</Td>
                         <Td className="tabular-nums text-neutral-500">{formatNumber(item.yards_effective)} ياردة</Td>

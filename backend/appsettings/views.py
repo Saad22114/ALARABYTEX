@@ -288,12 +288,30 @@ class RestoreView(APIView):
 
 
 class ResetView(APIView):
-    """POST resets data. Body: {"confirm": true, "scope": "transactions"|"all"}."""
+    """POST resets data. Body: {"confirm": true, "scope": "transactions"|"all", "admin_password": "..."}."""
     permission_section = "settings"
+
+    def _admin_password_ok(self, password):
+        from django.contrib.auth import get_user_model
+
+        from sale_sessions.models import Employee
+
+        User = get_user_model()
+        admins = User.objects.filter(
+            employee__role=Employee.Role.ADMIN,
+            employee__is_active=True,
+            is_active=True,
+        )
+        return any(u.check_password(password) for u in admins)
 
     def post(self, request):
         if request.data.get("confirm") is not True:
             return Response({"detail": "يرجى التأكيد بإرسال confirm: true"}, status=status.HTTP_400_BAD_REQUEST)
+        admin_password = request.data.get("admin_password")
+        if not admin_password:
+            return Response({"detail": "الرقم السري لمدير النظام مطلوب للتأكيد"}, status=status.HTTP_400_BAD_REQUEST)
+        if not self._admin_password_ok(str(admin_password)):
+            return Response({"detail": "الرقم السري لمدير النظام غير صحيح"}, status=status.HTTP_403_FORBIDDEN)
         scope = request.data.get("scope", "transactions")
         if scope not in ("transactions", "all"):
             return Response({"detail": "scope غير صالح"}, status=status.HTTP_400_BAD_REQUEST)

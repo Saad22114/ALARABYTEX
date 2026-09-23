@@ -12,7 +12,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, X, ChevronDown, AlertTriangle, Pencil, Trash2, Warehouse as WarehouseIcon } from 'lucide-react';
+import { Plus, X, ChevronDown, AlertTriangle, Pencil, Trash2, Warehouse as WarehouseIcon, PackagePlus } from 'lucide-react';
 import {
   StockBalanceResult,
   StockBalanceItem,
@@ -24,6 +24,7 @@ import { getStockBalances, listOpenings, createOpening, listWarehouses, setStock
 import { listFabrics } from '@/services/fabrics';
 import { formatNumber } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
+import Link from 'next/link';
 
 const UNIT_LABEL: Record<string, string> = {
   yard: 'ياردة',
@@ -199,6 +200,25 @@ export default function StockTab() {
           <Plus size={18} />
           تسجيل رصيد افتتاحي
         </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Link href="/warehouses/receipts">
+          <Button variant="secondary" size="sm">
+            <PackagePlus size={16} />
+            استلام كمية جديدة (فرع / مخزن)
+          </Button>
+        </Link>
+        <Link href="/warehouses/adjustments">
+          <Button variant="secondary" size="sm">
+            تسوية إضافة / خصم
+          </Button>
+        </Link>
+        <Link href="/warehouses/transfers">
+          <Button variant="secondary" size="sm">
+            تحويل بين الفروع/المخازن
+          </Button>
+        </Link>
       </div>
 
       {totals && (

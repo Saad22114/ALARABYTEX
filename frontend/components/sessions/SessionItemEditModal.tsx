@@ -10,6 +10,7 @@ import {
 } from '@/types';
 import { updateSessionItem } from '@/services/sessions';
 import { formatCurrency, formatNumber } from '@/lib/format';
+import { rollSaleAllowed } from '@/lib/fabrics';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 
@@ -51,6 +52,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
   }, [open, item]);
 
   const selectedFabric = fabrics.find((f) => f.id === fabric);
+  const rollAllowed = rollSaleAllowed(selectedFabric, session?.branch);
   const autoPrice = () => {
     if (!selectedFabric) return 0;
     const base = Number(selectedFabric.sale_price_yard) || 0;
@@ -63,9 +65,12 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
 
   const handleFabricOrType = (patch: Partial<{ fabric: number | null; sale_type: SessionSaleType }>) => {
     const next = { fabric, saleType, ...patch };
+    const candidate = fabrics.find((f) => f.id === next.fabric);
+    if (candidate && !rollSaleAllowed(candidate, session?.branch) && next.sale_type === 'roll') {
+      next.sale_type = 'yard';
+    }
     setFabric(next.fabric);
     setSaleType(next.sale_type ?? saleType);
-    const candidate = fabrics.find((f) => f.id === next.fabric);
     if (candidate) {
       const base = Number(candidate.sale_price_yard) || 0;
       let price = base;
@@ -147,7 +152,15 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
               <button
                 type="button"
                 onClick={() => handleFabricOrType({ sale_type: 'roll' })}
-                className={`flex-1 py-2.5 text-sm font-medium transition-colors ${saleType === 'roll' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
+                disabled={!selectedFabric || !rollAllowed}
+                title={selectedFabric && !rollAllowed ? 'البيع بالطاقة غير مسموح لهذا القماش في هذا الفرع' : 'بيع بالطاقة'}
+                className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+                  !selectedFabric || !rollAllowed
+                    ? 'bg-surface text-neutral-300 cursor-not-allowed'
+                    : saleType === 'roll'
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-surface text-neutral-600 hover:bg-sand-100'
+                }`}
               >
                 طاقة (بالطاقة)
               </button>

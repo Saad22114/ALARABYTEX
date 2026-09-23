@@ -1,5 +1,6 @@
 import { apiRequest, buildQuery } from './api';
 import {
+  CustomerSalesResult,
   Employee,
   ManualSessionWrite,
   Paginated,
@@ -92,5 +93,16 @@ export async function createManualSession(data: ManualSessionWrite): Promise<Sal
   return apiRequest<SaleSession>('/sale-sessions/manual/', {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+export async function getCustomerSales(phone: string): Promise<CustomerSalesResult> {
+  return apiRequest<CustomerSalesResult>(`/sale-sessions/customer-sales/?phone=${encodeURIComponent(phone)}`);
+}
+
+export async function returnSessionItems(itemIds: number[], reason?: string): Promise<{ items: SessionSaleItem[] }> {
+  return apiRequest<{ items: SessionSaleItem[] }>('/sale-sessions/return-items/', {
+    method: 'POST',
+    body: JSON.stringify({ item_ids: itemIds, reason: reason || '' }),
   });
 }

@@ -156,8 +156,9 @@ class BackupEncryptionTest(TestCase):
         r = self.c.get("/api/settings/backup/")
         self.assertEqual(r.status_code, 200)
         data = r.json()
-        self.assertEqual(data.get("version"), 1)
-        self.assertFalse(data.get("encrypted", False))
+        self.assertEqual(data.get("version"), 2)
+        self.assertIn("tables", data)
+        self.assertNotIn("encrypted", data)
 
     def test_encrypted_backup_roundtrip(self):
         self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
@@ -240,14 +241,14 @@ class BackupRestoreTest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("Content-Disposition", r.headers)
         data = r.json()
-        for key in ("version", "branches", "sales", "expenses", "settings"):
+        for key in ("version", "tables"):
             self.assertIn(key, data)
-        self.assertEqual(data["version"], 1)
+        self.assertEqual(data["version"], 2)
         self.assertEqual(
-            len([b for b in data["branches"] if b["code"] != AUTH_ADMIN_BRANCH_CODE]), 1
+            len([b for b in data["tables"]["branches.Branch"] if b["code"] != AUTH_ADMIN_BRANCH_CODE]), 1
         )
-        self.assertEqual(len(data["sales"]), 1)
-        self.assertEqual(len(data["expenses"]), 1)
+        self.assertEqual(len(data["tables"]["sales.DailySale"]), 1)
+        self.assertEqual(len(data["tables"]["expenses.Expense"]), 1)
 
         self._clear_data()
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 0)
@@ -265,8 +266,29 @@ class BackupRestoreTest(TestCase):
         self.assertEqual(str(Expense.objects.first().amount), "50.00")
 
     def test_restore_rejects_bad_version(self):
-        r = self.c.post("/api/settings/restore/", {"version": 2}, format="json")
+        r = self.c.post("/api/settings/restore/", {"version": 3}, format="json")
         self.assertEqual(r.status_code, 400)
+
+    def test_reset_requires_admin_password(self):
+        Supplier.objects.create(name="مورد تجريبي")
+        DailySale.objects.create(
+            branch=self.branch,
+            date=self.today,
+            total_sales=100,
+            cash_amount=100,
+        )
+
+        r = self.c.post("/api/settings/reset/", {"confirm": True, "scope": "transactions"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(DailySale.objects.count(), 1)
+
+        r = self.c.post("/api/settings/reset/", {
+            "confirm": True,
+            "scope": "transactions",
+            "admin_password": "wrong-pass",
+        }, format="json")
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(DailySale.objects.count(), 1)
 
     def test_reset_transactions(self):
         Supplier.objects.create(name="مورد تجريبي")
@@ -292,6 +314,7 @@ class BackupRestoreTest(TestCase):
         r = self.c.post("/api/settings/reset/", {
             "confirm": True,
             "scope": "transactions",
+            "admin_password": "pass1234",
         }, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(DailySale.objects.count(), 0)
@@ -312,6 +335,7 @@ class BackupRestoreTest(TestCase):
         r = self.c.post("/api/settings/reset/", {
             "confirm": True,
             "scope": "all",
+            "admin_password": "pass1234",
         }, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(DailySale.objects.count(), 0)
@@ -337,27 +361,31 @@ class LogoUploadAPITest(TestCase):
     def _png(self):
         return SimpleUploadedFile("site.png", _png_bytes(), content_type="image/png")
 
-    def test_upload_is_rejected_logo_is_fixed(self):
+    def test_upload_logo_success(self):
         r = self.c.post("/api/settings/logo/", {"file": self._png()}, format="multipart")
-        self.assertEqual(r.status_code, 403, r.data)
-        self.assertIn("ثابت", r.data["detail"])
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["logo"], "logos/logo.png")
 
-    def test_upload_requires_file_field_unchanged(self):
+    def test_upload_requires_file_field(self):
         r = self.c.post("/api/settings/logo/", {}, format="multipart")
-        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.status_code, 400)
 
-    def test_delete_is_rejected_logo_is_fixed(self):
+    def test_delete_logo_success(self):
+        s = AppSettings.load()
+        s.logo = "logos/logo.png"
+        s.save(update_fields=["logo"])
         r = self.c.delete("/api/settings/logo/")
-        self.assertEqual(r.status_code, 403, r.data)
-        self.assertIn("ثابت", r.data["detail"])
+        self.assertEqual(r.status_code, 200, r.data)
+        s.refresh_from_db()
+        self.assertEqual(s.logo, "")
 
-    def test_logo_kept_when_upload_rejected(self):
+    def test_logo_upload_replaces_previous(self):
         s = AppSettings.load()
         s.logo = "media/logos/logo_keep.png"
         s.save(update_fields=["logo"])
         self.c.post("/api/settings/logo/", {"file": self._png()}, format="multipart")
         s.refresh_from_db()
-        self.assertEqual(s.logo, "media/logos/logo_keep.png")
+        self.assertEqual(s.logo, "logos/logo.png")
 
     def test_logo_field_in_settings_payload(self):
         r = self.c.get("/api/settings/")

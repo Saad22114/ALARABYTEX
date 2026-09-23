@@ -186,6 +186,7 @@ class SaleSessionItemSerializer(serializers.ModelSerializer):
             "quantity", "unit_price", "discount_amount", "payment_method", "payment_method_label",
             "total", "sale_date", "yards_effective",
             "customer_name", "customer_phone", "sale_group",
+            "is_returned", "returned_at", "return_reason",
         ]
 
 
@@ -278,7 +279,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
             }
         agg = {m: Decimal("0") for m in PAYMENT_METHODS}
         yards = Decimal("0")
-        for it in obj.items.all():
+        for it in obj.items.filter(is_returned=False):
             agg[it.payment_method] += it.total
             yards += it.yards_effective
         return {
@@ -397,6 +398,12 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
         quantity = attrs["quantity"]
         if quantity <= 0:
             raise serializers.ValidationError({"quantity": "الكمية يجب أن تكون أكبر من صفر"})
+        if sale_type == SaleSessionItem.SaleType.ROLL:
+            session = self.context["session"]
+            if not fabric.roll_sale_allowed_in(session.branch_id):
+                raise serializers.ValidationError(
+                    {"detail": f"البيع بالطاقة غير مسموح لهذا القماش «{fabric.name}» في هذا الفرع — فعّله في ملف القماش إذا أردت البيع بالطاقة"}
+                )
         if sale_type == SaleSessionItem.SaleType.ROLL and not fabric.yards_per_roll:
             raise serializers.ValidationError(
                 {"detail": f"القماش «{fabric.name}» لا توجد له ياردات اللفة — حدّدها في ملف القماش قبل البيع باللفة"}
@@ -485,7 +492,7 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 or Decimal("0")
             )
         pending = (
-            session.items.filter(fabric=fabric)
+            session.items.filter(fabric=fabric, is_returned=False)
             .exclude(pk=self.instance.pk if self.instance is not None else None)
             .select_related("fabric")
         )

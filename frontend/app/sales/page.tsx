@@ -609,7 +609,15 @@ export default function SalesPage() {
                                 <tbody>
                                   {s.items.map((it) => (
                                     <Tr key={it.id}>
-                                      <Td className="font-medium">{it.fabric_name}</Td>
+                                      <Td className="font-medium">
+                                        <span className="flex flex-wrap items-center gap-1.5">
+                                          {it.fabric_name}
+                                          {it.is_returned && <Badge variant="danger">مسترجع</Badge>}
+                                        </span>
+                                        {it.is_returned && (
+                                          <span className="block text-[11px] text-red-400 mt-0.5">{it.return_reason || 'بدون سبب'}</span>
+                                        )}
+                                      </Td>
                                       <Td><Badge variant="neutral">{it.sale_type_label}</Badge></Td>
                                       <Td className="tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'طاقة' : 'يارد'}</Td>
                                       <Td className="tabular-nums text-neutral-500">
@@ -625,10 +633,10 @@ export default function SalesPage() {
                                       <Td className="tabular-nums text-sm text-neutral-500">{formatDate(it.sale_date)}</Td>
                                       <Td>
                                         <div className="flex items-center gap-1.5">
-                                          <button onClick={() => setEditClosedItem({ session: s, item: it })} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل البيعة">
+                                          <button onClick={() => setEditClosedItem({ session: s, item: it })} disabled={it.is_returned} title={it.is_returned ? 'لا يمكن تعديل بند مسترجع' : 'تعديل البيعة'} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                                             <Pencil size={15} />
                                           </button>
-                                          <button onClick={() => setDeleteClosedItem({ session: s, item: it })} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيعة">
+                                          <button onClick={() => setDeleteClosedItem({ session: s, item: it })} disabled={it.is_returned} title={it.is_returned ? 'لا يمكن حذف بند مسترجع' : 'حذف البيعة'} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                                             <Trash2 size={15} />
                                           </button>
                                         </div>

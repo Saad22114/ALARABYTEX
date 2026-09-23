@@ -12,6 +12,7 @@ interface ConfirmDialogProps {
   message?: React.ReactNode;
   loading?: boolean;
   confirmLabel?: string;
+  children?: React.ReactNode;
 }
 
 export default function ConfirmDialog({
@@ -22,6 +23,7 @@ export default function ConfirmDialog({
   message = 'هل أنت متأكد من الحذف؟ لا يمكن التراجع عن هذا الإجراء.',
   loading = false,
   confirmLabel = 'حذف',
+  children,
 }: ConfirmDialogProps) {
   return (
     <Modal
@@ -40,6 +42,7 @@ export default function ConfirmDialog({
       }
     >
       <div className="text-neutral-600 text-sm leading-relaxed">{message}</div>
+      {children}
     </Modal>
   );
 }

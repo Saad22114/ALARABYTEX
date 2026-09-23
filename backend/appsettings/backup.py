@@ -4,6 +4,7 @@ from pathlib import Path
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 from core.request_state import suppress_audit
 
@@ -143,8 +144,33 @@ def should_run_auto_backup(s, now=None):
         crossed_today = local_now.time() >= s.auto_backup_time and local_last.date() < local_now.date()
         candidates.append(crossed_today)
     if not candidates:
-        return False
+        # Enabled but neither time nor interval is set → default to every 24h
+        candidates.append(elapsed_h >= 24)
     return any(candidates)
+
+
+def run_auto_backup_if_due(now=None):
+    """Create the automatic backup now if one is due. Returns relative path or None.
+
+    Uses a row lock (select_for_update) on the AppSettings singleton so that in
+    multi-worker environments only one process creates the backup at a time.
+    """
+    from django.utils import timezone
+
+    from .models import AppSettings
+
+    s = AppSettings.load()
+    if not should_run_auto_backup(s, now):
+        return None
+    with transaction.atomic():
+        locked = AppSettings.objects.select_for_update().get(pk=s.pk)
+        if not should_run_auto_backup(locked, now):
+            return None
+        rel = write_backup_file(locked)
+        locked.last_auto_backup_at = timezone.now()
+        locked.last_auto_backup_path = rel
+        locked.save(update_fields=["last_auto_backup_at", "last_auto_backup_path", "updated_at"])
+        return rel
 
 
 def write_backup_file(settings_obj, prefix="backup"):
@@ -256,55 +282,56 @@ def restore_backup(payload):
     User = get_user_model()
 
     with suppress_audit():
-        # 1) delete everything except auth users (to keep the admin session alive)
-        _delete_all()
+        with transaction.atomic():
+            # 1) delete everything except auth users (to keep the admin session alive)
+            _delete_all()
 
-        # 2) users: create missing accounts referenced by employees/journal
-        backup_users = tables.get("auth.User", [])
-        existing = set(User.objects.values_list("id", flat=True))
-        for row in backup_users:
-            if row["id"] in existing:
-                continue
-            data = dict(row)
-            for stamp in ("created_at", "updated_at"):
-                data.pop(stamp, None)
-            uid = data.pop("id")
-            User(pk=uid, **data).save()
-
-        # 3) restore appsettings singleton (keep real PK=1)
-        from .models import AppSettings
-
-        real = AppSettings.load()
-        settings_rows = tables.get("appsettings.AppSettings", [])
-        if settings_rows:
-            ser_data = settings_rows[0]
-            for f in list(ser_data.keys()):
-                if f in ("id", "created_at", "updated_at"):
+            # 2) users: create missing accounts referenced by employees/journal
+            backup_users = tables.get("auth.User", [])
+            existing = set(User.objects.values_list("id", flat=True))
+            for row in backup_users:
+                if row["id"] in existing:
                     continue
-                setattr(real, f, ser_data[f])
-            real.save()
+                data = dict(row)
+                for stamp in ("created_at", "updated_at"):
+                    data.pop(stamp, None)
+                uid = data.pop("id")
+                User(pk=uid, **data).save()
 
-        # 4) all other models in dependency order
-        for app_label, name in RESTORE_ORDER:
-            if (app_label, name) == ("auth", "User"):
-                continue
-            _create_rows(app_label, name, tables.get(f"{app_label}.{name}", []))
+            # 3) restore appsettings singleton (keep real PK=1)
+            from .models import AppSettings
 
-        # 5) restore employee.branches M2M
-        through = _model("sale_sessions", "Employee").allowed_branches.through
-        through.objects.all().delete()
-        for row in payload.get("m2m_employee_allowed_branches", []):
-            through.objects.create(**row)
+            real = AppSettings.load()
+            settings_rows = tables.get("appsettings.AppSettings", [])
+            if settings_rows:
+                ser_data = settings_rows[0]
+                for f in list(ser_data.keys()):
+                    if f in ("id", "created_at", "updated_at"):
+                        continue
+                    setattr(real, f, ser_data[f])
+                real.save()
 
-        # 6) restore logo file
-        logo_meta = payload.get("logo_file")
-        if logo_meta and logo_meta.get("content"):
-            rel = f"logos/{logo_meta['name']}"
-            p = Path(settings.MEDIA_ROOT) / rel
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes(base64.b64decode(logo_meta["content"]))
-            real.logo = rel
-            real.save(update_fields=["logo", "updated_at"])
-        elif logo_meta is None and real.logo:
-            real.logo = ""
-            real.save(update_fields=["logo", "updated_at"])
+            # 4) all other models in dependency order
+            for app_label, name in RESTORE_ORDER:
+                if (app_label, name) == ("auth", "User"):
+                    continue
+                _create_rows(app_label, name, tables.get(f"{app_label}.{name}", []))
+
+            # 5) restore employee.branches M2M
+            through = _model("sale_sessions", "Employee").allowed_branches.through
+            through.objects.all().delete()
+            for row in payload.get("m2m_employee_allowed_branches", []):
+                through.objects.create(**row)
+
+            # 6) restore logo file
+            logo_meta = payload.get("logo_file")
+            if logo_meta and logo_meta.get("content"):
+                rel = f"logos/{logo_meta['name']}"
+                p = Path(settings.MEDIA_ROOT) / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(base64.b64decode(logo_meta["content"]))
+                real.logo = rel
+                real.save(update_fields=["logo", "updated_at"])
+            elif logo_meta is None and real.logo:
+                real.logo = ""
+                real.save(update_fields=["logo", "updated_at"])

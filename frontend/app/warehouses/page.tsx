@@ -14,7 +14,7 @@ import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Input from '@/components/ui/Input';
-import { Plus, Pencil, Trash2, Eye, ArrowLeftRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, ArrowLeftRight, PackagePlus, Scale, ClipboardCheck } from 'lucide-react';
 import StockTab from '@/components/warehouses/StockTab';
 import {
   Warehouse,
@@ -246,17 +246,44 @@ export default function WarehousesPage() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/warehouses/receipts">
+            <Button variant="secondary" size="sm">
+              <PackagePlus size={16} />
+              إيصالات الاستلام
+            </Button>
+          </Link>
+          <Link href="/warehouses/adjustments">
+            <Button variant="secondary" size="sm">
+              <Scale size={16} />
+              تسويات المخزون
+            </Button>
+          </Link>
+          <Link href="/warehouses/counts">
+            <Button variant="secondary" size="sm">
+              <ClipboardCheck size={16} />
+              جرد المخزون
+            </Button>
+          </Link>
+          <Link href="/warehouses/transfers">
+            <Button variant="secondary" size="sm">
+              <ArrowLeftRight size={16} />
+              التحويلات
+            </Button>
+          </Link>
+          <button
+            onClick={() => setPageTab('stock')}
+            className="px-3 py-1.5 rounded-xl text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors"
+          >
+            عرض رصيد المخزون
+          </button>
+        </div>
+
         {pageTab === 'stock' ? (
           <StockTab />
         ) : (
           <>
         <div className="flex items-center justify-end gap-3">
-          <Link href="/warehouses/transfers">
-            <Button variant="secondary">
-              <ArrowLeftRight size={18} />
-              التحويلات
-            </Button>
-          </Link>
           <Button onClick={() => setModalOpen(true)}>
             <Plus size={18} />
             إضافة مخزن

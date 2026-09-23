@@ -165,6 +165,7 @@ describe('buildSalesInvoice', () => {
           discount_amount: 0, payment_method: 'cash', payment_method_label: 'كاش',
           total: 17.5, sale_date: '2026-09-15', yards_effective: 3.5,
           customer_name: '', customer_phone: '', sale_group: 'group-1',
+          is_returned: false, returned_at: null, return_reason: '',
         },
         {
           id: 2, fabric: 2, fabric_name: 'قطن', fabric_code: 'Q1', fabric_unit: 'يارد',
@@ -172,6 +173,7 @@ describe('buildSalesInvoice', () => {
           discount_amount: 0, payment_method: 'transfer', payment_method_label: 'تحويل',
           total: 30, sale_date: '2026-09-15', yards_effective: 10,
           customer_name: '', customer_phone: '', sale_group: 'group-2',
+          is_returned: false, returned_at: null, return_reason: '',
         },
       ],
       totals: { cash: 17.5, transfer: 30, card: 0, total: 47.5, yards: 13.5 },

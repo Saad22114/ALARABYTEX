@@ -1,4 +1,4 @@
-import { apiRequest, API_URL } from './api';
+import { apiRequest, API_URL, downloadBlob } from './api';
 import { AppSettings, ThemesControl } from '@/types';
 
 export function getSettings(): Promise<AppSettings> {
@@ -46,7 +46,7 @@ export async function restoreSettings(body: unknown): Promise<unknown> {
   return apiRequest('/settings/restore/', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function resetData(payload: { confirm: boolean; scope: 'transactions' | 'all' }): Promise<unknown> {
+export async function resetData(payload: { confirm: boolean; scope: 'transactions' | 'all'; admin_password: string }): Promise<unknown> {
   return apiRequest('/settings/reset/', { method: 'POST', body: JSON.stringify(payload) });
 }
 
@@ -72,4 +72,12 @@ export function runAutoBackup(): Promise<{ detail: string; path: string }> {
 
 export function autoBackupDownloadUrl(name: string): string {
   return `${API_URL}/settings/auto-backup/${encodeURIComponent(name)}/`;
+}
+
+export async function downloadBackup(): Promise<void> {
+  await downloadBlob(`${API_URL}/settings/backup/`, 'backup.json');
+}
+
+export async function downloadAutoBackup(name: string): Promise<void> {
+  await downloadBlob(`${API_URL}/settings/auto-backup/${encodeURIComponent(name)}/`, name);
 }

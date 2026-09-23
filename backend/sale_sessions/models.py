@@ -19,6 +19,10 @@ class Employee(TimeStampedModel, ActiveModel):
 
     name = models.CharField(max_length=150, unique=True, verbose_name="اسم الموظف")
     avatar = models.CharField(max_length=8, blank=True, default="", verbose_name="الأفاتار")
+    last_seen_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="آخر ظهور",
+        help_text="يُحدَّث عند أي طلب؛ المتصل من ظهر خلال آخر دقيقتين",
+    )
     phone = models.CharField(max_length=30, blank=True, verbose_name="رقم الهاتف")
     branch = models.ForeignKey(
         "branches.Branch",
@@ -191,6 +195,9 @@ class SaleSessionItem(TimeStampedModel):
     customer_name = models.CharField(max_length=150, blank=True, verbose_name="اسم الزبون")
     customer_phone = models.CharField(max_length=30, blank=True, verbose_name="رقم هاتف الزبون")
     sale_group = models.CharField(max_length=36, blank=True, verbose_name="معرّف البيعة")
+    is_returned = models.BooleanField(default=False, verbose_name="مسترجع")
+    returned_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الاسترجاع")
+    return_reason = models.CharField(max_length=255, blank=True, verbose_name="سبب الاسترجاع")
 
     class Meta:
         verbose_name = "بند وردية"

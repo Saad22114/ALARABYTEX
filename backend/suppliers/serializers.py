@@ -53,7 +53,7 @@ class FabricSerializer(serializers.ModelSerializer):
             "id", "name", "code", "barcode", "unit",
             "fabric_type", "color", "composition",
             "width_cm", "weight_gsm", "origin", "manufacturer",
-            "supplier", "supplier_name",
+            "supplier", "supplier_name", "allow_roll_sale", "roll_sale_overrides",
             "sale_price_yard", "sale_price_roll", "purchase_price",
             "min_sale_yard", "min_sale_roll",
             "sale_price_roll_display", "min_sale_roll_display",

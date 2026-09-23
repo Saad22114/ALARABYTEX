@@ -125,7 +125,7 @@ def create_manual_session(*, employee, branch, sale_date, cash, transfer, card, 
 
 def recompute_commission(session):
     """إعادة حساب عمولة الموظف على إجمالي الوردية حسب نسبة عمولته."""
-    total = sum(r.total for r in session.items.all())
+    total = sum(r.total for r in session.items.filter(is_returned=False))
     employee = session.employee
     if employee.commission_active:
         percent = Decimal(str(employee.commission_percent or "0"))
@@ -139,7 +139,7 @@ def close_session(session):
     """تحويل بنود الوردية إلى سندات مبيعات يومية مع خصم المخزون، ثم إغلاق الوردية."""
     if session.status == SaleSession.Status.CLOSED:
         raise ValueError("الوردية مغلقة بالفعل")
-    rows = list(session.items.select_related("fabric"))
+    rows = list(session.items.select_related("fabric").filter(is_returned=False))
 
     with transaction.atomic():
         groups = defaultdict(list)
@@ -241,7 +241,7 @@ def _cleanup_sale(sale, allow_negative):
 def _reverse_closed_items(session):
     """عكس استهلاك الوردية المغلق من السجلات اليومية والمخزون."""
     allow_negative = False
-    rows = list(session.items.select_related("fabric"))
+    rows = list(session.items.select_related("fabric").filter(is_returned=False))
     for item in rows:
         sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if sale:
@@ -280,6 +280,8 @@ def reopen_session(session):
 @transaction.atomic
 def move_session_item(source_session, item, target_session):
     """نقل بند من وردية مفتوحة إلى وردية مفتوحة أخرى مع إعادة التحقق من المتاح."""
+    if item.is_returned:
+        raise ValueError("البند مسترجع — لا يمكن نقل بند مُسترجع")
     if source_session.status != SaleSession.Status.OPEN or target_session.status != SaleSession.Status.OPEN:
         raise ValueError("يمكن نقل البنود بين ورديات مفتوحة فقط")
     if source_session.pk == target_session.pk:
@@ -317,6 +319,8 @@ def clear_session_items(session):
 
 @transaction.atomic
 def delete_session_item(session, item):
+    if item.is_returned:
+        raise ValueError("البند مسترجع — لا يمكن حذفه؛ يمكنك إلغاء الاسترجاع أو إعادة الوردية")
     allow_negative = False
     if session.status == SaleSession.Status.CLOSED:
         sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
@@ -332,6 +336,8 @@ def delete_session_item(session, item):
 
 @transaction.atomic
 def update_session_item(session, item, attrs):
+    if item.is_returned:
+        raise ValueError("البند مسترجع — لا يمكن تعديل بند مُسترجع؛ ألغِ الاسترجاع أولاً إذا كان خطاً")
     allow_negative = False
     closed = session.status == SaleSession.Status.CLOSED
     if closed:
@@ -366,3 +372,36 @@ def update_session_item(session, item, attrs):
         session.save(update_fields=["commission_amount"])
         _post_session(session)
     return item
+
+
+@transaction.atomic
+def return_session_items(session, items, reason=""):
+    """استرجاع بنود مبيعة: إبقاء السجل مع وسم «مسترجع» وترجيع الكمية إلى المخزون.
+
+    للوردية المغلقة يُعكس البند من اليومي والمخزون (مثل الحذف) لكن يبقى البند
+    مسجلاً بوسم مسترجع؛ وللوردية المفتوحة يُومَض ببساطة (تُستثنى من الإغلاق).
+    """
+    if session is None:
+        raise ValueError("الوردية غير موجودة")
+    closed = session.status == SaleSession.Status.CLOSED
+    for item in items:
+        if item.session_id != session.pk:
+            raise ValueError("بعض البنود لا تنتمي إلى الوردية")
+        if item.is_returned:
+            raise ValueError("البند مسترجع مسبقاً")
+    allow_negative = False
+    for item in items:
+        if closed:
+            sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
+            if sale:
+                _subtract_item(sale, item)
+                _cleanup_sale(sale, allow_negative)
+        item.is_returned = True
+        item.returned_at = timezone.now()
+        item.return_reason = (reason or "").strip()[:255]
+        item.save(update_fields=["is_returned", "returned_at", "return_reason"])
+    if closed:
+        recompute_commission(session)
+        session.save(update_fields=["commission_amount"])
+        _post_session(session)
+    return list(items)

@@ -154,18 +154,26 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
     def summary(self, request):
         qs = self.filter_queryset(self.get_queryset())
         sessions = list(qs)
-        items = [it for s in sessions for it in s.items.select_related("fabric")]
+        items = [
+            it
+            for s in sessions
+            for it in s.items.select_related("fabric").filter(is_returned=False)
+        ]
         totals = {"cash": Decimal("0"), "transfer": Decimal("0"), "card": Decimal("0")}
         for it in items:
             totals[it.payment_method] += it.total
         total = sum(totals.values(), Decimal("0"))
         yards = sum(it.yards_effective for it in items)
+        returned_count = sum(
+            s.items.filter(is_returned=True).count() for s in sessions
+        )
         return Response(
             {
                 "count": len(sessions),
                 "open_count": sum(1 for s in sessions if s.status == SaleSession.Status.OPEN),
                 "closed_count": sum(1 for s in sessions if s.status == SaleSession.Status.CLOSED),
                 "items_count": len(items),
+                "returned_items_count": returned_count,
                 "yards": float(yards),
                 "total": float(total),
                 "cash": float(totals["cash"]),
@@ -319,3 +327,97 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
                 detail = "; ".join(str(x) for x in (detail.values() if isinstance(detail, dict) else detail))
             return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
         return Response(SaleSessionReadSerializer(session).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="customer-sales")
+    def customer_sales(self, request):
+        """يُعيد كل بيعات زبونٍ بهاتفه عبر الورديات (المفتوحة والمغلقة) ضمن فروع المستخدم."""
+        phone = (request.query_params.get("phone") or "").strip()
+        if not phone:
+            return Response(
+                {"detail": "أدخل رقم هاتف الزبون"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        items = (
+            SaleSessionItem.objects.select_related(
+                "fabric", "session__employee", "session__branch"
+            )
+            .filter(customer_phone=phone)
+            .order_by("-sale_date", "-id")
+        )
+        items = scope_queryset(request, items, branch_field="session__branch")
+        from .serializers import SaleSessionItemSerializer as _ItemSer
+        rows = []
+        for it in items:
+            data = _ItemSer(it).data
+            data["session_id"] = it.session_id
+            data["session_status"] = it.session.status
+            data["session_status_label"] = it.session.get_status_display()
+            data["session_closed"] = it.session.status == SaleSession.Status.CLOSED
+            rows.append(data)
+        total = sum(Decimal(str(r["total"])) for r in rows if not r["is_returned"])
+        yards = sum(Decimal(str(r["yards_effective"])) for r in rows if not r["is_returned"])
+        return Response(
+            {
+                "phone": phone,
+                "items": rows,
+                "totals": {
+                    "count": len(rows),
+                    "returned_count": sum(1 for r in rows if r["is_returned"]),
+                    "total": float(total),
+                    "yards": float(yards),
+                },
+            }
+        )
+
+    @action(detail=False, methods=["post"], url_path="return-items")
+    def return_items(self, request):
+        """استرجاع بنود مبيعة لزبون: إبقاء السجل بوسم «مسترجع» وترجيع القماش للمخزون."""
+        item_ids = request.data.get("item_ids")
+        reason = request.data.get("reason", "")
+        if not isinstance(item_ids, list) or not item_ids:
+            return Response(
+                {"detail": "أرسل قائمة البنود (item_ids)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(item_ids) > 50:
+            return Response(
+                {"detail": "حد أقصى 50 بنداً في العملية الواحدة"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        session_ids = set(
+            SaleSessionItem.objects.filter(pk__in=item_ids).values_list(
+                "session_id", flat=True
+            )
+        )
+        if len(session_ids) != 1:
+            return Response(
+                {"detail": "ارسل بنوداً من وردية واحدة فقط في كل عملية استرجاع"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from .services import return_session_items as do_return
+        try:
+            session = scope_queryset(
+                request, SaleSession.objects.select_related("branch")
+            ).get(pk=session_ids.pop())
+        except SaleSession.DoesNotExist:
+            return Response(
+                {"detail": "الوردية غير موجودة ضمن فروعك المسموحة"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        items = list(session.items.select_related("fabric").filter(pk__in=item_ids))
+        if len(items) != len(item_ids):
+            return Response(
+                {"detail": "بعض البنود غير موجودة في الوردية"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            do_return(session, items, reason=reason)
+        except (ValueError, serializers.ValidationError) as e:
+            detail = getattr(e, "detail", str(e))
+            if isinstance(detail, (list, tuple, dict)):
+                detail = "; ".join(str(x) for x in (detail.values() if isinstance(detail, dict) else detail))
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+        from .serializers import SaleSessionItemSerializer as _ItemSer
+        return Response(
+            {"items": _ItemSer(items, many=True).data},
+            status=status.HTTP_200_OK,
+        )

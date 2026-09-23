@@ -12,7 +12,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
-import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Package, Layers, Eye, Search, Move, TriangleAlert, Printer, FileText } from 'lucide-react';
+import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Package, Layers, Eye, Search, Move, TriangleAlert, Printer, FileText, Undo2 } from 'lucide-react';
 import {
   SaleSession, Employee, Fabric, Branch, SessionSaleItem,
   SessionSaleType, SessionPaymentMethod, SaleSessionSummary, SaleStockResult,
@@ -37,9 +37,11 @@ import SessionEditModal from '@/components/sessions/SessionEditModal';
 import CloseSessionModal from '@/components/sessions/CloseSessionModal';
 import MoveItemModal from '@/components/sessions/MoveItemModal';
 import SessionCustomerInvoiceModal from '@/components/sessions/SessionCustomerInvoiceModal';
+import CustomerSalesReturnModal from '@/components/sessions/CustomerSalesReturnModal';
 import CustomerPicker from '@/components/sessions/CustomerPicker';
 import { saveContact } from '@/lib/customerContacts';
 import { ensureCustomer } from '@/lib/registerCustomer';
+import { rollSaleAllowed } from '@/lib/fabrics';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
@@ -149,6 +151,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [deleteSessionLoading, setDeleteSessionLoading] = useState(false);
   const [deletingItem, setDeletingItem] = useState<SessionSaleItem | null>(null);
   const [deleteItemLoading, setDeleteItemLoading] = useState(false);
+  const [customerSalesOpen, setCustomerSalesOpen] = useState(false);
 
   const fetchSessions = useCallback((silent = false) => {
     let cancelled = false;
@@ -313,6 +316,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
             ? availableYards / yardsPerRoll
             : null
           : availableYards;
+    const rollAllowed = rollSaleAllowed(selectedFabric, selected?.branch);
     const quantityNum = parseFloat(line.quantity);
     const priceNum = line.unit_price !== '' && !isNaN(parseFloat(line.unit_price)) ? parseFloat(line.unit_price) : 0;
     const subtotal = line.quantity.trim() !== '' && quantityNum > 0 && priceNum >= 0 ? quantityNum * priceNum : null;
@@ -320,7 +324,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     const netTotal = subtotal != null ? Math.max(0, subtotal - discountNum) : null;
     const discountExceeds = subtotal != null && discountNum > subtotal;
     const quantityExceeds = availableUnit !== null && !isNaN(quantityNum) && quantityNum > availableUnit;
-    return { selectedFabric, availableUnit, quantityNum, priceNum, subtotal, discountNum, netTotal, discountExceeds, quantityExceeds };
+    return { selectedFabric, availableUnit, rollAllowed, quantityNum, priceNum, subtotal, discountNum, netTotal, discountExceeds, quantityExceeds };
   };
 
   const linesTotal = lines.reduce((sum, l) => {
@@ -360,10 +364,13 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       cur.map((line, i) => {
         if (i !== idx) return line;
         const next = { ...line, ...patch };
-        if ('sale_type' in patch && patch.sale_type) {
-          next.quantity = defaultQuantityForType(patch.sale_type);
-        }
         const candidate = fabrics.find((f) => f.id === next.fabric);
+        if (candidate && !rollSaleAllowed(candidate, selected?.branch) && next.sale_type === 'roll') {
+          next.sale_type = 'yard';
+        }
+        if ('sale_type' in patch && patch.sale_type) {
+          next.quantity = defaultQuantityForType(next.sale_type);
+        }
         if (candidate) {
           const base = Number(candidate.sale_price_yard) || 0;
           let price = base;
@@ -538,10 +545,16 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
             وردية مفتوحة لكل موظف تبقى مفتوحة حتى يغلقها، ويُسجَّل البيع بتاريخ اليوم أو اليوم السابق بعد منتصف الليل حتى الساعة 2 صباحاً
           </p>
         </div>
-        <Button variant="secondary" onClick={manualRefresh} loading={refreshing}>
-          <RefreshCcw size={16} />
-          تحديث الآن
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" onClick={() => setCustomerSalesOpen(true)}>
+            <Undo2 size={16} />
+            بحث زبون واسترجاع
+          </Button>
+          <Button variant="secondary" onClick={manualRefresh} loading={refreshing}>
+            <RefreshCcw size={16} />
+            تحديث الآن
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -781,7 +794,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         <Td>
                           <input
                             type="checkbox"
-                            className="h-4 w-4 rounded border-sand-300 accent-brand-600"
+                            disabled={item.is_returned}
+                            className={`h-4 w-4 rounded border-sand-300 accent-brand-600 ${item.is_returned ? 'opacity-40 cursor-not-allowed' : ''}`}
                             checked={checked.has(item.id)}
                             onChange={(e) => {
                               const next = new Set(checked);
@@ -791,7 +805,15 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                             }}
                           />
                         </Td>
-                        <Td className="font-medium">{item.fabric_name}</Td>
+                        <Td className="font-medium">
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            {item.fabric_name}
+                            {item.is_returned && <Badge variant="danger">مسترجع</Badge>}
+                          </span>
+                          {item.is_returned && (
+                            <span className="block text-[11px] text-red-400 mt-0.5">{item.return_reason || 'بدون سبب'}</span>
+                          )}
+                        </Td>
                         <Td><Badge variant="neutral">{item.sale_type_label}</Badge></Td>
                         <Td className="tabular-nums">{item.quantity} {item.sale_type === 'roll' ? 'طاقة' : 'يارد'}</Td>
                         <Td>
@@ -829,13 +851,13 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)}</Td>
                         <Td>
                           <div className="flex items-center gap-1.5">
-                            <button onClick={() => setMovingItem({ session: selected, item })} className="p-1.5 rounded-lg hover:bg-sky-50 text-sky-600 dark:hover:bg-sky-500/15 dark:text-sky-400 transition-colors" title="نقل البند إلى وردية أخرى">
+                            <button onClick={() => setMovingItem({ session: selected, item })} disabled={item.is_returned} title={item.is_returned ? 'لا يمكن نقل بند مسترجع' : 'نقل البند إلى وردية أخرى'} className="p-1.5 rounded-lg hover:bg-sky-50 text-sky-600 dark:hover:bg-sky-500/15 dark:text-sky-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                               <Move size={15} />
                             </button>
-                            <button onClick={() => setEditingItem({ session: selected, item })} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل البيع">
+                            <button onClick={() => setEditingItem({ session: selected, item })} disabled={item.is_returned} title={item.is_returned ? 'لا يمكن تعديل بند مسترجع' : 'تعديل البيع'} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                               <Pencil size={15} />
                             </button>
-                            <button onClick={() => setDeletingItem(item)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors" title="حذف البيع">
+                            <button onClick={() => setDeletingItem(item)} disabled={item.is_returned} title={item.is_returned ? 'لا يمكن حذف بند مسترجع' : 'حذف البيع'} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -946,7 +968,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       label="القماش"
                       value={line.fabric ?? ''}
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
-                      options={saleFabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ل: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
+                      options={saleFabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ط: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
                       placeholder="اختر القماش"
                     />
                     <div>
@@ -962,7 +984,15 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         <button
                           type="button"
                           onClick={() => changeFabricOrType(idx, { sale_type: 'roll' })}
-                          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${line.sale_type === 'roll' ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
+                          disabled={!calc.rollAllowed}
+                          title={calc.rollAllowed ? 'بيع بالطاقة' : 'البيع بالطاقة غير مسموح لهذا القماش في هذا الفرع'}
+                          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+                            !calc.rollAllowed
+                              ? 'bg-surface text-neutral-300 cursor-not-allowed'
+                              : line.sale_type === 'roll'
+                                ? 'bg-brand-600 text-white'
+                                : 'bg-surface text-neutral-600 hover:bg-sand-100'
+                          }`}
                         >
                           طاقة (بالطاقة)
                         </button>
@@ -1027,6 +1057,9 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                   )}
                   {calc.selectedFabric && line.sale_type === 'roll' && !calc.selectedFabric.yards_per_roll && (
                     <p className="text-xs text-amber-600 font-medium">هذا القماش لا يملك ياردات الطاقة — لا يمكن بيعه بالطاقة</p>
+                  )}
+                  {calc.selectedFabric && !calc.rollAllowed && (
+                    <p className="text-xs text-amber-600 font-medium">البيع بالطاقة لهذا القماش غير متوفر في هذا الفرع</p>
                   )}
                 </div>
               );
@@ -1137,6 +1170,16 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
             ? `هل أنت متأكد من حذف وردية ${deletingSession.employee_name} (${deletingSession.items.length} بند — إجمالي ${formatCurrency(deletingSession.totals.total)})؟ سيتم إلغاء الوردية وبنودها.`
             : ''
         }
+      />
+
+      <CustomerSalesReturnModal
+        open={customerSalesOpen}
+        onClose={() => setCustomerSalesOpen(false)}
+        onChanged={() => {
+          fetchSessions();
+          fetchSummary();
+          onChanged?.();
+        }}
       />
     </div>
   );

@@ -20,7 +20,7 @@ import {
 import { ExpenseCategory, ExpenseBudget, Branch, AppSection } from '@/types';
 import { listExpenseCategories, listExpenseBudgets, createExpenseBudget, updateExpenseBudget, deleteExpenseBudget } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
-import { backupUrl, restoreSettings, resetData, getAutoBackups, runAutoBackup, autoBackupDownloadUrl, AutoBackupInfo } from '@/services/settings';
+import { restoreSettings, resetData, getAutoBackups, runAutoBackup, downloadBackup, downloadAutoBackup, AutoBackupInfo } from '@/services/settings';
 import { getSectionsInfo } from '@/services/sections';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
@@ -181,6 +181,7 @@ export default function SettingsPage() {
   const [restoring, setRestoring] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
   const [backupPassword, setBackupPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -341,13 +342,31 @@ export default function SettingsPage() {
     setHiddenSections((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   };
 
-  const handleBackup = () => {
-    const a = document.createElement('a');
-    a.href = backupUrl();
-    a.download = 'backup.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const [backupDownloading, setBackupDownloading] = useState(false);
+  const [downloadingAuto, setDownloadingAuto] = useState<string | null>(null);
+
+  const handleBackup = async () => {
+    setBackupDownloading(true);
+    try {
+      await downloadBackup();
+      toast('success', 'تم تنزيل النسخة الاحتياطية');
+    } catch (err: any) {
+      toast('error', err.message || 'فشل تنزيل النسخة الاحتياطية');
+    } finally {
+      setBackupDownloading(false);
+    }
+  };
+
+  const handleDownloadAuto = async (name: string) => {
+    setDownloadingAuto(name);
+    try {
+      await downloadAutoBackup(name);
+      toast('success', 'تم تنزيل الملف');
+    } catch (err: any) {
+      toast('error', err.message || 'فشل تنزيل الملف');
+    } finally {
+      setDownloadingAuto(null);
+    }
   };
 
   const handleRestoreFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -383,11 +402,16 @@ export default function SettingsPage() {
   };
 
   const handleReset = async () => {
+    if (!resetPassword.trim()) {
+      toast('error', 'أدخل الرقم السري لمدير النظام للمتابعة');
+      return;
+    }
     setResetting(true);
     try {
-      await resetData({ confirm: true, scope: 'transactions' });
+      await resetData({ confirm: true, scope: 'transactions', admin_password: resetPassword });
       toast('success', 'تمت إعادة ضبط البيانات بنجاح');
       setResetOpen(false);
+      setResetPassword('');
       refreshSettings();
     } catch (err: any) {
       toast('error', err.message);
@@ -831,7 +855,7 @@ export default function SettingsPage() {
               <div className="p-4 bg-sand-50 rounded-xl flex flex-col items-start gap-3">
                 <p className="text-sm font-medium text-neutral-700">تصدير نسخة احتياطية</p>
                 <p className="text-xs text-neutral-500">تنزيل جميع بيانات النظام كملف JSON (الفرع، الموظفون، الزبائن، الأقمشة والمخزون، المبيعات، المصاريف، المحاسبة، الرسائل، الشعار والإعدادات).</p>
-                <Button variant="secondary" onClick={handleBackup}>
+                <Button variant="secondary" onClick={handleBackup} loading={backupDownloading}>
                   <Download size={16} />
                   تصدير نسخة احتياطية
                 </Button>
@@ -962,14 +986,14 @@ export default function SettingsPage() {
                           <Td>{(f.size / 1024).toFixed(1)} KB</Td>
                           <Td>{new Date(f.modified).toLocaleString('ar')}</Td>
                           <Td className="text-left">
-                            <a
-                              href={autoBackupDownloadUrl(f.name)}
-                              download={f.name}
-                              className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-sm font-medium"
+                            <button
+                              onClick={() => handleDownloadAuto(f.name)}
+                              disabled={downloadingAuto === f.name}
+                              className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-sm font-medium disabled:opacity-60"
                             >
                               <Download size={14} />
-                              تحميل
-                            </a>
+                              {downloadingAuto === f.name ? 'يتم التحميل...' : 'تحميل'}
+                            </button>
                           </Td>
                         </Tr>
                       ))}
@@ -1046,13 +1070,24 @@ export default function SettingsPage() {
 
         <ConfirmDialog
           open={resetOpen}
-          onClose={() => setResetOpen(false)}
+          onClose={() => { setResetOpen(false); setResetPassword(''); }}
           onConfirm={handleReset}
           loading={resetting}
           title="تأكيد إعادة الضبط"
           confirmLabel="إعادة الضبط"
           message="سيتم حذف جميع المبيعات والمصاريف نهائيًا. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد من المتابعة؟"
-        />
+        >
+          <div className="mt-4">
+            <label className="text-xs font-medium text-neutral-500 block mb-1">الرقم السري لمدير النظام</label>
+            <input
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="أدخل الرقم السري للتأكيد"
+              className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            />
+          </div>
+        </ConfirmDialog>
 
         <Modal open={addBudgetOpen} onClose={() => setAddBudgetOpen(false)} title={editBudget ? 'تعديل الميزانية' : 'إضافة ميزانية جديدة'} maxWidth="max-w-lg">
           <div className="space-y-4">

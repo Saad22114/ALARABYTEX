@@ -119,12 +119,19 @@ function ReceiptForm({
             إضافة صنف
           </Button>
         </div>
+        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 text-xs font-semibold text-neutral-500 px-2">
+          <span>القماش *</span>
+          <span>الكمية بالياردات *</span>
+          <span>عدد الطاقات *</span>
+          <span>سعر الياردة</span>
+          <span />
+        </div>
         {items.map((it, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center bg-sand-50 p-2 rounded-xl">
             <Select value={it.fabric} onChange={(e) => updateItem(i, { fabric: Number(e.target.value) })} options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))} />
-            <Input type="number" min={1} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="طاقات" title="عدد الطاقات" />
-            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: Number(e.target.value) })} placeholder="ياردات" required />
-            <Input type="number" min={0} step="0.001" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })} placeholder="سعر الياردة" />
+            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: Number(e.target.value) })} placeholder="الياردات" required />
+            <Input type="number" min={1} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="الطاقات" />
+            <Input type="number" min={0} step="0.001" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })} placeholder="السعر / ياردة" />
             <button type="button" onClick={() => setItems((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r))} className="p-2 rounded-lg text-neutral-400 hover:text-red-500">
               <X size={16} />
             </button>

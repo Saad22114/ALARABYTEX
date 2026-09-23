@@ -74,3 +74,24 @@ export async function apiRequest<T>(
 
   return data as T;
 }
+
+export async function downloadBlob(url: string, fallbackFilename: string): Promise<void> {
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const data = await res.json();
+      detail = data?.detail || '';
+    } catch {}
+    throw new Error(detail || 'تعذر تنزيل الملف');
+  }
+  const blob = await res.blob();
+  const link = document.createElement('a');
+  const objectUrl = URL.createObjectURL(blob);
+  link.href = objectUrl;
+  link.download = fallbackFilename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}

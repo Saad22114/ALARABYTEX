@@ -51,6 +51,32 @@ function dayLabel(dateStr: string, now: Date): string {
   return d.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+function PresenceAvatar({
+  name,
+  avatar,
+  online,
+  size = 'md',
+  onClick,
+  title,
+}: {
+  name: string;
+  avatar?: string | null;
+  online?: boolean;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+  onClick?: () => void;
+  title?: string;
+}) {
+  const dotSize = size === 'lg' ? 'w-3 h-3' : size === 'xs' ? 'w-2 h-2' : 'w-2.5 h-2.5';
+  return (
+    <span className="relative inline-flex shrink-0">
+      <Avatar name={name} avatar={avatar} size={size} onClick={onClick} title={title} />
+      {online && (
+        <span className={`absolute bottom-0 end-0 ${dotSize} rounded-full bg-emerald-500 ring-2 ring-surface`} title="متصل الآن" />
+      )}
+    </span>
+  );
+}
+
 export default function MessagesPage() {
   const { session, updateEmployee } = useAuth();
   const me = session?.employee;
@@ -268,7 +294,18 @@ export default function MessagesPage() {
   const visibleContacts = unreadOnly ? contacts.filter((c) => c.unread > 0) : contacts;
 
   return (
-    <div className="h-[calc(100vh-180px)] min-h-[480px] flex rounded-2xl border border-sand-200 bg-surface shadow-sm overflow-hidden">
+    <div className="space-y-3 h-full min-h-fit flex flex-col">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => window.history.back()}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-200 bg-surface text-sm font-medium text-neutral-600 hover:bg-sand-50 hover:text-brand-700 transition-colors"
+          title="الرجوع للخلف"
+        >
+          <ArrowLeft size={16} />
+          رجوع
+        </button>
+      </div>
+      <div className="h-[calc(100vh-220px)] min-h-[450px] flex rounded-2xl border border-sand-200 bg-surface shadow-sm overflow-hidden">
       {/* ── conversations sidebar ── */}
       <div
         className={`
@@ -348,7 +385,7 @@ export default function MessagesPage() {
                   activePartnerId === c.employee.id ? 'bg-brand-50 border-r-2 border-brand-600' : ''
                 }`}
               >
-                <Avatar name={c.employee.name} avatar={c.employee.avatar} size="lg" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
+                <PresenceAvatar name={c.employee.name} avatar={c.employee.avatar} online={c.employee.is_online} size="lg" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-sm truncate">
@@ -391,7 +428,7 @@ export default function MessagesPage() {
                       onClick={() => selectPartner(c.employee.id)}
                       className={`w-full text-right px-4 py-2.5 flex items-center gap-3 hover:bg-sand-50 transition-colors`}
                     >
-                      <Avatar name={c.employee.name} avatar={c.employee.avatar} size="md" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
+                      <PresenceAvatar name={c.employee.name} avatar={c.employee.avatar} online={c.employee.is_online} size="md" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">
                           <Highlight text={c.employee.name} query={contactSearch} />
@@ -416,7 +453,7 @@ export default function MessagesPage() {
                       onClick={() => selectPartner(g.employee.id, g.employee, contactSearch.trim())}
                       className="w-full text-right px-4 py-2.5 flex items-center gap-3 hover:bg-sand-50 transition-colors"
                     >
-                      <Avatar name={g.employee.name} avatar={g.employee.avatar} size="md" onClick={() => openInfo(g.employee)} title="معلومات الموظف" />
+                      <PresenceAvatar name={g.employee.name} avatar={g.employee.avatar} online={g.employee.is_online} size="md" onClick={() => openInfo(g.employee)} title="معلومات الموظف" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">{g.employee.name}</p>
                         <p className="text-xs text-neutral-600 truncate">
@@ -459,11 +496,12 @@ export default function MessagesPage() {
             <div className="px-4 py-3 border-b border-sand-200 flex items-center gap-3 bg-sand-50">
               <button
                 onClick={() => setActivePartnerId(null)}
-                className="md:hidden p-1.5 rounded-lg hover:bg-sand-200 text-neutral-500"
+                className="p-1.5 rounded-lg hover:bg-sand-200 text-neutral-500"
+                title="الرجوع إلى قائمة المحادثات"
               >
                 <ArrowLeft size={18} />
               </button>
-<Avatar name={activePartner?.name || ''} avatar={activePartner?.avatar} size="md" onClick={() => activePartner && openInfo(activePartner)} title="معلومات الموظف" />
+<PresenceAvatar name={activePartner?.name || ''} avatar={activePartner?.avatar} online={activePartner?.is_online} size="md" onClick={() => activePartner && openInfo(activePartner)} title="معلومات الموظف" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold truncate">{activePartner?.name}</p>
                 {activePartner?.branch_name && (
@@ -769,6 +807,7 @@ export default function MessagesPage() {
         onClose={() => setInfoTarget(null)}
         onAvatarChanged={(avatar) => updateEmployee({ avatar })}
       />
+      </div>
     </div>
   );
 }

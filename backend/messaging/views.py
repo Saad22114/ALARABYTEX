@@ -32,7 +32,17 @@ def _employee_contact(emp):
         "phone": emp.phone,
         "role_label": emp.get_role_display(),
         "branch_name": emp.branch.name if emp.branch_id else "",
+        "is_online": _is_online(emp),
     }
+
+
+ONLINE_MINUTES = 2
+
+
+def _is_online(emp):
+    if not emp.last_seen_at:
+        return False
+    return timezone.now() - emp.last_seen_at <= timezone.timedelta(minutes=ONLINE_MINUTES)
 
 
 class EmployeeContactListView(APIView):

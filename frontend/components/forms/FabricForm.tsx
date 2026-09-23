@@ -6,8 +6,9 @@ import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import { listSuppliers } from '@/services/suppliers';
+import { listBranches } from '@/services/branches';
 import { listFabrics } from '@/services/fabrics';
-import { Fabric, FabricUnit, Supplier } from '@/types';
+import { Branch, Fabric, FabricUnit, Supplier } from '@/types';
 
 const UNIT_OPTIONS = [
   { value: 'yard', label: 'ياردة' },
@@ -55,10 +56,13 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
     yards_per_roll: '',
     description: '',
     is_active: true,
+    allow_roll_sale: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [rollOverrides, setRollOverrides] = useState<Record<string, string>>({});
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
   const [importSource, setImportSource] = useState('');
   const [importedName, setImportedName] = useState('');
@@ -93,6 +97,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       yards_per_roll: f.yards_per_roll != null ? String(f.yards_per_roll) : '',
       description: f.description || '',
       is_active: true,
+      allow_roll_sale: f.allow_roll_sale !== false,
     }));
   };
 
@@ -120,9 +125,23 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         yards_per_roll: initial.yards_per_roll != null ? String(initial.yards_per_roll) : '',
         description: initial.description || '',
         is_active: !!initial.is_active,
+        allow_roll_sale: initial.allow_roll_sale !== false,
       });
+      const overrides: Record<string, string> = {};
+      for (const [k, v] of Object.entries(initial.roll_sale_overrides || {})) {
+        overrides[k] = v ? 'true' : 'false';
+      }
+      setRollOverrides(overrides);
     }
   }, [initial]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listBranches({ page_size: 100 })
+      .then((res) => { if (!cancelled) setBranches(res.results); })
+      .catch(() => setBranches([]));
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     listSuppliers({ page_size: 100 })
@@ -201,7 +220,15 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       yards_per_roll: num(form.yards_per_roll),
       description: form.description.trim(),
       is_active: form.is_active,
+      allow_roll_sale: form.allow_roll_sale,
     };
+    const overrides: Record<string, boolean> = {};
+    for (const branch of branches) {
+      const val = rollOverrides[String(branch.id)];
+      if (val === 'true') overrides[String(branch.id)] = true;
+      else if (val === 'false') overrides[String(branch.id)] = false;
+    }
+    payload.roll_sale_overrides = overrides;
     setLoading(true);
     try {
       await onSubmit(payload);
@@ -327,6 +354,49 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} className="w-4 h-4 accent-brand-600" />
         <span className="text-sm font-medium text-neutral-700">نشط</span>
       </label>
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.allow_roll_sale} onChange={(e) => set('allow_roll_sale', e.target.checked)} className="w-4 h-4 accent-brand-600" />
+        <span className="text-sm font-medium text-neutral-700">السماح بالبيع بالطاقة</span>
+      </label>
+      <p className="text-xs text-neutral-400 -mt-2">
+        {form.allow_roll_sale
+          ? 'يمكن بيع هذا القماش بالطاقة (اللفة) في ورديات البيع.'
+          : 'يُمنع بيع هذا القماش بالطاقة وتبقى البيع بالياردات متاحة فقط.'}
+      </p>
+
+      {sectionTitle('السماح بالبيع بالطاقة حسب الفرع')}
+      <div className="rounded-xl bg-sand-50 border border-sand-200 divide-y divide-sand-200">
+        {branches.length === 0 && (
+          <div className="px-4 py-3 text-sm text-neutral-500">لا توجد فروع مسجلة.</div>
+        )}
+        {branches.map((branch) => (
+          <div key={branch.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-neutral-700 block truncate">{branch.name}</span>
+              <span className={`text-xs ${rollOverrides[String(branch.id)] ? 'text-brand-600' : 'text-neutral-400'}`}>
+                {rollOverrides[String(branch.id)] === 'true'
+                  ? 'يُباع بالطاقة في هذا الفرع إذا توفر السعر'
+                  : rollOverrides[String(branch.id)] === 'false'
+                    ? 'يُمنع البيع بالطاقة في هذا الفرع'
+                    : 'يتبع الإعداد العام — «السماح بالبيع بالطاقة»'}
+              </span>
+            </div>
+            <select
+              className="shrink-0 rounded-lg border border-sand-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              value={rollOverrides[String(branch.id)] || ''}
+              onChange={(e) => setRollOverrides((prev) => ({ ...prev, [String(branch.id)]: e.target.value }))}
+              aria-label={`بيع الطاقة لفرع ${branch.name}`}
+            >
+              <option value="">تبع افتراضي</option>
+              <option value="true">مسموح</option>
+              <option value="false">ممنوع</option>
+            </select>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-neutral-400 -mt-2">
+        تحكم في بيع الطاقة (اللفة) لكل فرع على حدة؛ «تبع افتراضي» يجعل الفرع يسير مع الإعداد العام أعلاه.
+      </p>
       <div className="flex justify-start gap-3 pt-2">
         <Button type="submit" loading={loading}>
           {initial?.id ? 'تحديث' : 'إضافة'}

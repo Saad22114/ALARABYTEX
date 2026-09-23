@@ -97,6 +97,8 @@ export interface Fabric {
   manufacturer: string;
   supplier: number | null;
   supplier_name: string;
+  allow_roll_sale: boolean;
+  roll_sale_overrides: Record<string, boolean>;
   purchase_price: number;
   sale_price_yard: number;
   sale_price_roll: number | null;
@@ -1194,6 +1196,9 @@ export interface SessionSaleItem {
   customer_name: string;
   customer_phone: string;
   sale_group: string;
+  is_returned: boolean;
+  returned_at: string | null;
+  return_reason: string;
 }
 
 export interface SessionSaleItemWrite {
@@ -1254,11 +1259,28 @@ export interface SaleSessionSummary {
   open_count: number;
   closed_count: number;
   items_count: number;
+  returned_items_count: number;
   yards: number;
   total: number;
   cash: number;
   transfer: number;
   card: number;
+}
+
+export interface CustomerSalesResult {
+  phone: string;
+  items: Array<SessionSaleItem & {
+    session_id: number;
+    session_status: string;
+    session_status_label: string;
+    session_closed: boolean;
+  }>;
+  totals: {
+    count: number;
+    returned_count: number;
+    total: number;
+    yards: number;
+  };
 }
 
 export type AccountType = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
@@ -1419,6 +1441,7 @@ export interface ChatContactSummary {
     phone: string;
     role_label: string;
     branch_name: string;
+    is_online: boolean;
   };
   last_message: string;
   last_message_from_me: boolean;
@@ -1439,6 +1462,7 @@ export interface MessageThreadResult {
     avatar: string;
     branch_name: string;
     role_label: string;
+    is_online: boolean;
   };
   messages: ChatMessage[];
 }
@@ -1450,6 +1474,7 @@ export interface MessagingContact {
   phone: string;
   role_label: string;
   branch_name: string;
+  is_online: boolean;
 }
 
 export interface MessageContactListResult {

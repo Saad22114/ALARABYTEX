@@ -1301,3 +1301,203 @@ class AvatarAndProfileAPITest(TestCase):
         r = self.c.get("/api/messaging/contacts/")
         emp = next(e for e in r.data["employees"] if e["id"] == other.id)
         self.assertEqual(emp["avatar"], "🐸")
+
+
+class ReturnAndRollOverrideTest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(name="علي", branch=self.branch)
+        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        self.roll = FabricRoll.objects.create(
+            warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500
+        )
+
+    def _open_session(self):
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        return r.data["id"]
+
+    def _add_item(self, sid, quantity=10, payment_method="cash", phone="055000"):
+        return self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": quantity,
+             "payment_method": payment_method, "customer_phone": phone},
+            format="json",
+        )
+
+    def test_roll_override_blocks_branch_when_global_allows(self):
+        self.fabric.roll_sale_overrides = {str(self.branch.id): False}
+        self.fabric.save(update_fields=["roll_sale_overrides"])
+        sid = self._open_session()
+        r = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "sale_type": "roll", "quantity": 1,
+             "payment_method": "cash"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("البيع بالطاقة", str(r.data))
+
+    def test_roll_override_allows_branch_when_global_blocked(self):
+        self.fabric.allow_roll_sale = False
+        self.fabric.roll_sale_overrides = {str(self.branch.id): True}
+        self.fabric.save(update_fields=["allow_roll_sale", "roll_sale_overrides"])
+        sid = self._open_session()
+        r = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "sale_type": "roll", "quantity": 1,
+             "payment_method": "cash"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+
+    def test_roll_blocked_follows_global_when_not_in_overrides(self):
+        # override مكتوب لفرع آخر؛ فرع الوردية غير مذكور فيتبع العام المسموح
+        other = Branch.objects.create(name="فرع ثاني", code="B2")
+        self.fabric.roll_sale_overrides = {str(other.id): False}
+        self.fabric.save(update_fields=["roll_sale_overrides"])
+        sid = self._open_session()
+        r = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "sale_type": "roll", "quantity": 1,
+             "payment_method": "cash"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+
+    def test_customer_sales_lists_open_and_closed_items(self):
+        sid1 = self._open_session()
+        self._add_item(sid1, quantity=10, phone="055111")
+        self.c.post(f"/api/sale-sessions/{sid1}/close/")
+        sid2 = self._open_session()
+        self._add_item(sid2, quantity=5, phone="055111")
+        self._add_item(sid2, quantity=3, phone="055999")
+        r = self.c.get("/api/sale-sessions/customer-sales/", {"phone": "055111"})
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["totals"]["count"], 2)
+        closed_row = [i for i in r.data["items"] if i["session_closed"]]
+        open_row = [i for i in r.data["items"] if not i["session_closed"]]
+        self.assertEqual(len(closed_row), 1)
+        self.assertEqual(len(open_row), 1)
+        self.assertEqual(r.data["totals"]["total"], 75.0)
+
+    def test_customer_sales_requires_phone(self):
+        r = self.c.get("/api/sale-sessions/customer-sales/")
+        self.assertEqual(r.status_code, 400)
+
+    def test_return_closed_item_restores_stock_and_daily_sale(self):
+        sid = self._open_session()
+        self._add_item(sid, quantity=20, payment_method="cash", phone="055222")
+        self._add_item(sid, quantity=10, payment_method="card", phone="055222")
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        sale_date = effective_sale_date()
+        sale = DailySale.objects.get(branch=self.branch, date=sale_date)
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("150"))
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("470"))
+
+        items = list(SaleSessionItem.objects.filter(session_id=sid).order_by("id"))
+        r = self.c.post("/api/sale-sessions/return-items/",
+                        {"item_ids": [items[0].id], "reason": "مقاس خاطئ"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+
+        sale.refresh_from_db()
+        # بقيت 10*5 = 50 فقط
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("50"))
+        self.roll.refresh_from_db()
+        # عادت 20 ياردة → 500 - 10 = 490
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("490"))
+
+        items[0].refresh_from_db()
+        self.assertTrue(items[0].is_returned)
+        self.assertIsNotNone(items[0].returned_at)
+        self.assertEqual(items[0].return_reason, "مقاس خاطئ")
+        items[1].refresh_from_db()
+        self.assertFalse(items[1].is_returned)
+
+    def test_return_all_closed_items_deletes_daily_sale(self):
+        sid = self._open_session()
+        self._add_item(sid, quantity=10, phone="055333")
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        item = SaleSessionItem.objects.get(session_id=sid)
+        r = self.c.post("/api/sale-sessions/return-items/",
+                        {"item_ids": [item.id]}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        sale_date = effective_sale_date()
+        self.assertFalse(DailySale.objects.filter(branch=self.branch, date=sale_date).exists())
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+        item.refresh_from_db()
+        self.assertTrue(item.is_returned)
+
+    def test_return_open_item_only_marks_no_stock_touch(self):
+        sid = self._open_session()
+        self._add_item(sid, quantity=20, phone="055444")
+        item = SaleSessionItem.objects.get(session_id=sid)
+        r = self.c.post("/api/sale-sessions/return-items/",
+                        {"item_ids": [item.id]}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        item.refresh_from_db()
+        self.assertTrue(item.is_returned)
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+
+    def test_return_then_close_excludes_returned_from_daily(self):
+        sid = self._open_session()
+        self._add_item(sid, quantity=20, payment_method="cash", phone="055555")
+        self._add_item(sid, quantity=10, payment_method="card", phone="055555")
+        items = list(SaleSessionItem.objects.filter(session_id=sid).order_by("id"))
+        self.c.post("/api/sale-sessions/return-items/",
+                    {"item_ids": [items[0].id]}, format="json")
+        r = self.c.post(f"/api/sale-sessions/{sid}/close/")
+        self.assertEqual(r.status_code, 200, r.data)
+        sale_date = effective_sale_date()
+        sale = DailySale.objects.get(branch=self.branch, date=sale_date)
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("50"))
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("490"))
+
+    def test_reopen_after_return_does_not_double_reverse(self):
+        sid = self._open_session()
+        self._add_item(sid, quantity=20, payment_method="cash", phone="055666")
+        self._add_item(sid, quantity=10, payment_method="card", phone="055666")
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        items = list(SaleSessionItem.objects.filter(session_id=sid).order_by("id"))
+        r = self.c.post("/api/sale-sessions/return-items/",
+                        {"item_ids": [items[0].id]}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.c.post(f"/api/sale-sessions/{sid}/reopen/")
+        self.roll.refresh_from_db()
+        # لا يجب أن يُتراجع عن البند المسترجع مرة أخرى؛ رصيد بعد الاسترجاع 490 عاد كاملاً عند إعادة الفتح
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+
+    def test_returned_item_cannot_be_edited_or_deleted(self):
+        sid = self._open_session()
+        self._add_item(sid, quantity=10, phone="055777")
+        item = SaleSessionItem.objects.get(session_id=sid)
+        self.c.post("/api/sale-sessions/return-items/", {"item_ids": [item.id]}, format="json")
+        r = self.c.delete(f"/api/sale-sessions/{sid}/items/{item.id}/")
+        self.assertEqual(r.status_code, 400, r.data)
+        r = self.c.put(f"/api/sale-sessions/{sid}/items/{item.id}/",
+                       {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 3},
+                       format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_return_items_requires_single_session_and_existing(self):
+        sid1 = self._open_session()
+        self._add_item(sid1, quantity=10, phone="055888")
+        emp2 = Employee.objects.create(name="محمود", branch=self.branch)
+        r = self.c.post("/api/sale-sessions/", {"employee": emp2.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        sid2 = r.data["id"]
+        self._add_item(sid2, quantity=10, phone="055888")
+        i1 = SaleSessionItem.objects.filter(session_id=sid1).first().id
+        i2 = SaleSessionItem.objects.filter(session_id=sid2).first().id
+        r = self.c.post("/api/sale-sessions/return-items/", {"item_ids": [i1, i2]}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        r = self.c.post("/api/sale-sessions/return-items/", {"item_ids": [i1, 999999]}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        r = self.c.post("/api/sale-sessions/return-items/", {"item_ids": [999999]}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
