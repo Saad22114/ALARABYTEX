@@ -274,6 +274,32 @@ class SaleSessionAPITest(TestCase):
         r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
         self.assertEqual(r.status_code, 400)
 
+    def test_open_reopens_same_day_closed_session(self):
+        sid = self._open_session()["id"]
+        self._add_item(sid, quantity=10)
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{sid}/close/").status_code, 200)
+        # بعد إغلاق وردية الصباح للاستراحة، يُعيد فتح نفس الوردية بدل إنشاء وردية جديدة
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["id"], sid)
+        self.assertTrue(r.data.get("reopened"))
+        self.assertEqual(r.data["status"], "open")
+        # البنود القديمة ما زالت محفوظة في نفس الوردية
+        self.assertEqual(len(r.data["items"]), 1)
+
+    def test_open_same_day_reopen_keeps_same_session_record(self):
+        sid = self._open_session()["id"]
+        self._add_item(sid, quantity=20)
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["id"], sid)
+        self.assertEqual(SaleSession.objects.filter(id=sid).count(), 1)
+        self.assertEqual(SaleSessionItem.objects.filter(session_id=sid).count(), 1)
+        self.roll.refresh_from_db()
+        # المخزون عاد متاحاً بعد إعادة الفتح (عكس الاستهلاك عند الإغلاق)
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+
     def test_add_yard_item_auto_price(self):
         sid = self._open_session()["id"]
         r = self._add_item(sid, quantity=10)
@@ -1371,7 +1397,8 @@ class ReturnAndRollOverrideTest(TestCase):
         sid1 = self._open_session()
         self._add_item(sid1, quantity=10, phone="055111")
         self.c.post(f"/api/sale-sessions/{sid1}/close/")
-        sid2 = self._open_session()
+        emp2 = Employee.objects.create(name="محمود", branch=self.branch)
+        sid2 = self.c.post("/api/sale-sessions/", {"employee": emp2.id}, format="json").data["id"]
         self._add_item(sid2, quantity=5, phone="055111")
         self._add_item(sid2, quantity=3, phone="055999")
         r = self.c.get("/api/sale-sessions/customer-sales/", {"phone": "055111"})

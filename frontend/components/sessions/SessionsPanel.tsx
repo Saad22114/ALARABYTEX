@@ -347,7 +347,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     setOpening(true);
     try {
       const s = await openSaleSession(openingEmp);
-      toast('success', `تمت فتح الوردية للموظف ${s.employee_name}`);
+      toast('success', s.reopened ? `تم إعادة فتح وردية اليوم للموظف ${s.employee_name}` : `تمت فتح الوردية للموظف ${s.employee_name}`);
       if (isManager) setOpeningEmp(null);
       fetchSessions();
       fetchSummary();

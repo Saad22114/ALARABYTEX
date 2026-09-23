@@ -16,7 +16,7 @@ from suppliers.models import Fabric
 from warehouses.models import FabricRoll, Warehouse
 
 from .models import Employee, SaleSession, SaleSessionItem
-from .services import effective_sale_date, create_manual_session
+from .services import effective_sale_date, create_manual_session, reopen_session
 
 PAYMENT_METHODS = {m for m, _ in SaleSessionItem.PaymentMethod.choices}
 
@@ -314,6 +314,23 @@ class SaleSessionOpenSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         employee = validated_data["employee"]
+        today = timezone.localdate()
+        # إذا كانت لديه وردية مغلقة أُفتحت اليوم (استراحة الظهيرة مثلًا)
+        # نعيد فتحها بدل إنشاء وردية جديدة — نفس الوردية المسجلة باسمه.
+        closed_today = (
+            SaleSession.objects.filter(
+                employee=employee,
+                status=SaleSession.Status.CLOSED,
+                is_manual=False,
+                opened_at__date=today,
+            )
+            .order_by("-closed_at")
+            .first()
+        )
+        if closed_today is not None:
+            reopen_session(closed_today)
+            closed_today._reopened = True
+            return closed_today
         return SaleSession.objects.create(employee=employee, branch=employee.branch)
 
 

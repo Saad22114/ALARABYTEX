@@ -19,6 +19,12 @@ class Employee(TimeStampedModel, ActiveModel):
 
     name = models.CharField(max_length=150, unique=True, verbose_name="اسم الموظف")
     avatar = models.CharField(max_length=8, blank=True, default="", verbose_name="الأفاتار")
+    avatar_image = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="الصورة الشخصية",
+        help_text="صورة مرفوعة من الجهاز كـ data:image/...;base64 — تُعرض بدل الأفاتار عندما تكون موجودة. تقبّلها فقط AccountAvatarView بحجم محدود ومُتحقَّق.",
+    )
     last_seen_at = models.DateTimeField(
         null=True, blank=True, verbose_name="آخر ظهور",
         help_text="يُحدَّث عند أي طلب؛ المتصل من ظهر خلال آخر دقيقتين",

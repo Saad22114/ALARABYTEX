@@ -1243,6 +1243,7 @@ export interface SaleSession {
   manual_cash: number;
   manual_transfer: number;
   manual_card: number;
+  reopened?: boolean;
 }
 
 export interface ManualSessionWrite {
