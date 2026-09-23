@@ -1172,6 +1172,7 @@ export interface AuthSession {
   employee: SessionEmployee;
   sections: AppSection[];
   roles: Record<string, RolePreset>;
+  last_login?: string | null;
 }
 
 export type SessionSaleType = 'yard' | 'roll';

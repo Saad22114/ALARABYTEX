@@ -71,6 +71,17 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         token, _ = Token.objects.get_or_create(user=user)
+        from audit.models import AuditLog
+        last_login = (
+            AuditLog.objects.filter(
+                employee=employee, action=AuditLog.Action.LOGIN
+            )
+            .order_by("-timestamp", "-id")
+            .first()
+        )
+        from django.utils import timezone as dj_timezone
+        user.last_login = dj_timezone.now()
+        user.save(update_fields=["last_login"])
         from audit.services import log_audit_login
         log_audit_login(employee, request)
         return Response(
@@ -79,6 +90,7 @@ class LoginView(APIView):
                 "employee": employee_payload(employee),
                 "sections": SECTIONS,
                 "roles": ROLE_PRESETS,
+                "last_login": last_login.timestamp.isoformat() if last_login else None,
             }
         )
 

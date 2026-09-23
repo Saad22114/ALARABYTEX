@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Layers, LogIn } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -9,6 +8,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useToast } from '@/components/ui/Toast';
 import { apiRequest } from '@/services/api';
 import { logoUrl } from '@/services/settings';
+import { LOGIN_PENDING_KEY } from '@/services/auth';
 
 interface PublicSettings {
   business_name: string;
@@ -19,7 +19,6 @@ interface PublicSettings {
 export default function LoginPage() {
   const { login } = useAuth();
   const { toast } = useToast();
-  const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -42,8 +41,11 @@ export default function LoginPage() {
     }
     setSubmitting(true);
     try {
-      await login(username.trim(), password);
-      router.replace('/');
+      const session = await login(username.trim(), password);
+      try {
+        sessionStorage.setItem(LOGIN_PENDING_KEY, '1');
+        sessionStorage.setItem('qomash_last_login', session.last_login || '');
+      } catch {}
     } catch (err) {
       const message = err instanceof Error ? err.message : 'تعذر تسجيل الدخول';
       setError(message);
@@ -60,11 +62,11 @@ export default function LoginPage() {
         className="w-full max-w-md bg-surface dark:bg-neutral-900 rounded-3xl shadow-2xl border border-white/40 dark:border-neutral-800 p-8 sm:p-10 space-y-6"
       >
         <div className="text-center space-y-3">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-gold-500/20 flex items-center justify-center overflow-hidden">
+          <div className="mx-auto w-28 h-28 rounded-3xl bg-gold-500/20 flex items-center justify-center overflow-hidden">
             {info?.logo ? (
               <img src={logoUrl(info.logo)} alt="شعار النشاط" className="w-full h-full object-contain" />
             ) : (
-              <Layers size={28} className="text-gold-500" />
+              <Layers size={52} className="text-gold-500" />
             )}
           </div>
           <div>

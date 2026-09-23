@@ -3,6 +3,7 @@ import { AuthSession } from '@/types';
 
 const TOKEN_KEY = 'qomash_token';
 const SESSION_KEY = 'qomash_session';
+export const LOGIN_PENDING_KEY = 'qomash_login_pending';
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
