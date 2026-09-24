@@ -91,6 +91,17 @@ export default function SalesPage() {
   );
   const allClosedSelected = closedSessions.length > 0 && closedSessions.every((s) => selectedClosed.has(s.id));
 
+  const [closedSort, setClosedSort] = useUrlState<'date_desc' | 'date_asc' | 'total_desc' | 'total_asc'>('closed_sort', 'date_desc');
+  const sessionSortDate = (s: SaleSession) =>
+    (s.is_manual ? s.manual_date || s.closed_at || s.opened_at : s.closed_at || s.opened_at) || '';
+  const sortedClosedSessions = useMemo(() => {
+    const arr = [...closedSessions];
+    if (closedSort === 'date_asc') return arr.sort((a, b) => sessionSortDate(a).localeCompare(sessionSortDate(b)));
+    if (closedSort === 'total_desc') return arr.sort((a, b) => b.totals.total - a.totals.total);
+    if (closedSort === 'total_asc') return arr.sort((a, b) => a.totals.total - b.totals.total);
+    return arr.sort((a, b) => sessionSortDate(b).localeCompare(sessionSortDate(a)));
+  }, [closedSessions, closedSort]);
+
   useEffect(() => setSelectedClosed(new Set()), [filterBranch, filterEmployee, dateFrom, dateTo, tab]);
 
   const appliedDefaultPeriod = useRef<string | null>(null);
@@ -495,6 +506,17 @@ export default function SalesPage() {
                   to={dateTo}
                   onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
                 />
+                <Select
+                  value={closedSort}
+                  onChange={(e) => setClosedSort(e.target.value as typeof closedSort)}
+                  options={[
+                    { value: 'date_desc', label: 'الأحدث أولاً' },
+                    { value: 'date_asc', label: 'الأقدم أولاً' },
+                    { value: 'total_desc', label: 'الإجمالي الأعلى أولاً' },
+                    { value: 'total_asc', label: 'الإجمالي الأقل أولاً' },
+                  ]}
+                  className="w-full sm:w-48"
+                />
                 {(filterBranch || filterEmployee || dateFrom || dateTo) && (
                   <button
                     type="button"
@@ -530,7 +552,7 @@ export default function SalesPage() {
             <p className="py-8 text-center text-sm text-neutral-400">لا توجد ورديات محفوظة — أغلِق وردية من تبويب «ورديات البيع» أو أضف وردية كاملة</p>
           ) : (
             <div>
-              {closedSessions.map((s) => {
+              {sortedClosedSessions.map((s) => {
                 const expanded = expandedClosed.has(s.id);
                 return (
                   <div key={s.id} className="border-b border-sand-100 last:border-0">
