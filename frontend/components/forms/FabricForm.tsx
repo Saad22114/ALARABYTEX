@@ -68,17 +68,20 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
   const [importedName, setImportedName] = useState('');
 
   useEffect(() => {
-    if (initial?.id) return;
     let cancelled = false;
     listFabrics({ page_size: 300 })
       .then((res) => { if (!cancelled) setFabrics(res.results); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [initial?.id]);
+  }, []);
 
-  const fillFromFabric = (f: Fabric) => {
+  const fillFromFabric = (f: Fabric, copyIdentity: boolean) => {
+    const identity = copyIdentity
+      ? { name: f.name || '', code: f.code || '', barcode: f.barcode || '' }
+      : { barcode: f.barcode || '' };
     setForm((prev) => ({
       ...prev,
+      ...identity,
       unit: f.unit || 'yard',
       fabric_type: f.fabric_type || '',
       color: f.color || '',
@@ -96,9 +99,14 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       min_stock: f.min_stock != null ? String(f.min_stock) : '',
       yards_per_roll: f.yards_per_roll != null ? String(f.yards_per_roll) : '',
       description: f.description || '',
-      is_active: true,
+      is_active: f.is_active !== false,
       allow_roll_sale: f.allow_roll_sale !== false,
     }));
+    const overrides: Record<string, string> = {};
+    for (const [k, v] of Object.entries(f.roll_sale_overrides || {})) {
+      overrides[k] = v ? 'true' : 'false';
+    }
+    setRollOverrides(overrides);
   };
 
   useEffect(() => {
@@ -183,6 +191,24 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'اسم القماش مطلوب';
     if (!form.code.trim()) e.code = 'الكود مطلوب';
+
+    const name = form.name.trim().toLowerCase();
+    const code = form.code.trim().toLowerCase();
+    const barcode = form.barcode.trim();
+    const duplicate = fabrics.find((f) => {
+      if (f.id === initial?.id) return false;
+      const sameName = name && f.name.trim().toLowerCase() === name;
+      const sameCode = code && f.code.trim().toLowerCase() === code;
+      const sameBarcode = barcode && f.barcode.trim() === barcode;
+      return sameName || sameCode || sameBarcode;
+    });
+    if (duplicate) {
+      const fields: string[] = [];
+      if (name && duplicate.name.trim().toLowerCase() === name) fields.push('الاسم');
+      if (code && duplicate.code.trim().toLowerCase() === code) fields.push('الكود');
+      if (barcode && duplicate.barcode.trim() === barcode) fields.push('الباركود');
+      e.duplicate = `يوجد قماش «${duplicate.name}» بنفس ${fields.join(' و')} — نفس القماش موجود بالفعل ولا يمكن الحفظ. غيّر ${fields.join(' و')} ثم أعد المحاولة.`;
+    }
     const sYard = num(form.sale_price_yard);
     const mYard = num(form.min_sale_yard);
     if (mYard != null && sYard != null && mYard > sYard)
@@ -245,30 +271,33 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {!initial?.id && (
-        <>
-          {sectionTitle('استيراد سريع')}
-          <Select
-            label="انسخ بيانات قماش موجود"
-            value={importSource}
-            onChange={(e) => {
-              const id = e.target.value;
-              setImportSource(id);
-              const f = fabrics.find((x) => String(x.id) === id);
-              if (f) {
-                fillFromFabric(f);
-                setImportedName(f.name);
-              }
-            }}
-            options={[{ value: '', label: 'اختر قماشاً لنسخ بياناته...' }, ...fabrics.map((f) => ({ value: String(f.id), label: `${f.name}${f.code ? ` (${f.code})` : ''}` }))]}
-            placeholder="اختر قماشاً لنسخ بياناته..."
-          />
-          {importedName && (
-            <p className="text-xs text-emerald-600">
-              تم استيراد بيانات «{importedName}» — عدّل الاسم والكود ثم أكمل الإضافة.
-            </p>
-          )}
-        </>
+      {errors.duplicate && (
+        <div className="rounded-xl bg-red-50 border border-red-300 text-red-700 px-4 py-3 text-sm font-medium" role="alert">
+          {errors.duplicate}
+        </div>
+      )}
+      {sectionTitle('استيراد سريع')}
+      <Select
+        label="انسخ بيانات قماش موجود"
+        value={importSource}
+        onChange={(e) => {
+          const id = e.target.value;
+          setImportSource(id);
+          const f = fabrics.find((x) => String(x.id) === id);
+          if (f) {
+            fillFromFabric(f, !initial?.id);
+            setImportedName(f.name);
+          }
+        }}
+        options={[{ value: '', label: 'اختر قماشاً لنسخ بياناته...' }, ...fabrics.filter((f) => f.id !== initial?.id).map((f) => ({ value: String(f.id), label: `${f.name}${f.code ? ` (${f.code})` : ''}` }))]}
+        placeholder="اختر قماشاً لنسخ بياناته..."
+      />
+      {importedName && (
+        <p className="text-xs text-emerald-600">
+          {initial?.id
+            ? `تم استيراد بيانات «${importedName}» — تُستبدل بيانات المواصفات والتسعير مع بقاء الاسم والكود الحاليين.`
+            : `تم استيراد جميع بيانات «${importedName}» — غيّر الاسم والكود ليتناسبا مع القماش المطلوب ثم أكمل الحفظ.`}
+        </p>
       )}
 
       {sectionTitle('البيانات الأساسية')}

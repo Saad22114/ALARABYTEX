@@ -119,6 +119,8 @@ export default function SettingsPage() {
     session_danger_hours: number;
     default_payment_method: 'cash' | 'transfer' | 'card';
     discount_max_percent: number;
+    card_credit_fee_percent: number;
+    card_debit_fee_percent: number;
     previous_day_cutoff_hour: number;
   }>({
     default_period: 'today',
@@ -129,6 +131,8 @@ export default function SettingsPage() {
     session_danger_hours: 4,
     default_payment_method: 'transfer',
     discount_max_percent: 100,
+    card_credit_fee_percent: 0,
+    card_debit_fee_percent: 0,
     previous_day_cutoff_hour: 2,
   });
   const [hiddenSections, setHiddenSections] = useState<string[]>([]);
@@ -162,6 +166,8 @@ export default function SettingsPage() {
         session_danger_hours: settings.session_danger_hours ?? 4,
         default_payment_method: settings.default_payment_method || 'transfer',
         discount_max_percent: Number(settings.discount_max_percent ?? 100),
+        card_credit_fee_percent: Number(settings.card_credit_fee_percent ?? 0),
+        card_debit_fee_percent: Number(settings.card_debit_fee_percent ?? 0),
         previous_day_cutoff_hour: settings.previous_day_cutoff_hour ?? 2,
       });
       setHiddenSections(settings.hidden_sections || []);
@@ -741,6 +747,29 @@ export default function SettingsPage() {
               <p className="text-xs text-neutral-400 -mt-2">
                 الحد الأقصى لخصم البند كنسبة من إجماليه — 100 تعني بدون حد.
               </p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Input
+                  label="نسبة عمولة الماكينة (إئتماني) %"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={prefsForm.card_credit_fee_percent}
+                  onChange={(e) => setPrefsForm({ ...prefsForm, card_credit_fee_percent: Number(e.target.value) })}
+                />
+                <Input
+                  label="نسبة عمولة الماكينة (خصم مباشر) %"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={prefsForm.card_debit_fee_percent}
+                  onChange={(e) => setPrefsForm({ ...prefsForm, card_debit_fee_percent: Number(e.target.value) })}
+                />
+              </div>
+              <p className="text-xs text-neutral-400 -mt-2">
+                عند الدفع بالماكينة تُخصم النسبة المحددة من قيمة البيعة ويُسجَّل المبلغ الصافي بعد العمولة — لكل نوع نسبة مستقلة.
+              </p>
               <div className="flex gap-3">
                 <Button onClick={handleSavePrefs} loading={savingPrefs}>حفظ</Button>
               </div>
@@ -1063,6 +1092,10 @@ export default function SettingsPage() {
               <div className="p-4 bg-sand-50 rounded-xl">
                 <p className="text-xs text-neutral-400 mb-1">طريقة الدفع الافتراضية</p>
                 <p className="font-semibold text-neutral-800">{settings?.default_payment_method === 'card' ? 'ماكينة' : settings?.default_payment_method === 'transfer' ? 'تحويل' : 'كاش'}</p>
+              </div>
+              <div className="p-4 bg-sand-50 rounded-xl">
+                <p className="text-xs text-neutral-400 mb-1">عمولة الماكينة (إئتماني/خصم مباشر)</p>
+                <p className="font-semibold text-neutral-800">{Number(settings?.card_credit_fee_percent ?? 0)}% / {Number(settings?.card_debit_fee_percent ?? 0)}%</p>
               </div>
             </div>
           </Card>

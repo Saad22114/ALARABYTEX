@@ -626,10 +626,22 @@ export default function SalesPage() {
                                       <Td className="tabular-nums">{formatCurrency(it.unit_price)}</Td>
                                       <Td>
                                         <Badge variant={it.payment_method === 'card' ? 'warning' : it.payment_method === 'transfer' ? 'neutral' : 'success'}>
-                                          {it.payment_method_label}
+                                          {it.payment_method === 'card' ? (it.card_type_label ? `ماكينة (${it.card_type_label})` : 'ماكينة') : it.payment_method_label}
                                         </Badge>
                                       </Td>
-                                      <Td className="tabular-nums font-semibold">{formatCurrency(it.total)}</Td>
+                                      <Td
+                                        className="tabular-nums font-semibold"
+                                        title={
+                                          it.payment_method === 'card' && it.card_fee_amount > 0
+                                            ? `رسوم الماكينة: ${formatCurrency(it.card_fee_amount)} — الصافي: ${formatCurrency(it.net_total)}`
+                                            : undefined
+                                        }
+                                      >
+                                        {formatCurrency(it.payment_method === 'card' && it.net_total > 0 ? it.net_total : it.total)}
+                                        {it.payment_method === 'card' && it.card_fee_amount > 0 && (
+                                          <span className="block text-[10px] font-normal text-neutral-400">صافي بعد رسوم {formatCurrency(it.card_fee_amount)}</span>
+                                        )}
+                                      </Td>
                                       <Td className="tabular-nums text-sm text-neutral-500">{formatDate(it.sale_date)}</Td>
                                       <Td>
                                         <div className="flex items-center gap-1.5">

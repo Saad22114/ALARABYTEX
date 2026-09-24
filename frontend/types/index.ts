@@ -608,6 +608,8 @@ export interface AppSettings {
   session_danger_hours: number;
   default_payment_method: SessionPaymentMethod;
   discount_max_percent: number;
+  card_credit_fee_percent: number;
+  card_debit_fee_percent: number;
   receipt_show_tax: boolean;
   receipt_show_phone: boolean;
   logo: string;
@@ -1177,6 +1179,7 @@ export interface AuthSession {
 
 export type SessionSaleType = 'yard' | 'roll';
 export type SessionPaymentMethod = 'cash' | 'transfer' | 'card';
+export type SessionCardType = 'credit' | 'debit';
 
 export interface SessionSaleItem {
   id: number;
@@ -1191,6 +1194,10 @@ export interface SessionSaleItem {
   discount_amount: number;
   payment_method: SessionPaymentMethod;
   payment_method_label: string;
+  card_type: string;
+  card_type_label: string;
+  card_fee_amount: number;
+  net_total: number;
   total: number;
   sale_date: string;
   yards_effective: number;
@@ -1209,6 +1216,7 @@ export interface SessionSaleItemWrite {
   unit_price?: number;
   discount_amount?: number;
   payment_method: SessionPaymentMethod;
+  card_type?: SessionCardType | '';
   customer_name?: string;
   customer_phone?: string;
 }

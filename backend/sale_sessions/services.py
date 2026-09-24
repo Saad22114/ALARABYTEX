@@ -125,7 +125,7 @@ def create_manual_session(*, employee, branch, sale_date, cash, transfer, card, 
 
 def recompute_commission(session):
     """إعادة حساب عمولة الموظف على إجمالي الوردية حسب نسبة عمولته."""
-    total = sum(r.total for r in session.items.filter(is_returned=False))
+    total = sum(r.net_total for r in session.items.filter(is_returned=False))
     employee = session.employee
     if employee.commission_active:
         percent = Decimal(str(employee.commission_percent or "0"))
@@ -151,7 +151,7 @@ def close_session(session):
             totals = {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values}
             item_rows = []
             for r in group:
-                totals[r.payment_method] += r.total
+                totals[r.payment_method] += r.net_total
                 item_rows.append((r.fabric_id, _item_yards(r)))
             total_all = sum(totals.values(), Decimal("0"))
 
@@ -196,8 +196,8 @@ def close_session(session):
 
 def _subtract_item(sale, item):
     payment_field = f"{item.payment_method}_amount"
-    sale.total_sales -= item.total
-    setattr(sale, payment_field, getattr(sale, payment_field) - item.total)
+    sale.total_sales -= item.net_total
+    setattr(sale, payment_field, getattr(sale, payment_field) - item.net_total)
     sale.save(update_fields=["total_sales", payment_field])
     dsi = sale.sale_items.filter(fabric_id=item.fabric_id).first()
     if dsi:
@@ -210,8 +210,8 @@ def _subtract_item(sale, item):
 
 def _add_item(sale, item):
     payment_field = f"{item.payment_method}_amount"
-    sale.total_sales += item.total
-    setattr(sale, payment_field, getattr(sale, payment_field) + item.total)
+    sale.total_sales += item.net_total
+    setattr(sale, payment_field, getattr(sale, payment_field) + item.net_total)
     sale.save(update_fields=["total_sales", payment_field])
     dsi = sale.sale_items.filter(fabric_id=item.fabric_id).first()
     if dsi:
@@ -299,6 +299,7 @@ def move_session_item(source_session, item, target_session):
             "unit_price": item.unit_price,
             "discount_amount": item.discount_amount,
             "payment_method": item.payment_method,
+            "card_type": item.card_type,
         },
         context={"session": target_session},
     )
@@ -344,7 +345,7 @@ def update_session_item(session, item, attrs):
         current_sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if current_sale:
             _subtract_item(current_sale, item)
-    for field in ("fabric", "sale_type", "quantity", "unit_price", "payment_method", "discount_amount", "customer_name", "customer_phone"):
+    for field in ("fabric", "sale_type", "quantity", "unit_price", "payment_method", "card_type", "card_fee_amount", "net_total", "discount_amount", "customer_name", "customer_phone"):
         if field in attrs:
             setattr(item, field, attrs[field])
     item.total = attrs.get("total", item.total)

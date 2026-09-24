@@ -25,6 +25,7 @@ class AppSettingsSerializer(serializers.ModelSerializer):
             "previous_day_cutoff_hour",
             "session_warn_hours", "session_danger_hours",
             "default_payment_method", "discount_max_percent",
+            "card_credit_fee_percent", "card_debit_fee_percent",
             "receipt_show_tax", "receipt_show_phone",
             "logo",
             "backup_password", "has_backup_password",

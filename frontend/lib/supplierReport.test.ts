@@ -33,6 +33,8 @@ function makeSettings(): AppSettings {
     session_danger_hours: 12,
     default_payment_method: 'transfer',
     discount_max_percent: 20,
+    card_credit_fee_percent: 0,
+    card_debit_fee_percent: 0,
     receipt_show_tax: false,
     receipt_show_phone: true,
     logo: '',

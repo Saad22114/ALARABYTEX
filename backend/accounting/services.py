@@ -160,7 +160,7 @@ def post_session_close(session):
         totals = {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values}
         cogs = Decimal("0")
         for r in rows:
-            totals[r.payment_method] += _round2(r.total)
+            totals[r.payment_method] += _round2(r.net_total)
             cogs += _round2((r.fabric.purchase_price or Decimal("0")) * r.yards_effective)
     total = sum(totals.values(), Decimal("0"))
 

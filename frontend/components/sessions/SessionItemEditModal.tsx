@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
 import {
-  Fabric, SaleSession, SessionSaleType, SessionPaymentMethod, SessionSaleItem,
+  Fabric, SaleSession, SessionCardType, SessionSaleType, SessionPaymentMethod, SessionSaleItem,
 } from '@/types';
 import { updateSessionItem } from '@/services/sessions';
 import { formatCurrency, formatNumber } from '@/lib/format';
@@ -18,6 +18,11 @@ const PAYMENT_OPTIONS = [
   { value: 'cash', label: 'كاش' },
   { value: 'transfer', label: 'تحويل' },
   { value: 'card', label: 'ماكينة' },
+];
+
+const CARD_TYPE_OPTIONS: { value: SessionCardType; label: string }[] = [
+  { value: 'credit', label: 'إئتماني' },
+  { value: 'debit', label: 'خصم مباشر' },
 ];
 
 interface Props {
@@ -38,6 +43,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
   const [unitPrice, setUnitPrice] = useState('');
   const [discount, setDiscount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<SessionPaymentMethod>(settings?.default_payment_method || 'cash');
+  const [cardType, setCardType] = useState<SessionCardType | ''>('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -48,6 +54,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
       setUnitPrice(String(item.unit_price));
       setDiscount(item.discount_amount > 0 ? String(item.discount_amount) : '');
       setPaymentMethod(item.payment_method);
+      setCardType((item.card_type === 'credit' || item.card_type === 'debit' ? item.card_type : '') as SessionCardType | '');
     }
   }, [open, item]);
 
@@ -86,6 +93,14 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
   const discountNum = discount.trim() !== '' && !isNaN(parseFloat(discount)) ? parseFloat(discount) : 0;
   const subtotal = quantity.trim() !== '' && qtyNum > 0 && priceNum >= 0 ? qtyNum * priceNum : null;
   const netTotal = subtotal != null ? Math.max(0, subtotal - discountNum) : null;
+  const feePercent =
+    paymentMethod === 'card'
+      ? cardType === 'debit'
+        ? Number(settings?.card_debit_fee_percent ?? 0)
+        : Number(settings?.card_credit_fee_percent ?? 0)
+      : 0;
+  const cardFee = netTotal != null && feePercent > 0 ? Math.round(netTotal * feePercent) / 100 : 0;
+  const netAfterFee = netTotal != null ? netTotal - cardFee : null;
 
   const handleSave = async () => {
     if (!session || !item) return;
@@ -117,6 +132,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
         unit_price: priceNum,
         discount_amount: discountNum,
         payment_method: paymentMethod,
+        card_type: paymentMethod === 'card' ? (cardType || '') : '',
       });
       toast('success', 'تم تعديل البيع بنجاح');
       onClose();
@@ -196,10 +212,33 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
           <Select
             label="طريقة الدفع"
             value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value as SessionPaymentMethod)}
+            onChange={(e) => {
+              const v = e.target.value as SessionPaymentMethod;
+              setPaymentMethod(v);
+              if (v === 'card' && !cardType) setCardType('credit');
+            }}
             options={PAYMENT_OPTIONS}
           />
         </div>
+
+        {paymentMethod === 'card' && (
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">نوع الماكينة</label>
+            <div className="flex rounded-xl border border-sand-300 overflow-hidden">
+              {CARD_TYPE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setCardType(opt.value)}
+                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${cardType === opt.value ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-neutral-400 mt-1">عمولة الماكينة {feePercent}% — تُخصم من البيعة ويُسجَّل الصافي</p>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-sand-50 border border-sand-200 px-4 py-3">
           <span className="text-sm text-neutral-600">
@@ -210,6 +249,13 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
             {netTotal != null ? formatCurrency(netTotal) : '—'}
           </span>
         </div>
+        {paymentMethod === 'card' && cardFee > 0 && netAfterFee != null && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2">
+            <span className="text-xs text-neutral-600">عمولة الماكينة {feePercent}% ({cardType === 'debit' ? 'خصم مباشر' : 'إئتماني'}):</span>
+            <span className="text-xs font-semibold text-red-600 tabular-nums">- {formatCurrency(cardFee)}</span>
+            <span className="text-sm font-bold text-brand-700 tabular-nums">الصافي: {formatCurrency(netAfterFee)}</span>
+          </div>
+        )}
 
         <p className="text-xs text-neutral-400">
           تعديل بيعة من وردية مغلقة يُحدّث السجل اليومي والمخزون تلقائياً — حتى بعد مرور أيام على الإغلاق.

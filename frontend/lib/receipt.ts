@@ -27,10 +27,15 @@ export function buildSessionReceipt(session: SaleSession, settings: AppSettings 
   const taxRate = Number(settings?.tax_rate ?? 0);
   const showTax = !!settings?.receipt_show_tax;
   const invoiceNo = `${settings?.invoice_prefix || ''}${session.id}`;
-  const taxAmount = showTax && taxRate > 0 ? Math.round(session.totals.total * (taxRate / 100) * 100) / 100 : 0;
-  const grandTotal = Math.round((session.totals.total + taxAmount) * 100) / 100;
+  const rows = session.items.filter((it) => !it.is_returned);
+  const grossTotal = Math.round(rows.reduce((s, it) => s + Number(it.total || 0), 0) * 100) / 100;
+  const grossCash = Math.round(rows.filter((it) => it.payment_method === 'cash').reduce((s, it) => s + Number(it.total || 0), 0) * 100) / 100;
+  const grossTransfer = Math.round(rows.filter((it) => it.payment_method === 'transfer').reduce((s, it) => s + Number(it.total || 0), 0) * 100) / 100;
+  const grossCard = Math.round(rows.filter((it) => it.payment_method === 'card').reduce((s, it) => s + Number(it.total || 0), 0) * 100) / 100;
+  const taxAmount = showTax && taxRate > 0 ? Math.round(grossTotal * (taxRate / 100) * 100) / 100 : 0;
+  const grandTotal = Math.round((grossTotal + taxAmount) * 100) / 100;
 
-  const rowsHtml = session.items
+  const rowsHtml = rows
     .map(
       (it) => `
       <tr>
@@ -86,7 +91,7 @@ export function buildSessionReceipt(session: SaleSession, settings: AppSettings 
     ${settings?.business_address ? `<span>العنوان: <b>${settings.business_address}</b></span>` : ''}
   </div>
   ${
-    session.items.length === 0
+    rows.length === 0
       ? '<p style="text-align:center;color:#6b7280;padding:20px">لا توجد بنود</p>'
       : `<table>
         <thead><tr><th>القماش</th><th>النوع</th><th>الكمية</th><th>الياردات</th><th>سعر الوحدة</th><th>الخصم</th><th>الدفع</th><th>الإجمالي</th></tr></thead>
@@ -94,9 +99,9 @@ export function buildSessionReceipt(session: SaleSession, settings: AppSettings 
       </table>`
   }
   <div class="totals">
-    <div>كاش: <b>${num(session.totals.cash)} ${sym}</b></div>
-    <div>تحويل: <b>${num(session.totals.transfer)} ${sym}</b></div>
-    <div>ماكينة: <b>${num(session.totals.card)} ${sym}</b></div>
+    <div>كاش: <b>${num(grossCash)} ${sym}</b></div>
+    <div>تحويل: <b>${num(grossTransfer)} ${sym}</b></div>
+    <div>ماكينة: <b>${num(grossCard)} ${sym}</b></div>
     <div>ياردات: <b>${num(session.totals.yards)}</b></div>
   </div>
   ${showTax ? `<div class="totals"><div>ضريبة (${taxRate}%): <b>${num(taxAmount)} ${sym}</b></div></div>` : ''}

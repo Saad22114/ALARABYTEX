@@ -313,10 +313,22 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                         <Td className="tabular-nums">{formatCurrency(item.unit_price)}</Td>
                         <Td>
                           <Badge variant={item.payment_method === 'card' ? 'warning' : item.payment_method === 'transfer' ? 'neutral' : 'success'}>
-                            {item.payment_method_label}
+                            {item.payment_method === 'card' ? (item.card_type_label ? `ماكينة (${item.card_type_label})` : 'ماكينة') : item.payment_method_label}
                           </Badge>
                         </Td>
-                        <Td className="tabular-nums font-semibold">{formatCurrency(item.total)}</Td>
+                        <Td
+                          className="tabular-nums font-semibold"
+                          title={
+                            item.payment_method === 'card' && item.card_fee_amount > 0
+                              ? `رسوم الماكينة: ${formatCurrency(item.card_fee_amount)} — الصافي: ${formatCurrency(item.net_total)}`
+                              : undefined
+                          }
+                        >
+                          {formatCurrency(item.payment_method === 'card' && item.net_total > 0 ? item.net_total : item.total)}
+                          {item.payment_method === 'card' && item.card_fee_amount > 0 && (
+                            <span className="block text-[10px] font-normal text-neutral-400">صافي بعد رسوم {formatCurrency(item.card_fee_amount)}</span>
+                          )}
+                        </Td>
                         <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)}</Td>
                       </Tr>
                     ))}

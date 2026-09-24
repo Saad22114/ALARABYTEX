@@ -164,7 +164,7 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         ]
         totals = {"cash": Decimal("0"), "transfer": Decimal("0"), "card": Decimal("0")}
         for it in items:
-            totals[it.payment_method] += it.total
+            totals[it.payment_method] += it.net_total
         total = sum(totals.values(), Decimal("0"))
         yards = sum(it.yards_effective for it in items)
         returned_count = sum(

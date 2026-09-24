@@ -15,7 +15,7 @@ import StatCard from '@/components/ui/StatCard';
 import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Package, Layers, Eye, Search, Move, TriangleAlert, Printer, FileText, Undo2 } from 'lucide-react';
 import {
   SaleSession, Employee, Fabric, Branch, SessionSaleItem,
-  SessionSaleType, SessionPaymentMethod, SaleSessionSummary, SaleStockResult,
+  SessionSaleType, SessionPaymentMethod, SessionCardType, SaleSessionSummary, SaleStockResult,
 } from '@/types';
 import {
   listEmployees,
@@ -56,6 +56,11 @@ const PAYMENT_OPTIONS = [
   { value: 'card', label: 'ماكينة' },
 ];
 
+const CARD_TYPE_OPTIONS = [
+  { value: 'credit', label: 'إئتماني' },
+  { value: 'debit', label: 'خصم مباشر' },
+];
+
 interface ItemForm {
   fabric: number | null;
   sale_type: SessionSaleType;
@@ -63,9 +68,10 @@ interface ItemForm {
   unit_price: string;
   discount: string;
   payment_method: SessionPaymentMethod;
+  card_type: SessionCardType | '';
 }
 
-const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '3.5', unit_price: '', discount: '', payment_method: payment || 'cash' });
+const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '3.5', unit_price: '', discount: '', payment_method: payment || 'cash', card_type: '' });
 
 const defaultQuantityForType = (saleType: SessionSaleType): string => (saleType === 'roll' ? '1' : '3.5');
 
@@ -324,12 +330,20 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     const netTotal = subtotal != null ? Math.max(0, subtotal - discountNum) : null;
     const discountExceeds = subtotal != null && discountNum > subtotal;
     const quantityExceeds = availableUnit !== null && !isNaN(quantityNum) && quantityNum > availableUnit;
-    return { selectedFabric, availableUnit, rollAllowed, quantityNum, priceNum, subtotal, discountNum, netTotal, discountExceeds, quantityExceeds };
+    const feePercent =
+      line.payment_method === 'card'
+        ? line.card_type === 'debit'
+          ? Number(settings?.card_debit_fee_percent ?? 0)
+          : Number(settings?.card_credit_fee_percent ?? 0)
+        : 0;
+    const cardFee = netTotal != null && feePercent > 0 ? Math.round(netTotal * feePercent) / 100 : 0;
+    const netAfterFee = netTotal != null ? netTotal - cardFee : null;
+    return { selectedFabric, availableUnit, rollAllowed, quantityNum, priceNum, subtotal, discountNum, netTotal, netAfterFee, feePercent, cardFee, discountExceeds, quantityExceeds };
   };
 
   const linesTotal = lines.reduce((sum, l) => {
     const c = lineCalc(l);
-    return sum + (c.netTotal ?? 0);
+    return sum + (c.netAfterFee ?? 0);
   }, 0);
 
   const manualRefresh = async () => {
@@ -385,12 +399,13 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   };
 
   const addLine = () => {
-    const payment = lines[0]?.payment_method || 'cash';
-    setLines((cur) => [...cur, emptyItemForm(payment)]);
+    const first = lines[0];
+    const payment = first?.payment_method || 'cash';
+    setLines((cur) => [...cur, { ...emptyItemForm(payment), card_type: first?.card_type || '' }]);
   };
 
   const removeLine = (idx: number) => {
-    setLines((cur) => (cur.length > 1 ? cur.filter((_, i) => i !== idx) : [emptyItemForm(cur[0]?.payment_method || 'cash')]));
+    setLines((cur) => (cur.length > 1 ? cur.filter((_, i) => i !== idx) : [{ ...emptyItemForm(cur[0]?.payment_method || 'cash'), card_type: cur[0]?.card_type || '' }]));
   };
 
   const updateLine = (idx: number, patch: Partial<ItemForm>) => {
@@ -456,6 +471,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           unit_price: parseFloat(line.unit_price),
           discount_amount: calc.discountNum,
           payment_method: line.payment_method,
+          card_type: line.payment_method === 'card' ? ((line.card_type || '') as SessionCardType | '') : '',
           customer_name: custName.trim(),
           customer_phone: custPhone.trim(),
         };
@@ -844,10 +860,22 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         </Td>
                         <Td>
                           <Badge variant={item.payment_method === 'card' ? 'warning' : item.payment_method === 'transfer' ? 'neutral' : 'success'}>
-                            {item.payment_method_label}
+                            {item.payment_method === 'card' ? (item.card_type_label ? `ماكينة (${item.card_type_label})` : 'ماكينة') : item.payment_method_label}
                           </Badge>
                         </Td>
-                        <Td className="tabular-nums font-semibold">{formatCurrency(item.total)}</Td>
+                        <Td
+                          className="tabular-nums font-semibold"
+                          title={
+                            item.payment_method === 'card' && item.card_fee_amount > 0
+                              ? `رسوم الماكينة: ${formatCurrency(item.card_fee_amount)} — الصافي: ${formatCurrency(item.net_total)}`
+                              : undefined
+                          }
+                        >
+                          {formatCurrency(item.payment_method === 'card' && item.net_total > 0 ? item.net_total : item.total)}
+                          {item.payment_method === 'card' && item.card_fee_amount > 0 && (
+                            <span className="block text-[10px] font-normal text-neutral-400">صافي بعد رسوم {formatCurrency(item.card_fee_amount)}</span>
+                          )}
+                        </Td>
                         <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)}</Td>
                         <Td>
                           <div className="flex items-center gap-1.5">
@@ -1004,10 +1032,28 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         value={line.payment_method}
                         onChange={(e) => {
                           const v = e.target.value as SessionPaymentMethod;
-                          setLines((cur) => cur.map((l) => ({ ...l, payment_method: v })));
+                          setLines((cur) => cur.map((l) => ({ ...l, payment_method: v, card_type: v === 'card' ? (l.card_type || 'credit') : '' })));
                         }}
                         options={PAYMENT_OPTIONS}
                       />
+                    )}
+                    {idx === 0 && line.payment_method === 'card' && (
+                      <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1.5">نوع الماكينة (تُطبَّق على كل الأصناف)</label>
+                        <div className="flex rounded-xl border border-sand-300 overflow-hidden">
+                          {CARD_TYPE_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setLines((cur) => cur.map((l) => ({ ...l, card_type: opt.value as SessionCardType })))}
+                              className={`flex-1 py-2.5 text-sm font-medium transition-colors ${line.card_type === opt.value ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-neutral-400 mt-1">عمولة الماكينة {calc.feePercent}% — يُسجَّل صافي المبيعات بعد خصمها</p>
+                      </div>
                     )}
                     <Input
                       label={line.sale_type === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
@@ -1048,6 +1094,15 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       {calc.netTotal != null ? formatCurrency(calc.netTotal) : '—'}
                     </span>
                   </div>
+                  {line.payment_method === 'card' && calc.cardFee > 0 && calc.netAfterFee != null && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2">
+                      <span className="text-xs text-neutral-600">
+                        عمولة الماكينة {calc.feePercent}% ({line.card_type === 'debit' ? 'خصم مباشر' : 'إئتماني'}):
+                      </span>
+                      <span className="text-xs font-semibold text-red-600 tabular-nums">- {formatCurrency(calc.cardFee)}</span>
+                      <span className="text-sm font-bold text-brand-700 tabular-nums">الصافي: {formatCurrency(calc.netAfterFee)}</span>
+                    </div>
+                  )}
 
                   {stock && calc.availableUnit !== null && (
                     <p className={`text-xs ${overStock ? 'text-red-500 font-medium' : 'text-neutral-400'}`}>
@@ -1075,6 +1130,11 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
             <span className="text-sm text-neutral-600">إجمالي البيعة (المجموع الموحد):</span>
             <span className="text-xl font-bold tabular-nums text-brand-700">{formatCurrency(linesTotal)}</span>
           </div>
+          {lines.some((l) => l.payment_method === 'card') && (
+            <p className="text-xs text-amber-600">
+              عند الدفع بالماكينة يُسجَّل الصافي بعد خصم عمولة الماكينة — صافي البيعة: {formatCurrency(linesTotal)}
+            </p>
+          )}
 
           <div className="space-y-1.5">
             <p className="text-xs text-neutral-400">

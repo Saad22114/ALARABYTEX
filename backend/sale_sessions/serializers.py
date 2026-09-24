@@ -176,6 +176,7 @@ class SaleSessionItemSerializer(serializers.ModelSerializer):
     fabric_unit = serializers.CharField(source="fabric.unit", read_only=True)
     sale_type_label = serializers.CharField(source="get_sale_type_display", read_only=True)
     payment_method_label = serializers.CharField(source="get_payment_method_display", read_only=True)
+    card_type_label = serializers.CharField(source="get_card_type_display", read_only=True)
     yards_effective = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
 
     class Meta:
@@ -184,6 +185,7 @@ class SaleSessionItemSerializer(serializers.ModelSerializer):
             "id", "fabric", "fabric_name", "fabric_code", "fabric_unit",
             "sale_type", "sale_type_label",
             "quantity", "unit_price", "discount_amount", "payment_method", "payment_method_label",
+            "card_type", "card_type_label", "card_fee_amount", "net_total",
             "total", "sale_date", "yards_effective",
             "customer_name", "customer_phone", "sale_group",
             "is_returned", "returned_at", "return_reason",
@@ -280,7 +282,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
         agg = {m: Decimal("0") for m in PAYMENT_METHODS}
         yards = Decimal("0")
         for it in obj.items.filter(is_returned=False):
-            agg[it.payment_method] += it.total
+            agg[it.payment_method] += it.net_total
             yards += it.yards_effective
         return {
             "cash": float(agg["cash"]),
@@ -401,6 +403,12 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(
         choices=SaleSessionItem.PaymentMethod.choices,
         default=SaleSessionItem.PaymentMethod.CASH,
+    )
+    card_type = serializers.ChoiceField(
+        choices=SaleSessionItem.CardType.choices,
+        required=False,
+        allow_blank=True,
+        default="",
     )
     customer_name = serializers.CharField(
         required=False, allow_blank=True, default=""
@@ -548,6 +556,33 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError({"discount_amount": "الخصم لا يمكن أن يكون سالباً"})
         attrs["discount_amount"] = discount
         attrs["total"] -= discount
+
+        payment_method = attrs.get(
+            "payment_method", SaleSessionItem.PaymentMethod.CASH
+        )
+        card_type = attrs.get("card_type") or ""
+        if payment_method == SaleSessionItem.PaymentMethod.CARD:
+            if card_type not in SaleSessionItem.CardType.values:
+                raise serializers.ValidationError(
+                    {
+                        "card_type": "عند الدفع بالماكينة اختر نوع البطاقة: إئتماني أو خصم مباشر"
+                    }
+                )
+            rate = {
+                SaleSessionItem.CardType.CREDIT: settings.card_credit_fee_percent,
+                SaleSessionItem.CardType.DEBIT: settings.card_debit_fee_percent,
+            }[card_type]
+            fee = (attrs["total"] * Decimal(str(rate)) / Decimal("100")).quantize(
+                Decimal("0.01")
+            )
+            attrs["card_type"] = card_type
+            attrs["card_fee_amount"] = fee
+            attrs["net_total"] = attrs["total"] - fee
+        else:
+            attrs["card_type"] = ""
+            attrs["card_fee_amount"] = Decimal("0")
+            attrs["net_total"] = attrs["total"]
+
         attrs["sale_date"] = effective_sale_date()
         return attrs
 
@@ -572,6 +607,8 @@ class SaleSessionItemEditSerializer(SaleSessionItemCreateSerializer):
             attrs["discount_amount"] = item.discount_amount
         if "payment_method" not in attrs:
             attrs["payment_method"] = item.payment_method
+        if "card_type" not in attrs:
+            attrs["card_type"] = item.card_type
         attrs = super().validate(attrs)
         attrs.pop("sale_date", None)
         return attrs

@@ -165,7 +165,23 @@ class AppSettings(TimeStampedModel):
         default="transfer",
         choices=[("cash", "كاش"), ("transfer", "تحويل"), ("card", "ماكينة")],
         verbose_name="طريقة الدفع الافتراضية",
-        help_text="تُحدَّد تلقائياً عند إضافة بند جديد للوردية",
+        help_text="تستخدم عند إنشاء بند بيع جديد ثم يمكن تغييرها لكل بند",
+    )
+    card_credit_fee_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        verbose_name="نسبة عمولة الماكينة الإئتمانية (%)",
+        help_text="النسبة المخصومة من مبيعات الماكينة عند اختيار نوع إئتماني",
+    )
+    card_debit_fee_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        verbose_name="نسبة عمولة الماكينة الخصم المباشر (%)",
+        help_text="النسبة المخصومة من مبيعات الماكينة عند اختيار نوع خصم مباشر",
     )
     discount_max_percent = models.DecimalField(
         max_digits=6,

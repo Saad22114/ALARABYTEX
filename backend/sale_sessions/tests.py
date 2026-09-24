@@ -262,6 +262,8 @@ class SaleSessionAPITest(TestCase):
         data = {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
                 "payment_method": "cash"}
         data.update(overrides)
+        if data.get("payment_method") == "card" and "card_type" not in data:
+            data["card_type"] = "credit"
         return self.c.post(f"/api/sale-sessions/{sid}/items/", data, format="json")
 
     def test_open_session_uses_employee_branch(self):
@@ -475,7 +477,7 @@ class SaleSessionAPITest(TestCase):
             sid,
             [
                 {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10, "payment_method": "cash"},
-                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card"},
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card", "card_type": "credit"},
                 {"fabric": self.fabric.id, "sale_type": "roll", "quantity": 1, "payment_method": "transfer"},
             ],
         )
@@ -494,7 +496,7 @@ class SaleSessionAPITest(TestCase):
             sid,
             [
                 {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10, "payment_method": "cash", "customer_name": "أحمد العلي", "customer_phone": "0501234567"},
-                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card"},
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card", "card_type": "credit"},
             ],
         )
         self.assertEqual(r.status_code, 201, r.data)
@@ -515,7 +517,7 @@ class SaleSessionAPITest(TestCase):
             sid,
             [
                 {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10, "payment_method": "cash"},
-                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card"},
+                {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "card", "card_type": "credit"},
             ],
         )
         self.assertEqual(r.status_code, 201, r.data)
@@ -810,7 +812,7 @@ class ClosedSessionEditDeleteTest(TestCase):
                      "payment_method": "cash"}, format="json")
         self.c.post(f"/api/sale-sessions/{sid}/items/",
                     {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
-                     "payment_method": "card"}, format="json")
+                     "payment_method": "card", "card_type": "credit"}, format="json")
         self.c.post(f"/api/sale-sessions/{sid}/close/")
         return sid
 
@@ -1062,7 +1064,7 @@ class SessionItemExtrasTest(TestCase):
         sid2 = self._open(Employee.objects.create(name="محمود", branch=self.branch))
         item = self.c.post(f"/api/sale-sessions/{sid1}/items/",
                            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 6,
-                            "unit_price": 6, "payment_method": "card"}, format="json").data
+                            "unit_price": 6, "payment_method": "card", "card_type": "debit"}, format="json").data
         r = self.c.post(f"/api/sale-sessions/{sid1}/move-item/{item['id']}/",
                         {"target_session": sid2}, format="json")
         self.assertEqual(r.status_code, 200, r.data)
@@ -1346,12 +1348,11 @@ class ReturnAndRollOverrideTest(TestCase):
         return r.data["id"]
 
     def _add_item(self, sid, quantity=10, payment_method="cash", phone="055000"):
-        return self.c.post(
-            f"/api/sale-sessions/{sid}/items/",
-            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": quantity,
-             "payment_method": payment_method, "customer_phone": phone},
-            format="json",
-        )
+        data = {"fabric": self.fabric.id, "sale_type": "yard", "quantity": quantity,
+                "payment_method": payment_method, "customer_phone": phone}
+        if payment_method == "card":
+            data["card_type"] = "credit"
+        return self.c.post(f"/api/sale-sessions/{sid}/items/", data, format="json")
 
     def test_roll_override_blocks_branch_when_global_allows(self):
         self.fabric.roll_sale_overrides = {str(self.branch.id): False}
@@ -1528,3 +1529,108 @@ class ReturnAndRollOverrideTest(TestCase):
         self.assertEqual(r.status_code, 400, r.data)
         r = self.c.post("/api/sale-sessions/return-items/", {"item_ids": [999999]}, format="json")
         self.assertEqual(r.status_code, 400, r.data)
+
+
+class CardMachineFeeTest(TestCase):
+    """عمولة الماكينة: نوع البطاقة (إئتماني/خصم مباشر) ونسبة كل نوع من الإعدادات."""
+
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(name="علي", branch=self.branch)
+        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        self.roll = FabricRoll.objects.create(
+            warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500
+        )
+        from appsettings.models import AppSettings
+
+        s = AppSettings.load()
+        s.card_credit_fee_percent = Decimal("2")
+        s.card_debit_fee_percent = Decimal("5")
+        s.save(update_fields=["card_credit_fee_percent", "card_debit_fee_percent"])
+
+    def _session(self):
+        return self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json").data["id"]
+
+    def test_card_requires_card_type(self):
+        sid = self._session()
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                         "unit_price": 10, "payment_method": "card"}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("card_type", r.data)
+
+    def test_credit_fee_computed_and_net_recorded_on_close(self):
+        sid = self._session()
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                         "unit_price": 10, "payment_method": "card", "card_type": "credit"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        # إجمالي 100، عمولة 2% = 2 → صافي 98
+        self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("2.00"))
+        self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("98.00"))
+        self.assertEqual(r.data["card_type"], "credit")
+        self.assertEqual(r.data["card_type_label"], "إئتماني")
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        sale = DailySale.objects.get(branch=self.branch, date=effective_sale_date())
+        self.assertEqual(Decimal(str(sale.card_amount)), Decimal("98.00"))
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("98.00"))
+
+    def test_debit_uses_its_own_percent(self):
+        sid = self._session()
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                         "unit_price": 10, "payment_method": "card", "card_type": "debit"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        # عمولة 5% من 100 = 5 → صافي 95
+        self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("5.00"))
+        self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("95.00"))
+
+    def test_cash_and_transfer_have_no_fee(self):
+        sid = self._session()
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                         "unit_price": 10, "payment_method": "cash"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["card_type"], "")
+        self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("0.00"))
+        self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("100.00"))
+
+    def test_edit_card_type_recomputes_fee(self):
+        sid = self._session()
+        item = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                           {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                            "unit_price": 10, "payment_method": "card", "card_type": "credit"}, format="json").data
+        r = self.c.patch(f"/api/sale-sessions/{sid}/items/{item['id']}/",
+                         {"card_type": "debit"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("5.00"))
+        self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("95.00"))
+
+    def test_edit_card_to_cash_resets_fee(self):
+        sid = self._session()
+        item = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                           {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                            "unit_price": 10, "payment_method": "card", "card_type": "credit"}, format="json").data
+        r = self.c.patch(f"/api/sale-sessions/{sid}/items/{item['id']}/",
+                         {"payment_method": "cash"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["card_type"], "")
+        self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("0.00"))
+        self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("100.00"))
+
+    def test_zero_fee_percent_keeps_gross(self):
+        from appsettings.models import AppSettings
+
+        s = AppSettings.load()
+        s.card_credit_fee_percent = Decimal("0")
+        s.save(update_fields=["card_credit_fee_percent"])
+        sid = self._session()
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/",
+                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+                         "unit_price": 10, "payment_method": "card", "card_type": "credit"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("0.00"))
+        self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("100.00"))
