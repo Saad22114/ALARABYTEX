@@ -173,6 +173,10 @@ class SaleSessionItem(TimeStampedModel):
         TRANSFER = "transfer", "تحويل"
         CARD = "card", "ماكينة"
 
+    class CardType(models.TextChoices):
+        CREDIT = "credit", "إئتماني"
+        DEBIT = "debit", "خصم مباشر"
+
     session = models.ForeignKey(
         SaleSession, on_delete=models.CASCADE, related_name="items", verbose_name="الوردية"
     )
@@ -195,6 +199,28 @@ class SaleSessionItem(TimeStampedModel):
         choices=PaymentMethod.choices,
         default=PaymentMethod.CASH,
         verbose_name="طريقة الدفع",
+    )
+    card_type = models.CharField(
+        max_length=10,
+        choices=CardType.choices,
+        blank=True,
+        default="",
+        verbose_name="نوع البطاقة",
+        help_text="نوع الماكينة عند الدفع بها: إئتماني أو خصم مباشر (كل نوع بنسبة عمولة مستقلة)",
+    )
+    card_fee_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal("0"),
+        verbose_name="رسوم الماكينة",
+        help_text="مبلغ عمولة الماكينة المخصوم (يُحسب تلقائياً من إعدادات النظام)",
+    )
+    net_total = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal("0"),
+        verbose_name="صافي البند",
+        help_text="إجمالي البند بعد خصم رسوم الماكينة (يساوي الإجمالي عند الدفع نقداً أو تحويلاً)",
     )
     total = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="الإجمالي")
     sale_date = models.DateField(verbose_name="تاريخ البيع")
