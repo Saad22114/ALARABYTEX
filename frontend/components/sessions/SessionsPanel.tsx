@@ -795,7 +795,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       <Th>النوع</Th>
                       <Th>الكمية</Th>
                       <Th>البيعة</Th>
-                      <Th>هاتف الزبون</Th>
+                      <Th>الزبون</Th>
                       <Th>سعر الوحدة</Th>
                       <Th>الخصم</Th>
                       <Th>طريقة الدفع</Th>
@@ -852,6 +852,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                           </span>
                         </Td>
                         <Td className="tabular-nums text-neutral-500">
+                          {item.customer_name ? <span className="block font-medium text-neutral-700">{item.customer_name}</span> : null}
                           {item.customer_phone ? item.customer_phone : <span className="text-neutral-300">—</span>}
                         </Td>
                         <Td className="tabular-nums">{formatCurrency(item.unit_price)}</Td>

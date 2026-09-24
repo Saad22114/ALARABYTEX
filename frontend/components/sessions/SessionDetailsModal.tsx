@@ -12,6 +12,7 @@ import { reopenSaleSession } from '@/services/sessions';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { logoUrl } from '@/services/settings';
+import { buildInvoiceNumber } from '@/lib/invoice';
 import { SaleSession } from '@/types';
 import { Printer, FileDown, RotateCcw } from 'lucide-react';
 
@@ -141,7 +142,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
   ${logoUrl(settings?.logo) ? `<div class="store"><img src="${logoUrl(settings?.logo)}" alt="الشعار" /></div>` : ''}
   <h1>${settings?.business_name || ''}</h1>
   ${settings?.commercial_registration ? `<div class="sub">السجل التجاري: ${settings.commercial_registration}</div>` : ''}
-  <div class="sub">تقرير وردية بيع — رقم الإيصال: ${settings?.invoice_prefix || ''}${session.id}</div>
+  <div class="sub">تقرير وردية بيع — رقم الإيصال: ${buildInvoiceNumber(session.manual_date || session.opened_at || '', session.branch_code || '', session.id, settings?.invoice_prefix || '')}</div>
   <div class="meta">
     <span>الموظف: <b>${session.employee_name}</b></span>
     <span>الفرع: <b>${session.branch_name}</b></span>

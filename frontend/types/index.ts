@@ -379,6 +379,8 @@ export interface DailySaleItem {
   fabric_unit: string;
   yards: number;
   unit_price: number | null;
+  customer_name?: string;
+  customer_phone?: string;
 }
 
 export interface DailySaleItemWrite {
@@ -393,6 +395,7 @@ export interface DailySale {
   id: number;
   branch: number;
   branch_name: string;
+  branch_code: string;
   employee: number | null;
   employee_name: string | null;
   date: string;
@@ -1237,6 +1240,7 @@ export interface SaleSession {
   employee_name: string;
   branch: number;
   branch_name: string;
+  branch_code: string;
   status: SessionStatus;
   status_label: string;
   opened_at: string;

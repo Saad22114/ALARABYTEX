@@ -24,6 +24,7 @@ class DailySaleItemSerializer(serializers.ModelSerializer):
 
 class DailySaleReadSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
+    branch_code = serializers.CharField(source="branch.code", read_only=True)
     employee_name = serializers.CharField(source="employee.name", read_only=True, default=None)
     payment_total = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     mismatch = serializers.SerializerMethodField()
@@ -32,7 +33,7 @@ class DailySaleReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailySale
         fields = [
-            "id", "branch", "branch_name", "employee", "employee_name", "date", "total_sales",
+            "id", "branch", "branch_name", "branch_code", "employee", "employee_name", "date", "total_sales",
             "cash_amount", "transfer_amount", "card_amount", "other_amount",
             "payment_total", "mismatch", "notes", "items",
             "created_at", "updated_at",

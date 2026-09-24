@@ -8,7 +8,7 @@ import Button from '@/components/ui/Button';
 import Table, { Th, Tr, Td } from '@/components/ui/Table';
 import CustomerPicker from '@/components/sessions/CustomerPicker';
 import { formatCurrency, formatNumber } from '@/lib/format';
-import { buildSessionItemsInvoice, openHtmlInvoice, englishWords } from '@/lib/invoice';
+import { buildSessionItemsInvoice, openHtmlInvoice, englishWords, buildInvoiceNumber } from '@/lib/invoice';
 import { saveContact } from '@/lib/customerContacts';
 import { ensureCustomer } from '@/lib/registerCustomer';
 
@@ -30,12 +30,19 @@ export default function SessionCustomerInvoiceModal({ open, onClose, session, it
   useEffect(() => {
     if (open) {
       setCounter((c) => c + 1);
-      setCustomerName('');
-      setCustomerPhone('');
+      const customerItems = (session ? session.items.filter((i) => itemIds.includes(i.id)) : [])
+        .filter((i) => i.customer_name || i.customer_phone);
+      setCustomerName(customerItems.find((i) => i.customer_name)?.customer_name || '');
+      setCustomerPhone(customerItems.find((i) => i.customer_phone)?.customer_phone || '');
     }
-  }, [open]);
+  }, [open, session, itemIds]);
 
-  const invoiceNo = `${settings?.invoice_prefix || ''}${session?.id ?? 0}-${counter}`;
+  const invoiceNo = buildInvoiceNumber(
+    session?.manual_date || session?.opened_at || '',
+    session?.branch_code || '',
+    `${session?.id ?? 0}-${counter}`,
+    settings?.invoice_prefix || ''
+  );
 
   const items = useMemo(() => (session ? session.items.filter((i) => itemIds.includes(i.id)) : []), [session, itemIds]);
 

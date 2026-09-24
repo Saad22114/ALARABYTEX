@@ -9,6 +9,7 @@ function makeSession(): SaleSession {
     employee_name: 'أحمد',
     branch: 1,
     branch_name: 'الفرع الرئيسي',
+    branch_code: 'BR-01',
     status: 'closed',
     status_label: 'مغلقة',
     opened_at: '2026-09-15T10:30:00',
@@ -100,7 +101,7 @@ describe('buildSessionReceipt', () => {
     const html = buildSessionReceipt(makeSession(), makeSettings(), 'إيصال وردية');
     expect(html).toContain('<title>إيصال وردية</title>');
     expect(html).toContain('<h1>القماش العربي</h1>');
-    expect(html).toContain('INV-42');
+    expect(html).toContain('INV-15-09-2026-BR-01-42');
     expect(html).toContain('قطن');
     expect(html).toContain('كاش');
   });

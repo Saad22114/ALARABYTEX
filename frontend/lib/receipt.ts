@@ -1,6 +1,7 @@
 import { SaleSession, AppSettings } from '@/types';
 import { formatNumber } from '@/lib/format';
 import { logoUrl } from '@/services/settings';
+import { buildInvoiceNumber } from '@/lib/invoice';
 
 const PAYMENT_NAMES: Record<string, string> = { cash: 'كاش', transfer: 'تحويل', card: 'ماكينة' };
 
@@ -26,7 +27,12 @@ export function buildSessionReceipt(session: SaleSession, settings: AppSettings 
   const sym = settings?.currency_symbol || '';
   const taxRate = Number(settings?.tax_rate ?? 0);
   const showTax = !!settings?.receipt_show_tax;
-  const invoiceNo = `${settings?.invoice_prefix || ''}${session.id}`;
+  const invoiceNo = buildInvoiceNumber(
+    session.manual_date || session.opened_at || '',
+    session.branch_code || '',
+    session.id,
+    settings?.invoice_prefix || ''
+  );
   const rows = session.items.filter((it) => !it.is_returned);
   const grossTotal = Math.round(rows.reduce((s, it) => s + Number(it.total || 0), 0) * 100) / 100;
   const grossCash = Math.round(rows.filter((it) => it.payment_method === 'cash').reduce((s, it) => s + Number(it.total || 0), 0) * 100) / 100;

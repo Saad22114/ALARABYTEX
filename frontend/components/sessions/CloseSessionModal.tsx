@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button';
 import { SaleSession } from '@/types';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format';
 import { printSessionReceipt } from '@/lib/receipt';
+import { buildInvoiceNumber } from '@/lib/invoice';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { Printer, Lock } from 'lucide-react';
@@ -38,7 +39,7 @@ export default function CloseSessionModal({ open, session, loading, onClose, onC
             <div className="text-center">
               <div className="font-bold text-lg">{settings?.business_name || 'كشف الوردية'}</div>
               <div className="text-xs text-neutral-500">
-                كشف إغلاق وردية بيع — رقم الإيصال: <b className="text-neutral-800">{`${settings?.invoice_prefix || ''}${session.id}`}</b>
+                كشف إغلاق وردية بيع — رقم الإيصال: <b className="text-neutral-800">{buildInvoiceNumber(session.manual_date || session.opened_at || '', session.branch_code || '', session.id, settings?.invoice_prefix || '')}</b>
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-neutral-600">

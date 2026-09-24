@@ -243,6 +243,7 @@ class SaleSessionUpdateSerializer(serializers.ModelSerializer):
 class SaleSessionReadSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source="employee.name", read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True)
+    branch_code = serializers.CharField(source="branch.code", read_only=True)
     status_label = serializers.CharField(source="get_status_display", read_only=True)
     elapsed_minutes = serializers.SerializerMethodField()
     items = serializers.SerializerMethodField()
@@ -251,7 +252,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleSession
         fields = [
-            "id", "employee", "employee_name", "branch", "branch_name",
+            "id", "employee", "employee_name", "branch", "branch_name", "branch_code",
             "status", "status_label", "opened_at", "closed_at", "notes",
             "commission_amount", "elapsed_minutes", "items", "totals",
             "is_manual", "manual_date", "manual_cash", "manual_transfer", "manual_card",

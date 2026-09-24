@@ -32,7 +32,7 @@ import { listBranches } from '@/services/branches';
 import { listEmployees } from '@/services/employees';
 import { listFabrics } from '@/services/fabrics';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format';
-import { openSalesInvoice, sessionToDailySales } from '@/lib/invoice';
+import { openSalesInvoice, sessionToDailySales, buildInvoiceNumber } from '@/lib/invoice';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -598,7 +598,7 @@ export default function SalesPage() {
                                     <Th>القماش</Th>
                                     <Th>النوع</Th>
                                     <Th>الكمية</Th>
-                                    <Th>هاتف الزبون</Th>
+                                    <Th>الزبون</Th>
                                     <Th>سعر الوحدة</Th>
                                     <Th>طريقة الدفع</Th>
                                     <Th>الإجمالي</Th>
@@ -621,6 +621,7 @@ export default function SalesPage() {
                                       <Td><Badge variant="neutral">{it.sale_type_label}</Badge></Td>
                                       <Td className="tabular-nums">{it.quantity} {it.sale_type === 'roll' ? 'طاقة' : 'يارد'}</Td>
                                       <Td className="tabular-nums text-neutral-500">
+                                        {it.customer_name ? <span className="block font-medium text-neutral-700">{it.customer_name}</span> : null}
                                         {it.customer_phone ? it.customer_phone : <span className="text-neutral-300">—</span>}
                                       </Td>
                                       <Td className="tabular-nums">{formatCurrency(it.unit_price)}</Td>
@@ -859,7 +860,7 @@ export default function SalesPage() {
                   <ul className="mt-2 space-y-1 text-emerald-700">
                     {generatedSales.map((s) => (
                       <li key={s.id || s.date}>
-                        رقم الفاتورة {settings?.invoice_prefix}{s.id || '—'} · {formatDate(s.date)} · {s.branch_name} ·{' '}
+                        رقم الفاتورة {s.id ? buildInvoiceNumber(s.date, s.branch_code || '', s.id, settings?.invoice_prefix || '') : '—'} · {formatDate(s.date)} · {s.branch_name} ·{' '}
                         {formatCurrency(s.total_sales)} {settings?.currency_symbol}
                       </li>
                     ))}

@@ -7,6 +7,7 @@ function makeSale(patch: Partial<DailySale> = {}): DailySale {
     id: 7,
     branch: 1,
     branch_name: 'فرع الخوض',
+    branch_code: 'KH-01',
     employee: 1,
     employee_name: 'أحمد',
     date: '2026-09-15',
@@ -80,7 +81,7 @@ describe('buildSalesInvoice', () => {
     const html = buildSalesInvoice([makeSale()], makeSettings(), { title: 'فاتورة بيع' });
     expect(html).toContain('<h2>فاتورة بيع</h2>');
     expect(html).toContain('<h1>القماش العربي</h1>');
-    expect(html).toContain('INV-7');
+    expect(html).toContain('INV-15-09-2026-KH-01-7');
     expect(html).toContain('حرير');
     expect(html).toContain('فرع الخوض');
     expect(html).toContain('أحمد');
@@ -92,8 +93,8 @@ describe('buildSalesInvoice', () => {
     const html = buildSalesInvoice(sales, settings);
     expect(html).toContain('فاتورة مجمعة');
     expect(html).toContain('عدد الفواتير: <b>2</b>');
-    expect(html).toContain('INV-7');
-    expect(html).toContain('INV-8');
+    expect(html).toContain('INV-15-09-2026-KH-01-7');
+    expect(html).toContain('INV-15-09-2026-KH-01-8');
     expect(html).toContain('47.5 ر.ع');
   });
 
@@ -153,6 +154,7 @@ describe('buildSalesInvoice', () => {
       employee_name: 'أحمد',
       branch: 1,
       branch_name: 'فرع الخوض',
+      branch_code: 'KH-01',
       status: 'closed',
       status_label: 'مغلقة',
       opened_at: '2026-09-15T08:00:00',
@@ -196,6 +198,63 @@ describe('buildSalesInvoice', () => {
     expect(sales[0].items).toHaveLength(2);
     expect(sales[0].items[0].yards).toBe(3.5);
     expect(sales[0].items[0].unit_price).toBe(5);
+  });
+
+  it('carries customer name and phone from session items into DailySale items', () => {
+    const session: SaleSession = {
+      id: 42,
+      employee: 1,
+      employee_name: 'أحمد',
+      branch: 1,
+      branch_name: 'فرع الخوض',
+      branch_code: 'KH-01',
+      status: 'closed',
+      status_label: 'مغلقة',
+      opened_at: '2026-09-15T08:00:00',
+      closed_at: '2026-09-15T14:00:00',
+      notes: '',
+      commission_amount: 0,
+      elapsed_minutes: 360,
+      items: [
+        {
+          id: 1, fabric: 1, fabric_name: 'حرير', fabric_code: 'H1', fabric_unit: 'يارد',
+          sale_type: 'yard', sale_type_label: 'ياردات', quantity: 3.5, unit_price: 5,
+          discount_amount: 0, payment_method: 'cash', payment_method_label: 'كاش',
+          card_type: '', card_type_label: '', card_fee_amount: 0, net_total: 17.5,
+          total: 17.5, sale_date: '2026-09-15', yards_effective: 3.5,
+          customer_name: 'خالد البلوشي', customer_phone: '99001122', sale_group: 'group-1',
+          is_returned: false, returned_at: null, return_reason: '',
+        },
+      ],
+      totals: { cash: 17.5, transfer: 0, card: 0, total: 17.5, yards: 3.5 },
+      is_manual: false,
+      manual_date: null,
+      manual_cash: 0,
+      manual_transfer: 0,
+      manual_card: 0,
+    };
+    const sales = sessionToDailySales(session);
+    expect(sales[0].items[0].customer_name).toBe('خالد البلوشي');
+    expect(sales[0].items[0].customer_phone).toBe('99001122');
+  });
+
+  it('shows customer name and phone on the printed invoice', () => {
+    const sale = makeSale({
+      items: [{
+        id: 1, fabric: 1, fabric_name: 'حرير', fabric_unit: 'yard', yards: 3.5, unit_price: 5,
+        customer_name: 'خالد البلوشي', customer_phone: '99001122',
+      }],
+    });
+    const html = buildSalesInvoice([sale], makeSettings(), { title: 'فاتورة بيع' });
+    expect(html).toContain('الزبون');
+    expect(html).toContain('خالد البلوشي');
+    expect(html).toContain('99001122');
+  });
+
+  it('shows a dash for items without customer info', () => {
+    const sale = makeSale();
+    const html = buildSalesInvoice([sale], makeSettings(), { title: 'فاتورة بيع' });
+    expect(html).toContain('class="muted">—</td>');
   });
 
   it('applies tax only when enabled', () => {

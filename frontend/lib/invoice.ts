@@ -1,4 +1,4 @@
-import { AppSettings, DailySale, SaleSession, SessionSaleItem } from '@/types';
+import { AppSettings, DailySale, DailySaleItem, SaleSession, SessionSaleItem } from '@/types';
 import { formatNumber, formatDate } from '@/lib/format';
 import { logoUrl } from '@/services/settings';
 
@@ -13,7 +13,23 @@ function esc(v: string | number | null | undefined): string {
 const PAY_NAMES: Record<string, string> = { cash: 'كاش', transfer: 'تحويل', card: 'بطاقة', other: 'أخرى' };
 
 function saleNumber(invoicePrefix: string, sale: DailySale): string {
-  return `${invoicePrefix}${sale.id}`;
+  return buildInvoiceNumber(sale.date, sale.branch_code || '', sale.id, invoicePrefix);
+}
+
+export function buildInvoiceNumber(
+  dateLike: string,
+  branchCode: string,
+  seq: string | number,
+  prefix = ''
+): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateLike || '');
+  const parts: Array<string | undefined> = [
+    (prefix || '').replace(/-+\s*$/, '').trim() || undefined,
+    m ? `${m[3]}-${m[2]}-${m[1]}` : undefined,
+    (branchCode || '').trim() || undefined,
+    seq != null && seq !== '' ? String(seq) : undefined,
+  ];
+  return parts.filter((p) => p !== undefined && p !== '').join('-');
 }
 
 const UNITS = ['', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة'];
@@ -101,6 +117,16 @@ export function englishWords(amount: number): string {
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
+function customerCell(it: DailySaleItem): string {
+  const name = (it.customer_name || '').trim();
+  const phone = (it.customer_phone || '').trim();
+  if (!name && !phone) return '<td class="muted">—</td>';
+  const parts: string[] = [];
+  if (name) parts.push(`<b>${esc(name)}</b>`);
+  if (phone) parts.push(`<span class="ph" dir="ltr">${esc(phone)}</span>`);
+  return `<td>${parts.join(' ')}</td>`;
+}
+
 export function sessionToDailySales(session: SaleSession): DailySale[] {
   if (session.is_manual) {
     const cash = Number(session.manual_cash) || 0;
@@ -111,6 +137,7 @@ export function sessionToDailySales(session: SaleSession): DailySale[] {
       id: 0,
       branch: session.branch,
       branch_name: session.branch_name,
+      branch_code: session.branch_code || '',
       employee: session.employee,
       employee_name: session.employee_name,
       date: session.manual_date || '',
@@ -136,6 +163,7 @@ export function sessionToDailySales(session: SaleSession): DailySale[] {
         id: 0,
         branch: session.branch,
         branch_name: session.branch_name,
+        branch_code: session.branch_code || '',
         employee: session.employee,
         employee_name: session.employee_name,
         date,
@@ -167,6 +195,8 @@ export function sessionToDailySales(session: SaleSession): DailySale[] {
       fabric_unit: it.fabric_unit,
       yards: Number(it.yards_effective ?? it.quantity) || 0,
       unit_price: it.unit_price != null ? Number(it.unit_price) : null,
+      customer_name: it.customer_name || '',
+      customer_phone: it.customer_phone || '',
     });
   }
   return Array.from(byDate.values()).map((s) => ({
@@ -203,7 +233,7 @@ export function buildSalesInvoice(
   const flatRows = sales
     .flatMap((s) => {
       if (s.items.length === 0) {
-        return [`<tr><td>${esc(saleNumber(prefix, s))}</td><td>${esc(s.date)}</td><td class="empty" colspan="4">لا توجد أصناف</td></tr>`];
+        return [`<tr><td>${esc(saleNumber(prefix, s))}</td><td>${esc(s.date)}</td><td class="muted" colspan="5">لا توجد أصناف</td></tr>`];
       }
       return s.items.map((it) => {
         const unitPrice = it.unit_price;
@@ -211,6 +241,7 @@ export function buildSalesInvoice(
         return `<tr>
         <td>${esc(saleNumber(prefix, s))}</td>
         <td>${esc(s.date)}</td>
+        ${customerCell(it)}
         <td>${esc(it.fabric_name)}</td>
         <td class="num">${num(it.yards)}</td>
         <td class="num">${unitPrice != null ? num(unitPrice) : '—'}</td>
@@ -228,6 +259,7 @@ export function buildSalesInvoice(
           const lineTotal = unitPrice != null ? unitPrice * Number(it.yards) : null;
           return `<tr>
         <td>${esc(it.fabric_name)}</td>
+        ${customerCell(it)}
         <td class="num">${num(it.yards)}</td>
         <td class="num">${unitPrice != null ? num(unitPrice) : '—'}</td>
         <td class="num">${lineTotal != null ? num(lineTotal) : '—'}</td>
@@ -241,10 +273,10 @@ export function buildSalesInvoice(
         التاريخ: <b>${esc(s.date)}</b> · الفرع: <b>${esc(s.branch_name)}</b>${s.employee_name ? ` · الموظف: <b>${esc(s.employee_name)}</b>` : ''}
       </p>
       <table>
-        <thead><tr><th>القماش</th><th>الياردات</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="4" class="empty">لا توجد أصناف</td></tr>'}</tbody>
+        <thead><tr><th>القماش</th><th>الزبون</th><th>الياردات</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="5" class="empty">لا توجد أصناف</td></tr>'}</tbody>
         <tfoot>
-          <tr><td colspan="3">إجمالي البيعة</td><td class="num">${num(s.total_sales)} ${sym(settings)}</td></tr>
+          <tr><td colspan="4">إجمالي البيعة</td><td class="num">${num(s.total_sales)} ${sym(settings)}</td></tr>
         </tfoot>
       </table>
       <div class="pmt">
@@ -261,10 +293,10 @@ export function buildSalesInvoice(
     ? `<div class="sale">
       <h3 class="sec">جميع البنود</h3>
       <table>
-        <thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>القماش</th><th>الياردات</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
-        <tbody>${flatRows || '<tr><td colspan="6" class="empty">لا توجد بنود</td></tr>'}</tbody>
+        <thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>الزبون</th><th>القماش</th><th>الياردات</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
+        <tbody>${flatRows || '<tr><td colspan="7" class="empty">لا توجد بنود</td></tr>'}</tbody>
         <tfoot>
-          <tr><td colspan="5">إجمالي بيوعات الفواتير المختارة</td><td class="num">${num(totalOfSales)} ${sym(settings)}</td></tr>
+          <tr><td colspan="6">إجمالي بيوعات الفواتير المختارة</td><td class="num">${num(totalOfSales)} ${sym(settings)}</td></tr>
         </tfoot>
       </table>
     </div>`
@@ -298,6 +330,8 @@ export function buildSalesInvoice(
   tfoot td { font-weight: 700; background: #f9fafb; }
   .num { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .empty { text-align: center; color: #9ca3af; }
+  .muted { text-align: center; color: #c6ccd4; }
+  .ph { display: block; font-size: 10px; color: #6b7280; }
   .pmt { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; margin-top: 8px; color: #374151; }
   .totals { border-top: 2px solid #111827; margin-top: 18px; padding-top: 10px; font-size: 13px; }
   .totals div { display: inline-flex; gap: 8px; margin-left: 22px; }
@@ -450,8 +484,6 @@ export function buildSessionItemsInvoice(
         <td>${esc(it.fabric_name)}</td>
         <td>${it.sale_type === 'roll' ? 'Roll' : 'Yard'}</td>
         <td class="num">${num(it.quantity)} ${it.sale_type === 'roll' ? 'roll(s)' : 'yard(s)'}</td>
-        <td class="num">${num(it.yards_effective ?? it.quantity)}</td>
-        <td class="num">${num(it.unit_price)}</td>
         <td class="num">${it.discount_amount > 0 ? num(it.discount_amount) : '—'}</td>
         <td class="num">${num(it.total)} ${sym(settings)}</td>
       </tr>`
@@ -498,7 +530,7 @@ ${SEL_INVOICE_STYLES}
     items.length === 0
       ? '<p style="text-align:center;color:#6b7280;padding:20px">No items selected</p>'
       : `<table>
-        <thead><tr><th>#</th><th>Fabric</th><th>Type</th><th>Quantity</th><th>Yards</th><th>Unit Price</th><th>Discount</th><th>Amount</th></tr></thead>
+        <thead><tr><th>#</th><th>Fabric</th><th>Type</th><th>Quantity</th><th>Discount</th><th>Amount</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`
   }
