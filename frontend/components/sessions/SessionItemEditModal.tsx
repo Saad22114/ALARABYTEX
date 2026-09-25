@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
 import QuantityQuickPicks from '@/components/sessions/QuantityQuickPicks';
+import FinalAmountInput from '@/components/sessions/FinalAmountInput';
 import {
   Fabric, SaleSession, SessionCardType, SessionSaleType, SessionPaymentMethod, SessionSaleItem,
 } from '@/types';
@@ -213,6 +214,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
             onChange={(e) => setDiscount(e.target.value)}
             placeholder=""
           />
+          <FinalAmountInput subtotal={subtotal} discount={discount} onDiscountChange={setDiscount} />
           <Select
             label="طريقة الدفع"
             value={paymentMethod}

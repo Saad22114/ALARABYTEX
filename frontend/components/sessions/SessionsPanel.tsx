@@ -7,6 +7,7 @@ import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
 import QuantityQuickPicks from '@/components/sessions/QuantityQuickPicks';
+import FinalAmountInput from '@/components/sessions/FinalAmountInput';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
@@ -1127,6 +1128,11 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       value={line.discount}
                       onChange={(e) => updateLine(idx, { discount: e.target.value })}
                       placeholder=""
+                    />
+                    <FinalAmountInput
+                      subtotal={calc.subtotal}
+                      discount={line.discount}
+                      onDiscountChange={(d) => updateLine(idx, { discount: d })}
                     />
                   </div>
 
