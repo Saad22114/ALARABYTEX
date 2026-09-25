@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -172,6 +173,8 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         )
         return Response(
             {
+                # تاريخ اليوم بحسب ساعة الخادم — مرجع الواجهة بدل ساعة الجهاز التي قد تكون غير مضبوطة
+                "today": timezone.localdate().isoformat(),
                 "count": len(sessions),
                 "open_count": sum(1 for s in sessions if s.status == SaleSession.Status.OPEN),
                 "closed_count": sum(1 for s in sessions if s.status == SaleSession.Status.CLOSED),

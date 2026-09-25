@@ -139,6 +139,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [tick, setTick] = useState(() => Date.now());
   const [openingEmp, setOpeningEmp] = useState<number | null>(null);
   const [openingDate, setOpeningDate] = useState<string>(() => todayISO());
+  const [openingDateTouched, setOpeningDateTouched] = useState(false);
   const [opening, setOpening] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
@@ -187,6 +188,12 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
   useEffect(() => fetchSessions(), [fetchSessions]);
   useEffect(() => fetchSummary(), [fetchSummary]);
+
+  // «اليوم» بحسب الخادم — ساعة التابلت/الموبايل قد تكون غير مضبوطة فلا نعتمد عليها
+  const serverToday = summary?.today || todayISO();
+  useEffect(() => {
+    if (!openingDateTouched) setOpeningDate(serverToday);
+  }, [serverToday, openingDateTouched]);
 
   useEffect(() => {
     let cancelled = false;
@@ -373,17 +380,18 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       toast('error', 'حدد تاريخ الوردية');
       return;
     }
-    if (openingDate > todayISO()) {
+    if (openingDate > serverToday) {
       toast('error', 'لا يمكن فتح وردية بتاريخ مستقبلي');
       return;
     }
     setOpening(true);
     try {
       const s = await openSaleSession(openingEmp, openingDate);
-      const dateLabel = openingDate === todayISO() ? 'اليوم' : `بتاريخ ${formatDate(openingDate)}`;
+      const dateLabel = openingDate === serverToday ? 'اليوم' : `بتاريخ ${formatDate(openingDate)}`;
       toast('success', s.reopened ? `تم إعادة فتح وردية ${dateLabel} للموظف ${s.employee_name}` : `تمت فتح الوردية ${dateLabel} للموظف ${s.employee_name}`);
       if (isManager) setOpeningEmp(null);
-      setOpeningDate(todayISO());
+      setOpeningDateTouched(false);
+      setOpeningDate(serverToday);
       fetchSessions();
       fetchSummary();
       setSelectedId(s.id);
@@ -503,7 +511,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         saveContact(custPhone, custName);
         void ensureCustomer(custName, custPhone, selected.branch);
       }
-      setLines([emptyItemForm(payload[0]?.payment_method || 'cash')]);
+      // بعد الحفظ تعود طريقة الدفع إلى الافتراضية من الإعدادات (لا تبقى على آخر اختيار مثل الماكينة)
+      setLines([emptyItemForm(settings?.default_payment_method)]);
       setCustName('');
       setCustPhone('');
       fetchSessions();
@@ -626,8 +635,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       </div>
 
       <Card className="!p-5">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex-1 min-w-[220px]">
+        <div className="grid gap-4 items-end grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_12rem_auto]">
+          <div className="min-w-0 sm:col-span-2 lg:col-span-1">
             {isManager ? (
               <>
                 <label className="block text-sm font-medium text-neutral-700 mb-1.5">فتح وردية لموظف</label>
@@ -654,16 +663,25 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
               </>
             )}
           </div>
-          <div className="w-full sm:w-auto sm:min-w-[180px]">
+          <div className="min-w-0">
             <Input
               label="تاريخ الوردية"
               type="date"
               value={openingDate}
-              max={todayISO()}
-              onChange={(e) => setOpeningDate(e.target.value)}
+              max={serverToday}
+              onChange={(e) => {
+                setOpeningDateTouched(true);
+                setOpeningDate(e.target.value);
+              }}
+              className="min-h-[42px] appearance-none [&::-webkit-date-and-time-value]:text-right"
             />
           </div>
-          <Button onClick={handleOpen} loading={opening} disabled={isManager && employees.length === 0}>
+          <Button
+            onClick={handleOpen}
+            loading={opening}
+            disabled={isManager && employees.length === 0}
+            className="w-full lg:w-auto min-h-[42px] justify-center"
+          >
             <LogIn size={18} />
             فتح وردية
           </Button>

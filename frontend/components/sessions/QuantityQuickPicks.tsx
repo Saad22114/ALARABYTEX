@@ -1,7 +1,7 @@
 'use client';
 
 /** الكميات السريعة (بالياردة) لبيع الأقمشة — الضغط يستبدل قيمة حقل الكمية. */
-export const YARD_QUICK_PICKS = ['3.5', '4', '7', '10.5', '14'];
+export const YARD_QUICK_PICKS = ['3.5', '4', '7', '10.5', '14', '17.5', '21', '24.5', '25'];
 
 interface Props {
   value: string;

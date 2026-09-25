@@ -1276,6 +1276,8 @@ export interface ManualSessionWrite {
 }
 
 export interface SaleSessionSummary {
+  /** تاريخ اليوم بحسب ساعة الخادم (YYYY-MM-DD) — المرجع الموثوق بدل ساعة الجهاز */
+  today?: string;
   count: number;
   open_count: number;
   closed_count: number;
