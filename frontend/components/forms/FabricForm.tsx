@@ -27,6 +27,9 @@ const FABRIC_TYPE_OPTIONS = [
   { value: 'أخرى', label: 'أخرى' },
 ];
 
+/** عدد الياردات في القطعة الواحدة — يحوّل سعر القطعة إلى سعر بيع الياردة. */
+const PIECE_YARDS = 3.5;
+
 interface FabricFormProps {
   initial?: Partial<Fabric>;
   onSubmit: (data: Partial<Fabric>) => Promise<void>;
@@ -48,6 +51,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
     manufacturer: '',
     supplier: '',
     purchase_price: '',
+    piece_price: '',
     sale_price_yard: '',
     sale_price_roll: '',
     min_sale_yard: '',
@@ -92,6 +96,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       manufacturer: f.manufacturer || '',
       supplier: f.supplier != null ? String(f.supplier) : '',
       purchase_price: f.purchase_price != null ? String(f.purchase_price) : '',
+      piece_price: f.piece_price != null ? String(f.piece_price) : '',
       sale_price_yard: f.sale_price_yard != null ? String(f.sale_price_yard) : '',
       sale_price_roll: f.sale_price_roll != null ? String(f.sale_price_roll) : '',
       min_sale_yard: f.min_sale_yard != null ? String(f.min_sale_yard) : '',
@@ -125,6 +130,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         manufacturer: initial.manufacturer || '',
         supplier: initial.supplier != null ? String(initial.supplier) : '',
         purchase_price: initial.purchase_price !== undefined ? String(initial.purchase_price) : '',
+        piece_price: initial.piece_price != null ? String(initial.piece_price) : '',
         sale_price_yard: initial.sale_price_yard !== undefined ? String(initial.sale_price_yard) : '',
         sale_price_roll: initial.sale_price_roll != null ? String(initial.sale_price_roll) : '',
         min_sale_yard: initial.min_sale_yard !== undefined ? String(initial.min_sale_yard) : '',
@@ -238,6 +244,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       manufacturer: form.manufacturer.trim(),
       supplier: form.supplier ? Number(form.supplier) : null,
       purchase_price: num(form.purchase_price) ?? 0,
+      piece_price: num(form.piece_price),
       sale_price_yard: num(form.sale_price_yard) ?? 0,
       sale_price_roll: num(form.sale_price_roll),
       min_sale_yard: num(form.min_sale_yard) ?? 0,
@@ -264,6 +271,18 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
   };
 
   const set = (key: string, val: string | boolean) => setForm((f) => ({ ...f, [key]: val }));
+
+  /** كتابة سعر القطعة يملأ سعر بيع الياردة تلقائياً (قطعة ÷ 3.5)، ويبقى الحقل قابلاً للتعديل بعده. */
+  const setPiecePrice = (value: string) => {
+    setForm((f) => {
+      const next = { ...f, piece_price: value };
+      const piece = value === '' ? null : Number(value);
+      if (piece != null && Number.isFinite(piece) && piece > 0) {
+        next.sale_price_yard = String(Number((piece / PIECE_YARDS).toFixed(3)));
+      }
+      return next;
+    });
+  };
 
   const sectionTitle = (title: string) => (
     <h3 className="text-sm font-bold text-brand-700 border-b border-sand-200 pb-2">{title}</h3>
@@ -323,6 +342,10 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       {sectionTitle('التسعير والهوامش')}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input label="تكلفة الشراء (للياردة)" type="number" step="0.001" min="0" value={form.purchase_price} onChange={(e) => set('purchase_price', e.target.value)} placeholder="" />
+        <div className="space-y-1.5">
+          <Input label="سعر القطعة" type="number" step="0.001" min="0" value={form.piece_price} onChange={(e) => setPiecePrice(e.target.value)} placeholder="مثال: 70" />
+          <p className="text-xs text-neutral-400">يُقسَم تلقائياً على 3.5 ليملأ سعر بيع الياردة — ويمكن تعديله بعد ذلك.</p>
+        </div>
         <Input label="سعر بيع الياردة" type="number" step="0.001" min="0" value={form.sale_price_yard} onChange={(e) => set('sale_price_yard', e.target.value)} placeholder="" />
         <Input label="الحد الأدنى لسعر بيع الياردة" type="number" step="0.001" min="0" value={form.min_sale_yard} onChange={(e) => set('min_sale_yard', e.target.value)} error={errors.min_sale_yard} placeholder="" />
         <Input label="سعر بيع الطاقة" type="number" step="0.001" min="0" value={form.sale_price_roll} onChange={(e) => set('sale_price_roll', e.target.value)} placeholder="اتركه فارغاً للحساب التلقائي" />

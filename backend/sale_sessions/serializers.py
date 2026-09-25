@@ -16,7 +16,13 @@ from suppliers.models import Fabric
 from warehouses.models import FabricRoll, Warehouse
 
 from .models import Employee, SaleSession, SaleSessionItem
-from .services import create_manual_session, reopen_session, session_sale_date
+from .services import (
+    create_manual_session,
+    elapsed_reference,
+    reopen_session,
+    session_sale_date,
+    stamp_session_creation,
+)
 
 PAYMENT_METHODS = {m for m, _ in SaleSessionItem.PaymentMethod.choices}
 
@@ -282,7 +288,9 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
             return None
         if not obj.opened_at:
             return 0
-        return max(0, int((timezone.now() - obj.opened_at).total_seconds() // 60))
+        opened = timezone.localtime(obj.opened_at)
+        reference = max(elapsed_reference(obj), opened)
+        return max(0, int((reference - opened).total_seconds() // 60))
 
     def get_items(self, obj):
         return SaleSessionItemSerializer(obj.items.all(), many=True).data
@@ -364,9 +372,13 @@ class SaleSessionOpenSerializer(serializers.Serializer):
             reopen_session(closed_same_day)
             closed_same_day._reopened = True
             return closed_same_day
-        return SaleSession.objects.create(
+        session = SaleSession.objects.create(
             employee=employee, branch=employee.branch, session_date=session_date
         )
+        # الوردية بتاريخ سابق تُسجَّل بتاريخها المختار في وقت الفتح ووقت الإنشاء
+        # حتى تحافظ على ترتيبها في القائمة وفي تقارير ذلك اليوم.
+        stamp_session_creation(session, target_date)
+        return session
 
 
 class SaleSessionManualCreateSerializer(serializers.Serializer):

@@ -249,13 +249,30 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     return () => clearInterval(id);
   }, []);
 
-  const liveMinutes = (s: SaleSession) => Math.floor((tick - new Date(s.opened_at).getTime()) / 60000);
-  /** تاريخ الوردية المحاسبي إن كان مختلفاً عن يوم الفتح الفعلي (وردية بتاريخ سابق). */
+  /** يوم الوردية كما سُجِّلت (YYYY-MM-DD): تاريخها المختار، وإلا يوم الفتح. */
+  const sessionDay = (s: SaleSession): string => {
+    if (s.session_date) return s.session_date.slice(0, 10);
+    const d = new Date(s.opened_at);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  /** المدة بالدقائق: تُقاس بنفس الساعة على يوم الوردية حتى لا تظهر بالأيام للورديات المؤرخة سابقاً. */
+  const liveMinutes = (s: SaleSession) => {
+    const opened = new Date(s.opened_at);
+    const now = new Date(tick);
+    const day = sessionDay(s);
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const reference = day >= today
+      ? now
+      : new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)),
+          now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    return Math.max(0, Math.floor((reference.getTime() - opened.getTime()) / 60000));
+  };
+  /** تاريخ الوردية المحاسبي إن كان مختلفاً عن يوم الفتح الفعلي (وردية قديمة سُجِّلت قبل ضبط وقت الفتح). */
   const backdatedLabel = (s: SaleSession): string | null => {
     if (!s.session_date) return null;
-    const openedDay = new Date(s.opened_at);
-    const openedISO = `${openedDay.getFullYear()}-${String(openedDay.getMonth() + 1).padStart(2, '0')}-${String(openedDay.getDate()).padStart(2, '0')}`;
-    return s.session_date === openedISO ? null : formatDate(s.session_date);
+    const d = new Date(s.opened_at);
+    const openedISO = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return s.session_date.slice(0, 10) === openedISO ? null : formatDate(s.session_date);
   };
   const warnMinutes = (settings?.session_warn_hours ?? 2) * 60;
   const dangerMinutes = (settings?.session_danger_hours ?? 4) * 60;

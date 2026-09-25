@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -84,6 +85,43 @@ class FabricAPITest(TestCase):
     def test_create_fabric_requires_name(self):
         r = self.c.post("/api/fabrics/", {"name": "  "}, format="json")
         self.assertEqual(r.status_code, 400)
+
+    def test_piece_price_divides_into_yard_price(self):
+        r = self.c.post(
+            "/api/fabrics/", {"name": "كريب", "unit": "yard", "piece_price": "70"}, format="json"
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(Decimal(r.data["piece_price"]), Decimal("70.000"))
+        self.assertEqual(Decimal(r.data["sale_price_yard"]), Decimal("20.000"))
+
+    def test_explicit_yard_price_wins_over_piece_price(self):
+        r = self.c.post(
+            "/api/fabrics/",
+            {"name": "كريب", "unit": "yard", "piece_price": "70", "sale_price_yard": "22.5"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(Decimal(r.data["sale_price_yard"]), Decimal("22.500"))
+
+    def test_update_piece_price_only_recomputes_yard_price(self):
+        r = self.c.post(
+            "/api/fabrics/", {"name": "كريب", "unit": "yard", "sale_price_yard": "20"}, format="json"
+        )
+        fid = r.data["id"]
+        r = self.c.patch(f"/api/fabrics/{fid}/", {"piece_price": "140.25"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(Decimal(r.data["sale_price_yard"]), Decimal("40.071"))
+        # تعديل صريح لسعر الياردة يبقى كما هو
+        r = self.c.patch(f"/api/fabrics/{fid}/", {"sale_price_yard": "45"}, format="json")
+        self.assertEqual(Decimal(r.data["sale_price_yard"]), Decimal("45.000"))
+
+    def test_fabric_without_piece_price_keeps_prices(self):
+        r = self.c.post(
+            "/api/fabrics/", {"name": "شيفون", "unit": "yard", "sale_price_yard": "9"}, format="json"
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertIsNone(r.data["piece_price"])
+        self.assertEqual(Decimal(r.data["sale_price_yard"]), Decimal("9.000"))
 
     def test_list_fabrics(self):
         self.c.post("/api/fabrics/", {"name": "A"}, format="json")

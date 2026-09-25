@@ -9,6 +9,9 @@ from warehouses.services import create_purchase_receipts
 
 from .models import Fabric, LedgerEntry, PurchaseItem, Supplier
 
+# عدد الياردات في القطعة الواحدة — أساس تحويل سعر القطعة إلى سعر بيع الياردة
+PIECE_YARDS = Decimal("3.5")
+
 
 class SupplierSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(default=True)
@@ -55,7 +58,7 @@ class FabricSerializer(serializers.ModelSerializer):
             "fabric_type", "color", "composition",
             "width_cm", "weight_gsm", "origin", "manufacturer",
             "supplier", "supplier_name", "allow_roll_sale", "roll_sale_overrides",
-            "sale_price_yard", "sale_price_roll", "purchase_price",
+            "sale_price_yard", "sale_price_roll", "purchase_price", "piece_price",
             "min_sale_yard", "min_sale_roll",
             "sale_price_roll_display", "min_sale_roll_display",
             "profit_yard", "profit_margin_pct",
@@ -78,6 +81,10 @@ class FabricSerializer(serializers.ModelSerializer):
         return None
 
     def validate(self, attrs):
+        piece_price = attrs.get("piece_price")
+        if piece_price is not None and "sale_price_yard" not in attrs:
+            # سعر القطعة يحدّد سعر الياردة تلقائياً، ما لم يُرسل سعر يارد صريح (يبقى قابلاً للتعديل)
+            attrs["sale_price_yard"] = (piece_price / PIECE_YARDS).quantize(Decimal("0.001"))
         sale_yard = attrs.get("sale_price_yard")
         min_yard = attrs.get("min_sale_yard")
         if min_yard and sale_yard is not None and min_yard > sale_yard:

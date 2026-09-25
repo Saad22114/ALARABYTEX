@@ -136,10 +136,17 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(employee_id=employee)
         opened_from = self.request.query_params.get("opened_from")
         if opened_from:
-            qs = qs.filter(opened_at__date__gte=opened_from)
+            # الوردية تُعدّ بتاريخها المختار لا بوقت إنشائها الفعلي
+            qs = qs.filter(
+                Q(session_date__gte=opened_from)
+                | Q(session_date__isnull=True, opened_at__date__gte=opened_from)
+            )
         opened_to = self.request.query_params.get("opened_to")
         if opened_to:
-            qs = qs.filter(opened_at__date__lte=opened_to)
+            qs = qs.filter(
+                Q(session_date__lte=opened_to)
+                | Q(session_date__isnull=True, opened_at__date__lte=opened_to)
+            )
         closed_from = self.request.query_params.get("closed_from")
         closed_to = self.request.query_params.get("closed_to")
         if closed_from or closed_to:

@@ -68,6 +68,14 @@ class Fabric(TimeStampedModel, ActiveModel):
         verbose_name="البيع بالطاقة حسب الفرع",
         help_text="خريطة رقم الفرع → (true/false) للتحكم في بيع الطاقة لكل فرع على حدة؛ الفرع غير المذكور يتبع الإعداد العام",
     )
+    piece_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        blank=True,
+        null=True,
+        verbose_name="سعر القطعة",
+        help_text="سعر الطرد/القطعة كاملة؛ يُقسَم على 3.5 ليُحتسب سعر بيع الياردة تلقائياً",
+    )
     sale_price_yard = models.DecimalField(
         max_digits=12, decimal_places=3, default=0, verbose_name="سعر بيع الياردة"
     )

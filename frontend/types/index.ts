@@ -102,6 +102,7 @@ export interface Fabric {
   allow_roll_sale: boolean;
   roll_sale_overrides: Record<string, boolean>;
   purchase_price: number;
+  piece_price: number | null;
   sale_price_yard: number;
   sale_price_roll: number | null;
   min_sale_yard: number;

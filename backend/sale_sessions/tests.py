@@ -336,6 +336,95 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertIn("date", r.data)
 
+    def test_open_with_date_stamps_opened_and_created_at_on_that_date(self):
+        past = timezone.localdate() - timedelta(days=6)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        session = SaleSession.objects.get(pk=r.data["id"])
+        self.assertEqual(timezone.localtime(session.opened_at).date(), past)
+        self.assertEqual(timezone.localtime(session.created_at).date(), past)
+        self.assertEqual(session.session_date, past)
+
+    def test_backdated_sessions_keep_date_order(self):
+        # الوردية لنفس الموظف بنفس التاريخ تُعاد فتحها، فتُستخدم تواريخ مختلفة
+        dates = [timezone.localdate() - timedelta(days=n) for n in (5, 3, 1)]
+        created = []
+        for d in dates:
+            r = self.c.post(
+                "/api/sale-sessions/", {"employee": self.emp.id, "date": d.isoformat()}, format="json"
+            )
+            self.assertEqual(r.status_code, 201, r.data)
+            created.append((d, r.data["id"]))
+            self.c.post(f"/api/sale-sessions/{r.data['id']}/close/")
+        for d, sid in created:
+            session = SaleSession.objects.get(pk=sid)
+            self.assertEqual(timezone.localtime(session.opened_at).date(), d)
+        stamps = [timezone.localtime(SaleSession.objects.get(pk=s).opened_at) for _, s in created]
+        self.assertEqual(stamps, sorted(stamps))
+        # الترتيب الافتراضي للقائمة (الأحدث أولاً) يتبع تاريخ الوردية لا تاريخ الإنشاء
+        listed = list(
+            SaleSession.objects.filter(id__in=[s for _, s in created]).values_list("id", flat=True)
+        )
+        self.assertEqual(listed, [s for _, s in reversed(created)])
+
+    def test_close_backdated_session_keeps_closed_at_on_same_date(self):
+        past = timezone.localdate() - timedelta(days=2)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        sid = r.data["id"]
+        self._add_item(sid, quantity=4)
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{sid}/close/").status_code, 200)
+        session = SaleSession.objects.get(pk=sid)
+        opened = timezone.localtime(session.opened_at)
+        closed = timezone.localtime(session.closed_at)
+        self.assertEqual(closed.date(), past)
+        self.assertGreaterEqual(closed, opened)
+
+    def test_backdated_open_session_elapsed_is_minutes_not_days(self):
+        past = timezone.localdate() - timedelta(days=8)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["elapsed_minutes"], 0)
+        # تحديث القائمة بعد دقيقة — تبقى المدة بالدقائق
+        session = SaleSession.objects.get(pk=r.data["id"])
+        session.opened_at = session.opened_at - timedelta(minutes=5)
+        session.save(update_fields=["opened_at"])
+        r = self.c.get(f"/api/sale-sessions/{session.pk}/")
+        self.assertEqual(r.data["elapsed_minutes"], 5)
+
+    def test_opened_date_filter_excludes_backdated_session_from_today(self):
+        today = timezone.localdate()
+        past = today - timedelta(days=5)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        sid = r.data["id"]
+        listed = self.c.get(
+            "/api/sale-sessions/", {"opened_from": today.isoformat(), "opened_to": today.isoformat()}
+        )
+        self.assertNotIn(sid, [s["id"] for s in listed.data["results"]])
+        listed = self.c.get(
+            "/api/sale-sessions/", {"opened_from": past.isoformat(), "opened_to": past.isoformat()}
+        )
+        self.assertIn(sid, [s["id"] for s in listed.data["results"]])
+
+    def test_manual_session_stamped_on_its_manual_date(self):
+        past = timezone.localdate() - timedelta(days=3)
+        r = self.c.post(
+            "/api/sale-sessions/manual/",
+            {"employee": self.emp.id, "date": past.isoformat(), "cash": "10"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        session = SaleSession.objects.get(pk=r.data["id"])
+        self.assertEqual(timezone.localtime(session.opened_at).date(), past)
+        self.assertEqual(timezone.localtime(session.closed_at).date(), past)
+
     def test_open_with_date_reopens_closed_session_of_same_date_only(self):
         past = timezone.localdate() - timedelta(days=2)
         r = self.c.post(

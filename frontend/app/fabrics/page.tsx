@@ -362,6 +362,10 @@ export default function FabricsPage() {
                   <p className="text-sm font-semibold tabular-nums">{formatCurrency(details.purchase_price)}</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
+                  <p className="text-xs text-neutral-500 mb-1">سعر القطعة</p>
+                  <p className="text-sm font-semibold tabular-nums">{details.piece_price != null ? formatCurrency(details.piece_price) : '-'}</p>
+                </div>
+                <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
                   <p className="text-xs text-neutral-500 mb-1">سعر بيع الياردة</p>
                   <p className="text-sm font-semibold tabular-nums">{formatCurrency(details.sale_price_yard)}</p>
                 </div>

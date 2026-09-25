@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
 
@@ -46,6 +46,51 @@ def session_sale_date(session):
     if session is not None and getattr(session, "session_date", None):
         return session.session_date
     return effective_sale_date()
+
+
+def session_business_date(session):
+    """تاريخ الوردية الفعلي: التاريخ المختار عند الفتح، أو تاريخ الفتح لورديات قديمة بلا تاريخ صريح."""
+    if session is None:
+        return timezone.localdate()
+    if session.session_date:
+        return session.session_date
+    if session.opened_at:
+        return timezone.localtime(session.opened_at).date()
+    return timezone.localdate()
+
+
+def now_on(target_date, *, floor=None):
+    """الوقت الحالي منقولاً إلى اليوم المطلوب بنفس الساعة والدقيقة.
+
+    يُستخدم لتسجيل الوردية بتاريخها المختار: يبقى ترتيب الورديات داخل نفس اليوم
+    مطابقاً لتسلسل الإنشاء الحقيقي، وتبقى المدة محسوبة بالدقائق لا بالأيام.
+    """
+    now = timezone.localtime()
+    shifted = datetime.combine(target_date, now.timetz())
+    if floor is not None and shifted < floor:
+        return floor
+    return shifted
+
+
+def stamp_session_creation(session, target_date, *, stamp=None):
+    """نقل وقت الفتح ووقت الإنشاء إلى اليوم المختار.
+
+    الحقول auto_now_add لا تُقبل في create، لذا تُكتب عبر update لتجاوز pre_save.
+    """
+    stamp = stamp or now_on(target_date)
+    SaleSession.objects.filter(pk=session.pk).update(opened_at=stamp, created_at=stamp)
+    session.opened_at = stamp
+    session.created_at = stamp
+    return stamp
+
+
+def elapsed_reference(session, now=None):
+    """مرجع حساب المدة: الساعة الحالية على يوم الوردية، فلا تظهر المدة بالأيام للورديات المؤرخة سابقاً."""
+    now = now or timezone.localtime()
+    business = session_business_date(session)
+    if business >= now.date():
+        return now
+    return datetime.combine(business, now.timetz())
 
 
 def _item_yards(item):
@@ -112,11 +157,12 @@ def _reverse_manual_session(session):
 def create_manual_session(*, employee, branch, sale_date, cash, transfer, card, notes=""):
     """إنشاء وردية مغلقة كاملة كمجموع مالي بدون بنود ولا خصم مخزون."""
     total = cash + transfer + card
+    stamp = now_on(sale_date)
     session = SaleSession.objects.create(
         employee=employee,
         branch=branch,
         status=SaleSession.Status.CLOSED,
-        closed_at=timezone.now(),
+        closed_at=stamp,
         is_manual=True,
         manual_date=sale_date,
         manual_cash=cash,
@@ -124,6 +170,7 @@ def create_manual_session(*, employee, branch, sale_date, cash, transfer, card, 
         manual_card=card,
         notes=notes,
     )
+    stamp_session_creation(session, sale_date, stamp=stamp)
     _apply_manual_to_daily(session, sign=1)
     if employee.commission_active:
         percent = Decimal(str(employee.commission_percent or "0"))
@@ -197,7 +244,8 @@ def close_session(session):
                 sell_from_branch(session.branch, sale, item_rows, allow_negative=allow_negative)
 
         session.status = SaleSession.Status.CLOSED
-        session.closed_at = timezone.now()
+        # وقت الإغلاق يُسجَّل على تاريخ الوردية بنفس الساعة — يبقى التسلسل والمدة متسقة
+        session.closed_at = now_on(session_business_date(session), floor=session.opened_at)
         recompute_commission(session)
         session.save(update_fields=["status", "closed_at", "commission_amount"])
         _post_session(session)
