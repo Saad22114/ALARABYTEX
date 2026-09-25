@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
+import QuantityQuickPicks from '@/components/sessions/QuantityQuickPicks';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
@@ -46,6 +47,7 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { todayISO } from '@/lib/date';
 import { printSessionReceipt } from '@/lib/receipt';
 import { useToast } from '@/components/ui/Toast';
 import Link from 'next/link';
@@ -135,6 +137,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [sortBy, setSortBy] = useState<SessionSortKey>('newest');
   const [tick, setTick] = useState(() => Date.now());
   const [openingEmp, setOpeningEmp] = useState<number | null>(null);
+  const [openingDate, setOpeningDate] = useState<string>(() => todayISO());
   const [opening, setOpening] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
@@ -239,6 +242,13 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   }, []);
 
   const liveMinutes = (s: SaleSession) => Math.floor((tick - new Date(s.opened_at).getTime()) / 60000);
+  /** تاريخ الوردية المحاسبي إن كان مختلفاً عن يوم الفتح الفعلي (وردية بتاريخ سابق). */
+  const backdatedLabel = (s: SaleSession): string | null => {
+    if (!s.session_date) return null;
+    const openedDay = new Date(s.opened_at);
+    const openedISO = `${openedDay.getFullYear()}-${String(openedDay.getMonth() + 1).padStart(2, '0')}-${String(openedDay.getDate()).padStart(2, '0')}`;
+    return s.session_date === openedISO ? null : formatDate(s.session_date);
+  };
   const warnMinutes = (settings?.session_warn_hours ?? 2) * 60;
   const dangerMinutes = (settings?.session_danger_hours ?? 4) * 60;
   const agingLevel = (m: number) => (m >= dangerMinutes ? 'danger' : m >= warnMinutes ? 'warn' : 'ok');
@@ -358,11 +368,21 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       toast('error', 'اختر الموظف الذي يفتح الوردية');
       return;
     }
+    if (!openingDate) {
+      toast('error', 'حدد تاريخ الوردية');
+      return;
+    }
+    if (openingDate > todayISO()) {
+      toast('error', 'لا يمكن فتح وردية بتاريخ مستقبلي');
+      return;
+    }
     setOpening(true);
     try {
-      const s = await openSaleSession(openingEmp);
-      toast('success', s.reopened ? `تم إعادة فتح وردية اليوم للموظف ${s.employee_name}` : `تمت فتح الوردية للموظف ${s.employee_name}`);
+      const s = await openSaleSession(openingEmp, openingDate);
+      const dateLabel = openingDate === todayISO() ? 'اليوم' : `بتاريخ ${formatDate(openingDate)}`;
+      toast('success', s.reopened ? `تم إعادة فتح وردية ${dateLabel} للموظف ${s.employee_name}` : `تمت فتح الوردية ${dateLabel} للموظف ${s.employee_name}`);
       if (isManager) setOpeningEmp(null);
+      setOpeningDate(todayISO());
       fetchSessions();
       fetchSummary();
       setSelectedId(s.id);
@@ -633,6 +653,15 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
               </>
             )}
           </div>
+          <div className="w-full sm:w-auto sm:min-w-[180px]">
+            <Input
+              label="تاريخ الوردية"
+              type="date"
+              value={openingDate}
+              max={todayISO()}
+              onChange={(e) => setOpeningDate(e.target.value)}
+            />
+          </div>
           <Button onClick={handleOpen} loading={opening} disabled={isManager && employees.length === 0}>
             <LogIn size={18} />
             فتح وردية
@@ -711,6 +740,11 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                 <div className="mt-2 text-xs text-neutral-400">
                   فُتحت {formatDate(s.opened_at)} {new Date(s.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(live)}
                 </div>
+                {backdatedLabel(s) && (
+                  <div className="mt-1.5">
+                    <Badge variant="warning">تاريخ الوردية: {backdatedLabel(s)}</Badge>
+                  </div>
+                )}
                 <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                   <div>
                     <div className="text-xs text-neutral-400">{s.items.length} بند</div>
@@ -750,6 +784,11 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
               <p className="text-sm text-neutral-500">
                 فُتحت {formatDate(selected.opened_at)} {new Date(selected.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(liveMinutes(selected))}
               </p>
+              {backdatedLabel(selected) && (
+                <p className="mt-1 text-sm font-medium text-amber-700">
+                  تُسجَّل مبيعات هذه الوردية بتاريخ {backdatedLabel(selected)}
+                </p>
+              )}
               {selectedDiscount > 0 && (
                 <p className="text-xs text-red-500 mt-1">إجمالي الخصومات المطبقة: {formatCurrency(selectedDiscount)}</p>
               )}
@@ -1056,16 +1095,21 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         <p className="text-xs text-neutral-400 mt-1">عمولة الماكينة {calc.feePercent}% — يُسجَّل صافي المبيعات بعد خصمها</p>
                       </div>
                     )}
-                    <Input
-                      label={line.sale_type === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
-                      type="number"
-                      min="0"
-                      step={line.sale_type === 'roll' ? '1' : '0.25'}
-                      value={line.quantity}
-                      onChange={(e) => updateLine(idx, { quantity: e.target.value })}
-                      placeholder=""
-                      className={overStock ? 'border-red-400 ring-2 ring-red-200' : ''}
-                    />
+                    <div>
+                      <Input
+                        label={line.sale_type === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
+                        type="number"
+                        min="0"
+                        step={line.sale_type === 'roll' ? '1' : '0.25'}
+                        value={line.quantity}
+                        onChange={(e) => updateLine(idx, { quantity: e.target.value })}
+                        placeholder=""
+                        className={overStock ? 'border-red-400 ring-2 ring-red-200' : ''}
+                      />
+                      {line.sale_type === 'yard' && (
+                        <QuantityQuickPicks value={line.quantity} onPick={(q) => updateLine(idx, { quantity: q })} />
+                      )}
+                    </div>
                     <Input
                       label="سعر الوحدة"
                       type="number"
@@ -1098,7 +1142,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                   {line.payment_method === 'card' && calc.cardFee > 0 && calc.netAfterFee != null && (
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2">
                       <span className="text-xs text-neutral-600">
-                        عمولة الماكينة {calc.feePercent}% ({line.card_type === 'debit' ? 'خصمهههه مباشر' : 'إئتماني'}):
+                        عمولة الماكينة {calc.feePercent}% ({line.card_type === 'debit' ? 'خصم مباشر / Debit' : 'إئتماني / Credit'}):
                       </span>
                       <span className="text-xs font-semibold text-red-600 tabular-nums">- {formatCurrency(calc.cardFee)}</span>
                       <span className="text-sm font-bold text-brand-700 tabular-nums">الصافي: {formatCurrency(calc.netAfterFee)}</span>

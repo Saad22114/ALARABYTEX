@@ -39,8 +39,10 @@ export async function getSaleSessionSummary(
   return apiRequest<SaleSessionSummary>(`/sale-sessions/summary/${q}`);
 }
 
-export async function openSaleSession(employee: number): Promise<SaleSession> {
-  return apiRequest<SaleSession>('/sale-sessions/', { method: 'POST', body: JSON.stringify({ employee }) });
+export async function openSaleSession(employee: number, date?: string): Promise<SaleSession> {
+  const body: { employee: number; date?: string } = { employee };
+  if (date) body.date = date;
+  return apiRequest<SaleSession>('/sale-sessions/', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function addSessionItem(id: number, data: SessionSaleItemWrite): Promise<SessionSaleItem> {

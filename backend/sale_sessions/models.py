@@ -134,6 +134,10 @@ class SaleSession(TimeStampedModel):
     )
     opened_at = models.DateTimeField(auto_now_add=True, verbose_name="وقت الفتح")
     closed_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الإغلاق")
+    session_date = models.DateField(
+        null=True, blank=True, verbose_name="تاريخ الوردية",
+        help_text="التاريخ المحاسبي الذي تُسجَّل عليه مبيعات الوردية؛ فارغ = يُحسب تلقائياً من وقت البيع",
+    )
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.OPEN, verbose_name="الحالة"
     )

@@ -41,6 +41,13 @@ def effective_sale_date(now=None):
     return now.date()
 
 
+def session_sale_date(session):
+    """تاريخ تسجيل أصناف الوردية: تاريخ الوردية إن حُدِّد عند فتحها، وإلا التاريخ الفعلي الحالي."""
+    if session is not None and getattr(session, "session_date", None):
+        return session.session_date
+    return effective_sale_date()
+
+
 def _item_yards(item):
     if item.sale_type == SaleSessionItem.SaleType.ROLL:
         return item.quantity * (item.fabric.yards_per_roll or Decimal("0"))
@@ -308,7 +315,7 @@ def move_session_item(source_session, item, target_session):
     )
     check.is_valid(raise_exception=True)
     item.session = target_session
-    item.sale_date = effective_sale_date()
+    item.sale_date = session_sale_date(target_session)
     item.save(update_fields=["session", "sale_date"])
     return item
 

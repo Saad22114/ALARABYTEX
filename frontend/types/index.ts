@@ -1250,6 +1250,8 @@ export interface SaleSession {
   status_label: string;
   opened_at: string;
   closed_at: string | null;
+  /** التاريخ المحاسبي للوردية (اختياري عند الفتح؛ null = تلقائي من وقت البيع) */
+  session_date: string | null;
   notes: string;
   commission_amount: number;
   elapsed_minutes: number | null;

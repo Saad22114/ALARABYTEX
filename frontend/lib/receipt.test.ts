@@ -14,6 +14,7 @@ function makeSession(): SaleSession {
     status_label: 'مغلقة',
     opened_at: '2026-09-15T10:30:00',
     closed_at: '2026-09-15T12:00:00',
+    session_date: null,
     notes: '',
     commission_amount: 0,
     elapsed_minutes: 90,

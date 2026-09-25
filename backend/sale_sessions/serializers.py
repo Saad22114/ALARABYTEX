@@ -5,7 +5,7 @@ import uuid
 
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -16,7 +16,7 @@ from suppliers.models import Fabric
 from warehouses.models import FabricRoll, Warehouse
 
 from .models import Employee, SaleSession, SaleSessionItem
-from .services import effective_sale_date, create_manual_session, reopen_session
+from .services import create_manual_session, reopen_session, session_sale_date
 
 PAYMENT_METHODS = {m for m, _ in SaleSessionItem.PaymentMethod.choices}
 
@@ -272,7 +272,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
         model = SaleSession
         fields = [
             "id", "employee", "employee_name", "branch", "branch_name", "branch_code",
-            "status", "status_label", "opened_at", "closed_at", "notes",
+            "status", "status_label", "opened_at", "closed_at", "session_date", "notes",
             "commission_amount", "elapsed_minutes", "items", "totals",
             "is_manual", "manual_date", "manual_cash", "manual_transfer", "manual_card",
         ]
@@ -315,6 +315,12 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
 
 class SaleSessionOpenSerializer(serializers.Serializer):
     employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all())
+    date = serializers.DateField(required=False, allow_null=True)
+
+    def validate_date(self, value):
+        if value is not None and value > timezone.localdate():
+            raise serializers.ValidationError("لا يمكن فتح وردية بتاريخ مستقبلي")
+        return value
 
     def validate_employee(self, employee):
         if SaleSession.objects.filter(
@@ -336,24 +342,31 @@ class SaleSessionOpenSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         employee = validated_data["employee"]
-        today = timezone.localdate()
-        # إذا كانت لديه وردية مغلقة أُفتحت اليوم (استراحة الظهيرة مثلًا)
+        session_date = validated_data.get("date")
+        target_date = session_date or timezone.localdate()
+        # إذا كانت لديه وردية مغلقة بنفس التاريخ (استراحة الظهيرة مثلًا)
         # نعيد فتحها بدل إنشاء وردية جديدة — نفس الوردية المسجلة باسمه.
-        closed_today = (
+        # الورديات القديمة بلا تاريخ صريح تُطابَق على تاريخ وقت الفتح.
+        closed_same_day = (
             SaleSession.objects.filter(
                 employee=employee,
                 status=SaleSession.Status.CLOSED,
                 is_manual=False,
-                opened_at__date=today,
+            )
+            .filter(
+                Q(session_date=target_date)
+                | Q(session_date__isnull=True, opened_at__date=target_date)
             )
             .order_by("-closed_at")
             .first()
         )
-        if closed_today is not None:
-            reopen_session(closed_today)
-            closed_today._reopened = True
-            return closed_today
-        return SaleSession.objects.create(employee=employee, branch=employee.branch)
+        if closed_same_day is not None:
+            reopen_session(closed_same_day)
+            closed_same_day._reopened = True
+            return closed_same_day
+        return SaleSession.objects.create(
+            employee=employee, branch=employee.branch, session_date=session_date
+        )
 
 
 class SaleSessionManualCreateSerializer(serializers.Serializer):
@@ -603,7 +616,7 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
             attrs["card_fee_amount"] = Decimal("0")
             attrs["net_total"] = attrs["total"]
 
-        attrs["sale_date"] = effective_sale_date()
+        attrs["sale_date"] = session_sale_date(self.context.get("session"))
         return attrs
 
     def create(self, validated_data):

@@ -302,6 +302,66 @@ class SaleSessionAPITest(TestCase):
         # المخزون عاد متاحاً بعد إعادة الفتح (عكس الاستهلاك عند الإغلاق)
         self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
 
+    # ---- فتح وردية بتاريخ محدد ----
+
+    def test_open_without_date_leaves_session_date_null(self):
+        d = self._open_session()
+        self.assertIsNone(d["session_date"])
+        sid = d["id"]
+        r = self._add_item(sid, quantity=5)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["sale_date"], effective_sale_date().isoformat())
+
+    def test_open_with_date_records_items_and_daily_sale_on_that_date(self):
+        past = timezone.localdate() - timedelta(days=3)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["session_date"], past.isoformat())
+        sid = r.data["id"]
+        r = self._add_item(sid, quantity=10)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["sale_date"], past.isoformat())
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{sid}/close/").status_code, 200)
+        sale = DailySale.objects.get(branch=self.branch, date=past)
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("50.00"))
+        self.assertFalse(DailySale.objects.filter(branch=self.branch, date=effective_sale_date()).exists())
+
+    def test_open_with_future_date_rejected(self):
+        future = timezone.localdate() + timedelta(days=1)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": future.isoformat()}, format="json"
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("date", r.data)
+
+    def test_open_with_date_reopens_closed_session_of_same_date_only(self):
+        past = timezone.localdate() - timedelta(days=2)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        sid = r.data["id"]
+        self._add_item(sid, quantity=10)
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        # نفس التاريخ → إعادة فتح نفس الوردية
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["id"], sid)
+        self.assertTrue(r.data.get("reopened"))
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        # تاريخ مختلف (اليوم) → وردية جديدة مستقلة
+        r = self.c.post(
+            "/api/sale-sessions/",
+            {"employee": self.emp.id, "date": timezone.localdate().isoformat()},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertNotEqual(r.data["id"], sid)
+        self.assertFalse(r.data.get("reopened"))
+
     def test_add_yard_item_auto_price(self):
         sid = self._open_session()["id"]
         r = self._add_item(sid, quantity=10)

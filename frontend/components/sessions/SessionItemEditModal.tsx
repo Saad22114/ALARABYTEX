@@ -5,6 +5,7 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
+import QuantityQuickPicks from '@/components/sessions/QuantityQuickPicks';
 import {
   Fabric, SaleSession, SessionCardType, SessionSaleType, SessionPaymentMethod, SessionSaleItem,
 } from '@/types';
@@ -182,15 +183,18 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
               </button>
             </div>
           </div>
-          <Input
-            label={saleType === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
-            type="number"
-            min="0"
-            step={saleType === 'roll' ? '1' : '0.25'}
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            placeholder=""
-          />
+          <div>
+            <Input
+              label={saleType === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
+              type="number"
+              min="0"
+              step={saleType === 'roll' ? '1' : '0.25'}
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              placeholder=""
+            />
+            {saleType === 'yard' && <QuantityQuickPicks value={quantity} onPick={setQuantity} />}
+          </div>
           <Input
             label="سعر الوحدة"
             type="number"
