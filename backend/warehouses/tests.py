@@ -420,6 +420,52 @@ class StockBalanceAPITest(TestCase):
         r = self.c.get("/api/warehouses/stock/", {"search": "الصيف"})
         self.assertEqual(r.data["totals"]["total_yards"], 50)
 
+    def test_stock_low_stock_filter(self):
+        high = Fabric.objects.create(name="قماش عادي", code="C-OK", sale_price_yard=1, min_stock=10)
+        self.c.post("/api/warehouses/adjustments/", {
+            "warehouse": self.wh.pk, "date": date.today().isoformat(),
+            "direction": "in", "items": [
+                {"fabric": self.fabric.pk, "yards": 3},
+            ],
+        }, format="json")
+        self.c.post("/api/warehouses/adjustments/", {
+            "warehouse": self.wh.pk, "date": date.today().isoformat(),
+            "direction": "in", "items": [
+                {"fabric": high.pk, "yards": 50},
+            ],
+        }, format="json")
+        r = self.c.get("/api/warehouses/stock/", {"low_stock": "true"})
+        names = [i["fabric_name"] for i in r.data["items"]]
+        self.assertIn("قماش الصيف", names)
+        self.assertNotIn("قماش عادي", names)
+        self.assertEqual(r.data["totals"]["low_stock_count"], 1)
+
+    def test_stock_near_depletion_rolls(self):
+        self.c.post("/api/warehouses/adjustments/", {
+            "warehouse": self.wh.pk, "date": date.today().isoformat(),
+            "direction": "in", "items": [{"fabric": self.fabric.pk, "yards": 5, "rolls_count": 18}],
+        }, format="json")
+        r = self.c.get("/api/warehouses/stock/")
+        self.assertEqual(r.data["items"][0]["rolls_available"], 18)
+        self.assertEqual(r.data["items"][0]["near_depletion_rolls"], 18)
+        self.assertEqual(r.data["totals"]["near_depletion_rolls"], 18)
+
+    def test_stock_export_xlsx(self):
+        self.c.post("/api/warehouses/adjustments/", {
+            "warehouse": self.wh.pk, "date": date.today().isoformat(),
+            "direction": "in", "items": [{"fabric": self.fabric.pk, "yards": 5}],
+        }, format="json")
+        r = self.c.get("/api/warehouses/stock/", {"export": "xlsx"})
+        self.assertEqual(r.status_code, 200)
+
+    def test_stock_low_stock_export(self):
+        self.c.post("/api/warehouses/adjustments/", {
+            "warehouse": self.wh.pk, "date": date.today().isoformat(),
+            "direction": "in", "items": [{"fabric": self.fabric.pk, "yards": 5}],
+        }, format="json")
+        r = self.c.get("/api/warehouses/stock/", {"export": "xlsx", "low_stock": "true"})
+        self.assertEqual(r.status_code, 200)
+
     def test_movements_have_balance_columns(self):
         self.c.post("/api/warehouses/adjustments/", {
             "warehouse": self.wh.pk, "date": date.today().isoformat(),

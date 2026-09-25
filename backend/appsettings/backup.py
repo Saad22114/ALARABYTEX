@@ -236,6 +236,16 @@ def backup_file_abspath(name):
     return p
 
 
+def delete_backup_file(name):
+    """Delete a stored backup file; returns True if a file was removed."""
+    safe = Path(name).name
+    p = _backup_dir() / safe
+    if not p.exists() or not p.is_file():
+        return False
+    p.unlink()
+    return True
+
+
 def _create_rows(app_label, name, rows):
     """Re-create rows with explicit PKs to preserve relationships."""
     model = _model(app_label, name)

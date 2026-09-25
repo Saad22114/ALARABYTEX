@@ -12,7 +12,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, X, ChevronDown, AlertTriangle, Pencil, Trash2, Warehouse as WarehouseIcon, PackagePlus } from 'lucide-react';
+import { Plus, X, ChevronDown, AlertTriangle, Pencil, Trash2, Warehouse as WarehouseIcon, PackagePlus, Download } from 'lucide-react';
 import {
   StockBalanceResult,
   StockBalanceItem,
@@ -22,6 +22,7 @@ import {
 } from '@/types';
 import { getStockBalances, listOpenings, createOpening, listWarehouses, setStockBalance } from '@/services/warehouses';
 import { listFabrics } from '@/services/fabrics';
+import { API_URL } from '@/services/api';
 import { formatNumber } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import Link from 'next/link';
@@ -45,6 +46,7 @@ export default function StockTab() {
   const [search, setSearch] = useState('');
   const [warehouse, setWarehouse] = useState('');
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [lowStockOnly, setLowStockOnly] = useState(false);
   const [tab, setTab] = useState<'balances' | 'openings'>('balances');
 
   const [openings, setOpenings] = useState<StockOpening[] | null>(null);
@@ -69,7 +71,7 @@ export default function StockTab() {
   const fetchBalances = () => {
     let cancelled = false;
     setLoading(true);
-    getStockBalances({ search: search || undefined, warehouse: warehouse || undefined })
+    getStockBalances({ search: search || undefined, warehouse: warehouse || undefined, low_stock: lowStockOnly ? 'true' : undefined })
       .then((res) => { if (!cancelled) setData(res); })
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -86,7 +88,7 @@ export default function StockTab() {
     return () => { cancelled = true; };
   };
 
-  useEffect(() => fetchBalances(), [search, warehouse]);
+  useEffect(() => fetchBalances(), [search, warehouse, lowStockOnly]);
 
   useEffect(() => {
     if (tab === 'openings' && openings === null) fetchOpenings();
@@ -238,8 +240,10 @@ export default function StockTab() {
             </p>
           </Card>
           <Card>
-            <p className="text-xs text-neutral-500 mb-1">عدد المخازن</p>
-            <p className="text-2xl font-bold text-neutral-800 tabular-nums">{formatNumber(totals.warehouses)}</p>
+            <p className="text-xs text-neutral-500 mb-1">طاقات قاربت النفاد (≤ 10 ي)</p>
+            <p className={`text-2xl font-bold tabular-nums ${(totals.near_depletion_rolls ?? 0) > 0 ? 'text-amber-600' : 'text-neutral-800'}`}>
+              {formatNumber(totals.near_depletion_rolls ?? 0)}
+            </p>
           </Card>
         </div>
       )}
@@ -253,6 +257,23 @@ export default function StockTab() {
             options={[{ value: '', label: 'كل المخازن' }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
             className="w-full sm:w-56"
           />
+          <button
+            onClick={() => setLowStockOnly((v) => !v)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${
+              lowStockOnly
+                ? 'bg-red-50 text-red-700 border-red-200'
+                : 'bg-surface text-neutral-600 border-sand-200 hover:bg-sand-50'
+            }`}
+          >
+            <AlertTriangle size={14} />
+            المنخفض فقط
+          </button>
+          <a href={`${API_URL}/warehouses/stock/?export=xlsx${warehouse ? `&warehouse=${warehouse}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}${lowStockOnly ? '&low_stock=true' : ''}`} target="_blank" rel="noreferrer">
+            <Button variant="secondary" type="button">
+              <Download size={14} />
+              تصدير Excel
+            </Button>
+          </a>
         </div>
       </Card>
 
@@ -305,7 +326,14 @@ export default function StockTab() {
                     <Td className="font-medium">{item.fabric_name}</Td>
                     <Td><span className="font-mono text-xs bg-sand-100 px-2 py-1 rounded">{item.fabric_code}</span></Td>
                     <Td>{UNIT_LABEL[item.unit] || item.unit}</Td>
-                    <Td className="tabular-nums">{formatNumber(item.rolls_available)}</Td>
+                    <Td className="tabular-nums">{formatNumber(item.rolls_available)}
+                      {item.near_depletion_rolls ? (
+                        <span className="block text-[11px] font-semibold text-amber-600 mt-0.5">
+                          <AlertTriangle size={11} className="inline -mt-0.5 ml-0.5" />
+                          {item.near_depletion_rolls} قاربت النفاد
+                        </span>
+                      ) : null}
+                    </Td>
                     <Td className={`tabular-nums font-bold ${item.low_stock ? 'text-red-600' : 'text-neutral-800'}`}>
                       {formatNumber(item.total_yards)}
                     </Td>

@@ -140,7 +140,7 @@ class AutoBackupView(APIView):
 
 
 class AutoBackupDownloadView(APIView):
-    """GET downloads a stored auto-backup file by name."""
+    """GET downloads a stored auto-backup file by name; DELETE removes it."""
     permission_section = "settings"
 
     def get(self, request, name):
@@ -152,6 +152,20 @@ class AutoBackupDownloadView(APIView):
         if not path or not path.exists():
             raise Http404("الملف غير موجود")
         return FileResponse(open(path, "rb"), as_attachment=True, filename=path.name)
+
+    def delete(self, request, name):
+        from django.utils import timezone
+
+        from .backup import delete_backup_file
+
+        if not delete_backup_file(name):
+            raise Http404("الملف غير موجود")
+        s = AppSettings.load()
+        if s.last_auto_backup_path and Path(s.last_auto_backup_path).name == Path(name).name:
+            s.last_auto_backup_at = None
+            s.last_auto_backup_path = ""
+            s.save(update_fields=["last_auto_backup_at", "last_auto_backup_path", "updated_at"])
+        return Response({"detail": "تم حذف النسخة الاحتياطية", "name": name}, status=status.HTTP_200_OK)
 
 
 class AppSettingsView(APIView):

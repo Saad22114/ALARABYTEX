@@ -16,7 +16,7 @@ import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import PermissionsModal from '@/components/employees/PermissionsModal';
-import { ShieldCheck, Plus, Pencil, Trash2, UserRoundPlus, Users, UserCheck, UserX, Shield } from 'lucide-react';
+import { ShieldCheck, Plus, Pencil, Trash2, UserRoundPlus, Users, UserCheck, UserX, Shield, KeyRound, Wallet, CalendarDays } from 'lucide-react';
 import { Employee, EmployeeRole, SectionsInfo, EmployeePermissions } from '@/types';
 import {
   listEmployees,
@@ -24,8 +24,11 @@ import {
   updateEmployee,
   deleteEmployee,
 } from '@/services/sessions';
+import { getSalesByEmployee } from '@/services/sales';
+import { getCommissionsReport } from '@/services/reports';
 import { getSectionsInfo } from '@/services/sections';
 import { listBranches } from '@/services/branches';
+import { formatCurrency } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
 
@@ -120,6 +123,38 @@ export default function EmployeesPage() {
 
   const [permsTarget, setPermsTarget] = useState<Employee | null>(null);
   const [permsSaving, setPermsSaving] = useState(false);
+
+  const [resetTarget, setResetTarget] = useState<Employee | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const [todaySales, setTodaySales] = useState<Map<number, { total_sales: number; sales_count: number }>>(new Map());
+  const [monthStats, setMonthStats] = useState<Map<number, { total_sales: number; total_commission: number }>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    const today = new Date().toLocaleDateString('en-CA');
+    const month = new Date().toISOString().slice(0, 7);
+    getSalesByEmployee({ date_from: today, date_to: today }).then((res) => {
+      if (cancelled) return;
+      const m = new Map<number, { total_sales: number; sales_count: number }>();
+      res.items.forEach((it) => m.set(it.employee, { total_sales: it.total_sales, sales_count: it.sales_count }));
+      setTodaySales(m);
+    }).catch(() => {});
+    getCommissionsReport({ month }).then((res) => {
+      if (cancelled) return;
+      const m = new Map<number, { total_sales: number; total_commission: number }>();
+      res.items.forEach((it) => {
+        const prev = m.get(it.employee) || { total_sales: 0, total_commission: 0 };
+        m.set(it.employee, {
+          total_sales: prev.total_sales + it.total_sales,
+          total_commission: prev.total_commission + it.total_commission,
+        });
+      });
+      setMonthStats(m);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const fetchData = () => {
     let cancelled = false;
@@ -295,6 +330,25 @@ export default function EmployeesPage() {
     }
   };
 
+  const handleResetPassword = async () => {
+    if (!resetTarget) return;
+    if (!resetPassword.trim()) {
+      toast('error', 'يرجى إدخال كلمة المرور الجديدة');
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await updateEmployee(resetTarget.id, { password: resetPassword });
+      toast('success', 'تم تحديث كلمة مرور الموظف');
+      setResetTarget(null);
+      setResetPassword('');
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -375,6 +429,9 @@ export default function EmployeesPage() {
                     <Th>الفرع</Th>
                     <Th>الدور</Th>
                     <Th>العمولة</Th>
+                    <Th>مبيعات اليوم</Th>
+                    <Th>مبيعات الشهر</Th>
+                    <Th>عمولة الشهر</Th>
                     <Th>الصلاحيات</Th>
                     <Th>الأقسام</Th>
                     <Th>الحالة</Th>
@@ -412,6 +469,32 @@ export default function EmployeesPage() {
                             <span className="text-xs text-neutral-400">بدون</span>
                           )}
                         </Td>
+<Td>
+                          {(() => {
+                            const t = todaySales.get(emp.id);
+                            if (!t) return <span className="text-xs text-neutral-400">—</span>;
+                            return (
+                              <div className="text-sm">
+                                <span className="tabular-nums font-medium text-emerald-600">{formatCurrency(t.total_sales)}</span>
+                                <span className="text-[11px] text-neutral-400 block">{t.sales_count} فاتورة</span>
+                              </div>
+                            );
+                          })()}
+                        </Td>
+                        <Td>
+                          {(() => {
+                            const m = monthStats.get(emp.id);
+                            if (!m) return <span className="text-xs text-neutral-400">—</span>;
+                            return <span className="text-sm tabular-nums">{formatCurrency(m.total_sales)}</span>;
+                          })()}
+                        </Td>
+                        <Td>
+                          {(() => {
+                            const m = monthStats.get(emp.id);
+                            if (!m || m.total_commission <= 0) return <span className="text-xs text-neutral-400">—</span>;
+                            return <span className="text-sm tabular-nums text-emerald-600">{formatCurrency(m.total_commission)}</span>;
+                          })()}
+                        </Td>
                         <Td>
                           <span className="text-sm text-neutral-600 tabular-nums">
                             {permsCount} قسم مُفعّل
@@ -437,6 +520,13 @@ export default function EmployeesPage() {
                               title="إدارة الصلاحيات"
                             >
                               <ShieldCheck size={16} />
+                            </button>
+                            <button
+                              onClick={() => { setResetTarget(emp); setResetPassword(''); }}
+                              className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors"
+                              title="إعادة تعيين كلمة المرور"
+                            >
+                              <KeyRound size={15} />
                             </button>
                             <button onClick={() => openModal(emp)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors">
                               <Pencil size={15} />
@@ -708,6 +798,28 @@ export default function EmployeesPage() {
           loading={deleteLoading}
           message="هل أنت متأكد من حذف هذا الموظف؟ لا يمكن حذف موظف لديه ورديات بيع."
         />
+
+        <Modal open={!!resetTarget} onClose={() => setResetTarget(null)} title="إعادة تعيين كلمة المرور" maxWidth="max-w-md">
+          <div className="space-y-4">
+            <p className="text-sm text-neutral-600">
+              تعيين كلمة مرور جديدة للموظف <span className="font-semibold">{resetTarget?.name}</span>.
+            </p>
+            <Input
+              label="كلمة المرور الجديدة"
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="••••••••"
+            />
+            <div className="flex justify-start gap-3 pt-2">
+              <Button onClick={handleResetPassword} loading={resetLoading}>
+                <KeyRound size={16} />
+                تحديث كلمة المرور
+              </Button>
+              <Button variant="secondary" onClick={() => setResetTarget(null)}>إلغاء</Button>
+            </div>
+          </div>
+        </Modal>
       </div>
     </AppShell>
   );

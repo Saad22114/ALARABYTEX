@@ -35,3 +35,17 @@ export async function getFabricSummary(): Promise<FabricSummary> {
 export async function getFabricStock(id: number): Promise<FabricStockResult> {
   return apiRequest<FabricStockResult>(`/fabrics/${id}/stock/`);
 }
+
+export interface BulkPriceUpdatePayload {
+  field: 'sale_price_yard' | 'purchase_price' | 'min_sale_yard';
+  mode: 'percent' | 'fixed';
+  value: number;
+  direction: 'increase' | 'decrease';
+}
+
+export async function bulkPriceUpdate(payload: BulkPriceUpdatePayload): Promise<{ detail: string; updated: number }> {
+  return apiRequest<{ detail: string; updated: number }>(`/fabrics/bulk-price-update/`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

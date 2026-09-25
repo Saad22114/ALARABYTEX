@@ -445,6 +445,13 @@ class StockBalanceView(APIView):
             )
         }
 
+        near_rows = (
+            rows.filter(remaining_yards__lte=10)
+            .values("fabric_id")
+            .annotate(near_count=Count("id"))
+        )
+        near_by_fabric = {r["fabric_id"]: r["near_count"] for r in near_rows}
+
         by_fabric = {}
         for r in agg:
             key = r["fabric_id"]
@@ -456,6 +463,7 @@ class StockBalanceView(APIView):
                 "unit": "yard",
                 "total_yards": Decimal("0"),
                 "rolls_available": 0,
+                "near_depletion_rolls": 0,
                 "warehouses": [],
             })
             entry["total_yards"] += r["total_yards"]
@@ -483,10 +491,36 @@ class StockBalanceView(APIView):
             entry["min_stock"] = f.min_stock
             entry["unit"] = f.unit
             entry["low_stock"] = entry["total_yards"] < f.min_stock
+            entry["near_depletion_rolls"] = near_by_fabric.get(fid, 0)
             entry["warehouses"].sort(key=lambda w: w["warehouse_name"])
             result.append(entry)
 
         result.sort(key=lambda e: e["fabric_name"])
+        low_stock_only = request.query_params.get("low_stock")
+        if low_stock_only and str(low_stock_only).strip().lower() in ("true", "1", "yes", "on"):
+            result = [e for e in result if e["low_stock"]]
+
+        if request.query_params.get("export") == "xlsx":
+            from reports.views import _export_generic_to_xlsx, _xlsx_response
+
+            headers = [
+                "القماش", "الكود", "الحد الأدنى", "الكمية المتاحة",
+                "الطاقات المتاحة", "طاقات قاربت النفاد", "الحالة",
+            ]
+            rows_x = [
+                [
+                    e["fabric_name"], e["fabric_code"], e["min_stock"],
+                    float(e["total_yards"]), e["rolls_available"],
+                    e["near_depletion_rolls"],
+                    "منخفض" if e["low_stock"] else "مناسب",
+                ]
+                for e in result
+            ]
+            wb = _export_generic_to_xlsx("المخزون الموحد", headers, rows_x)
+            if wb is None:
+                return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
+            return _xlsx_response(wb, "المخزون_الموحد")
+
         total_yards = sum(e["total_yards"] for e in result)
         return Response({
             "items": result,
@@ -494,6 +528,7 @@ class StockBalanceView(APIView):
                 "total_yards": total_yards,
                 "rolls_available": sum(e["rolls_available"] for e in result),
                 "low_stock_count": sum(1 for e in result if e["low_stock"]),
+                "near_depletion_rolls": sum(e["near_depletion_rolls"] for e in result),
                 "warehouses": len([w for w in warehouses.values() if not w.is_branch_stock]),
             },
         })

@@ -17,12 +17,12 @@ import StatCard from '@/components/ui/StatCard';
 import FabricForm from '@/components/forms/FabricForm';
 import {
   Plus, Pencil, Trash2, Eye, Package, AlertTriangle,
-  IndianRupee, Boxes, Download, Tags,
+  IndianRupee, Boxes, Download, Tags, TrendingUp, Percent,
 } from 'lucide-react';
 import { Fabric, FabricStockResult, FabricSummary, Paginated } from '@/types';
 import {
   listFabrics, createFabric, updateFabric, deleteFabric,
-  getFabricSummary, getFabricStock,
+  getFabricSummary, getFabricStock, bulkPriceUpdate,
 } from '@/services/fabrics';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { API_URL } from '@/services/api';
@@ -57,6 +57,12 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'inactive', label: 'غير نشط' },
 ];
 
+const LOW_STOCK_FILTER_OPTIONS = [
+  { value: '', label: 'كل مستويات المخزون' },
+  { value: 'low', label: 'منخفض فقط' },
+  { value: 'ok', label: 'متوفر' },
+];
+
 export default function FabricsPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
@@ -68,6 +74,7 @@ export default function FabricsPage() {
   const [fabricType, setFabricType] = useUrlState('type', '');
   const [unit, setUnit] = useUrlState('unit', '');
   const [status, setStatus] = useUrlState('status', '');
+  const [lowStock, setLowStock] = useUrlState('low_stock', '');
   const [page, setPage] = useUrlState('page', 1);
 
   const [summary, setSummary] = useState<FabricSummary | null>(null);
@@ -80,6 +87,15 @@ export default function FabricsPage() {
   const [deleting, setDeleting] = useState<Fabric | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkForm, setBulkForm] = useState<{
+    field: 'sale_price_yard' | 'purchase_price' | 'min_sale_yard';
+    mode: 'percent' | 'fixed';
+    value: string;
+    direction: 'increase' | 'decrease';
+  }>({ field: 'sale_price_yard', mode: 'percent', value: '', direction: 'increase' });
+
   const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
@@ -89,13 +105,14 @@ export default function FabricsPage() {
       fabric_type: fabricType || undefined,
       unit: unit || undefined,
       is_active: status === 'active' ? 'true' : status === 'inactive' ? 'false' : undefined,
+      low_stock: lowStock === 'low' ? 'true' : lowStock === 'ok' ? 'false' : undefined,
     };
     listFabrics(params)
       .then((res) => { if (!cancelled) setData(res); })
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize, search, fabricType, unit, status]);
+  }, [page, pageSize, search, fabricType, unit, status, lowStock]);
 
   useEffect(() => fetchData(), [fetchData]);
 
@@ -144,6 +161,35 @@ export default function FabricsPage() {
     }
   };
 
+  const handleBulkUpdate = async () => {
+    const value = Number(bulkForm.value);
+    if (!value || value <= 0) {
+      toast('error', 'أدخل قيمة صحيحة أكبر من صفر');
+      return;
+    }
+    if (bulkForm.mode === 'percent' && value > 100) {
+      toast('error', 'النسبة لا يمكن أن تتجاوز 100%');
+      return;
+    }
+    setBulkLoading(true);
+    try {
+      const res = await bulkPriceUpdate({
+        field: bulkForm.field,
+        mode: bulkForm.mode,
+        value,
+        direction: bulkForm.direction,
+      });
+      toast('success', res.detail);
+      setBulkOpen(false);
+      fetchData();
+      fetchSummary();
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   const openDetails = async (f: Fabric) => {
     setDetails(f);
     setStock(null);
@@ -166,8 +212,10 @@ export default function FabricsPage() {
     if (unit) p.append('unit', unit);
     if (status === 'active') p.append('is_active', 'true');
     if (status === 'inactive') p.append('is_active', 'false');
+    if (lowStock === 'low') p.append('low_stock', 'true');
+    if (lowStock === 'ok') p.append('low_stock', 'false');
     return `${API_URL}/fabrics/?${p.toString()}`;
-  }, [search, fabricType, unit, status]);
+  }, [search, fabricType, unit, status, lowStock]);
 
   return (
     <AppShell>
@@ -180,10 +228,11 @@ export default function FabricsPage() {
         </div>
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3 lg:flex-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 lg:flex-1">
             <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} />
             <Select value={fabricType} onChange={(e) => { setFabricType(e.target.value); setPage(1); }} options={FABRIC_TYPE_OPTIONS} />
             <Select value={unit} onChange={(e) => { setUnit(e.target.value); setPage(1); }} options={UNIT_FILTER_OPTIONS} />
+            <Select value={lowStock} onChange={(e) => { setLowStock(e.target.value); setPage(1); }} options={LOW_STOCK_FILTER_OPTIONS} />
             <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} options={STATUS_FILTER_OPTIONS} />
           </div>
           <div className="flex items-center gap-2">
@@ -193,6 +242,10 @@ export default function FabricsPage() {
                 تصدير Excel
               </Button>
             </a>
+            <Button variant="secondary" type="button" onClick={() => setBulkOpen(true)}>
+              <Percent size={16} />
+              تعديل أسعار بالجملة
+            </Button>
             <Button onClick={() => setModalOpen(true)}>
               <Plus size={18} />
               إضافة قماش
@@ -434,6 +487,71 @@ export default function FabricsPage() {
           loading={deleteLoading}
           message={`هل أنت متأكد من حذف قماش "${deleting?.name}"؟ لا يمكن التراجع عن هذا الإجراء.${(deleting?.total_rolls ?? 0) > 0 ? ' ملاحظة: إذا كان للقماش طاقات أو مشتريات أو مبيعات أو حركات مرتبطة، فلن يسمح النظام بحذفه حفاظاً على السجل المالي، ويمكنك إيقافه بدلاً من ذلك من خلال التعديل وتحديد الحالة «غير نشط».' : ''}`}
         />
+
+        <Modal open={bulkOpen} onClose={() => setBulkOpen(false)} title="تعديل أسعار بالجملة" maxWidth="max-w-lg">
+          <div className="space-y-4">
+            <p className="text-sm text-neutral-500">
+              يُطبق التعديل على الأقمشة الظاهرة بالفلتر الحالي. يمكنك تضييق النطاق أولاً بالبحث أو الفلاتر ثم فتح هذه النافذة.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-neutral-500 block mb-1">الحقل</label>
+                <Select
+                  value={bulkForm.field}
+                  options={[
+                    { value: 'sale_price_yard', label: 'سعر بيع الياردة' },
+                    { value: 'purchase_price', label: 'تكلفة الشراء' },
+                    { value: 'min_sale_yard', label: 'الحد الأدنى للبيع' },
+                  ]}
+                  onChange={(e) => setBulkForm({ ...bulkForm, field: e.target.value as typeof bulkForm.field })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-neutral-500 block mb-1">نوع التعديل</label>
+                <Select
+                  value={bulkForm.mode}
+                  options={[
+                    { value: 'percent', label: 'نسبة %' },
+                    { value: 'fixed', label: 'مبلغ ثابت' },
+                  ]}
+                  onChange={(e) => setBulkForm({ ...bulkForm, mode: e.target.value as typeof bulkForm.mode })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-neutral-500 block mb-1">الاتجاه</label>
+                <Select
+                  value={bulkForm.direction}
+                  options={[
+                    { value: 'increase', label: 'زيادة' },
+                    { value: 'decrease', label: 'نقصان' },
+                  ]}
+                  onChange={(e) => setBulkForm({ ...bulkForm, direction: e.target.value as typeof bulkForm.direction })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-neutral-500 block mb-1">
+                  {bulkForm.mode === 'percent' ? 'النسبة %' : 'المبلغ'}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step={bulkForm.mode === 'percent' ? '0.1' : '0.001'}
+                  value={bulkForm.value}
+                  onChange={(e) => setBulkForm({ ...bulkForm, value: e.target.value })}
+                  className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  placeholder={bulkForm.mode === 'percent' ? 'مثال: 10' : 'مثال: 0.500'}
+                />
+              </div>
+            </div>
+            <div className="flex justify-start gap-3 pt-2">
+              <Button onClick={handleBulkUpdate} loading={bulkLoading}>
+                <TrendingUp size={16} />
+                تطبيق التعديل
+              </Button>
+              <Button variant="secondary" onClick={() => setBulkOpen(false)}>إلغاء</Button>
+            </div>
+          </div>
+        </Modal>
       </div>
     </AppShell>
   );

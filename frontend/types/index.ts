@@ -63,6 +63,8 @@ export interface Customer {
   branch: number | null;
   branch_name: string;
   last_purchase_date?: string | null;
+  purchase_total?: number;
+  purchase_count?: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -880,6 +882,7 @@ export interface StockBalanceItem {
   total_yards: number;
   rolls_available: number;
   low_stock: boolean;
+  near_depletion_rolls?: number;
   warehouses: StockWarehouseBalance[];
 }
 
@@ -889,6 +892,7 @@ export interface StockBalanceResult {
     total_yards: number;
     rolls_available: number;
     low_stock_count: number;
+    near_depletion_rolls?: number;
     warehouses: number;
   };
 }

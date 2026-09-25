@@ -81,3 +81,7 @@ export async function downloadBackup(): Promise<void> {
 export async function downloadAutoBackup(name: string): Promise<void> {
   await downloadBlob(`${API_URL}/settings/auto-backup/${encodeURIComponent(name)}/`, name);
 }
+
+export async function deleteAutoBackup(name: string): Promise<{ detail: string; name: string }> {
+  return apiRequest<{ detail: string; name: string }>(`/settings/auto-backup/${encodeURIComponent(name)}/`, { method: 'DELETE' });
+}

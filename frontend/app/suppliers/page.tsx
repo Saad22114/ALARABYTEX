@@ -17,12 +17,13 @@ import StatCard from '@/components/ui/StatCard';
 import Badge from '@/components/ui/Badge';
 import Select from '@/components/ui/Select';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
-import { Plus, Eye, Pencil, Trash2, BookOpen, Users, ShoppingBag, Wallet, Undo2, Scale, ChevronLeft, Printer, Share2 } from 'lucide-react';
+import { Plus, Eye, Pencil, Trash2, BookOpen, Users, ShoppingBag, Wallet, Undo2, Scale, ChevronLeft, Printer, Share2, HandCoins } from 'lucide-react';
 import { Supplier, Paginated, SuppliersOverview, Warehouse, Branch } from '@/types';
-import { listSuppliers, createSupplier, updateSupplier, deleteSupplier, getSuppliersOverview } from '@/services/suppliers';
+import { listSuppliers, createSupplier, updateSupplier, deleteSupplier, getSuppliersOverview, createLedgerEntry } from '@/services/suppliers';
 import { listWarehouses } from '@/services/warehouses';
 import { listBranches } from '@/services/branches';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatDate } from '@/lib/format';
+import Input from '@/components/ui/Input';
 import { openSuppliersOverviewReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -48,6 +49,11 @@ export default function SuppliersPage() {
   const [deleting, setDeleting] = useState<Supplier | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
+  const [payTarget, setPayTarget] = useState<Supplier | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
+  const [payMethod, setPayMethod] = useState<'cash' | 'bank_transfer'>('cash');
+  const [payLoading, setPayLoading] = useState(false);
 
   const openReport = async (autoPrint: boolean) => {
     if (!overview) return;
@@ -125,6 +131,41 @@ export default function SuppliersPage() {
       toast('error', err.message);
     } finally {
       setDeleteLoading(false);
+    }
+  };
+
+  const handleQuickPay = async () => {
+    if (!payTarget) return;
+    const amount = Number(payAmount);
+    if (!amount || amount <= 0) {
+      toast('error', 'أدخل مبلغاً صحيحاً أكبر من صفر');
+      return;
+    }
+    setPayLoading(true);
+    try {
+      await createLedgerEntry(payTarget.id, {
+        entry_type: 'payment',
+        date: payDate,
+        amount,
+        payment_method: payMethod,
+        description: 'دفعة سريعة',
+      });
+      toast('success', 'تم تسجيل الدفعة بنجاح');
+      setPayTarget(null);
+      setPayAmount('');
+      fetchData();
+      getSuppliersOverview({
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+        warehouse: filterWarehouse || undefined,
+        branch: filterBranch || undefined,
+      })
+        .then(setOverview)
+        .catch(() => {});
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setPayLoading(false);
     }
   };
 
@@ -262,6 +303,13 @@ export default function SuppliersPage() {
                       </Td>
                       <Td>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setPayTarget(s)}
+                            className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors"
+                            title={s.current_balance > 0 ? `تسجيل دفعة للمورد (المستحق: ${formatCurrency(s.current_balance)})` : 'تسجيل دفعة للمورد'}
+                          >
+                            <HandCoins size={16} />
+                          </button>
                           <Link href={`/suppliers/${s.id}?tab=ledger`} title="دفتر الحساب" className="p-1.5 rounded-lg hover:bg-brand-50 text-brand-600 transition-colors">
                             <BookOpen size={16} />
                           </Link>
@@ -291,6 +339,57 @@ export default function SuppliersPage() {
 
         <Modal open={!!editing} onClose={() => setEditing(null)} title="تعديل المورد" maxWidth="max-w-2xl">
           {editing && <SupplierForm initial={editing} onSubmit={handleUpdate} onCancel={() => setEditing(null)} />}
+        </Modal>
+
+        <Modal open={!!payTarget} onClose={() => setPayTarget(null)} title="تسجيل دفعة للمورد" maxWidth="max-w-md">
+          <div className="space-y-4">
+            <div className="rounded-xl bg-sand-50 border border-sand-200 p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-neutral-800">{payTarget?.name}</p>
+                <p className="text-xs text-neutral-500 mt-0.5">المبلغ المستحق حالياً</p>
+              </div>
+              <span className="text-lg font-bold tabular-nums text-red-600">{formatCurrency(payTarget?.current_balance ?? 0)}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-neutral-500 block mb-1">المبلغ</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  placeholder="0.000"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-neutral-500 block mb-1">التاريخ</label>
+                <input
+                  type="date"
+                  value={payDate}
+                  onChange={(e) => setPayDate(e.target.value)}
+                  className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                />
+              </div>
+            </div>
+            <Select
+              label="طريقة الدفع"
+              value={payMethod}
+              onChange={(e) => setPayMethod(e.target.value as 'cash' | 'bank_transfer')}
+              options={[
+                { value: 'cash', label: 'كاش' },
+                { value: 'bank_transfer', label: 'تحويل بنكي' },
+              ]}
+            />
+            <div className="flex justify-start gap-3 pt-2">
+              <Button onClick={handleQuickPay} loading={payLoading}>
+                <HandCoins size={16} />
+                تسجيل الدفعة
+              </Button>
+              <Button variant="secondary" onClick={() => setPayTarget(null)}>إلغاء</Button>
+            </div>
+          </div>
         </Modal>
 
         <ConfirmDialog

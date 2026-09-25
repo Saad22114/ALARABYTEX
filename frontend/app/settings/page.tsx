@@ -20,7 +20,7 @@ import {
 import { ExpenseCategory, ExpenseBudget, Branch, AppSection } from '@/types';
 import { listExpenseCategories, listExpenseBudgets, createExpenseBudget, updateExpenseBudget, deleteExpenseBudget } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
-import { restoreSettings, resetData, getAutoBackups, runAutoBackup, downloadBackup, downloadAutoBackup, AutoBackupInfo } from '@/services/settings';
+import { restoreSettings, resetData, getAutoBackups, runAutoBackup, downloadBackup, downloadAutoBackup, deleteAutoBackup, AutoBackupInfo } from '@/services/settings';
 import { getSectionsInfo } from '@/services/sections';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
@@ -350,6 +350,8 @@ export default function SettingsPage() {
 
   const [backupDownloading, setBackupDownloading] = useState(false);
   const [downloadingAuto, setDownloadingAuto] = useState<string | null>(null);
+  const [deletingAuto, setDeletingAuto] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleBackup = async () => {
     setBackupDownloading(true);
@@ -372,6 +374,19 @@ export default function SettingsPage() {
       toast('error', err.message || 'فشل تنزيل الملف');
     } finally {
       setDownloadingAuto(null);
+    }
+  };
+
+  const handleDeleteAuto = async (name: string) => {
+    setDeletingAuto(name);
+    try {
+      await deleteAutoBackup(name);
+      toast('success', 'تم حذف النسخة الاحتياطية');
+      fetchAutoBackups();
+    } catch (err: any) {
+      toast('error', err.message || 'فشل حذف النسخة الاحتياطية');
+    } finally {
+      setDeletingAuto(null);
     }
   };
 
@@ -1004,6 +1019,7 @@ export default function SettingsPage() {
                         <Th>الحجم</Th>
                         <Th>التاريخ</Th>
                         <Th>تنزيل</Th>
+                        <Th>حذف</Th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1022,6 +1038,16 @@ export default function SettingsPage() {
                             >
                               <Download size={14} />
                               {downloadingAuto === f.name ? 'يتم التحميل...' : 'تحميل'}
+                            </button>
+                          </Td>
+                          <Td className="text-left">
+                            <button
+                              onClick={() => setDeleteTarget(f.name)}
+                              disabled={deletingAuto === f.name}
+                              className="inline-flex items-center gap-1 text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-60"
+                            >
+                              <Trash2 size={14} />
+                              {deletingAuto === f.name ? 'يتم الحذف...' : 'حذف'}
                             </button>
                           </Td>
                         </Tr>
@@ -1166,6 +1192,14 @@ export default function SettingsPage() {
           onConfirm={handleDeleteBudget}
           loading={deleteBudgetLoading}
           message={`هل أنت متأكد من حذف ميزانية "${deletingBudget?.category_name} — ${deletingBudget?.branch_name}" (${deletingBudget?.month?.slice(0, 7)})؟`}
+        />
+
+        <ConfirmDialog
+          open={!!deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={() => deleteTarget ? handleDeleteAuto(deleteTarget) : undefined}
+          loading={!!deletingAuto}
+          message={`هل أنت متأكد من حذف النسخة الاحتياطية "${deleteTarget}"؟ لا يمكن التراجع عن هذا الإجراء.`}
         />
       </div>
     </AppShell>

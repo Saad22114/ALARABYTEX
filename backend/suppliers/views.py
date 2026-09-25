@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, F, IntegerField, Q, OuterRef, Subquery, Sum, Window
 from django.db.models.deletion import ProtectedError
 from django.db.models.functions import Coalesce
@@ -117,6 +118,14 @@ class FabricViewSet(viewsets.ModelViewSet):
         if is_active is not None:
             active = str(is_active).strip().lower() in ("true", "1", "yes", "on")
             qs = qs.filter(is_active=active)
+        low_stock = params.get("low_stock")
+        if low_stock is not None:
+            only_low = str(low_stock).strip().lower() in ("true", "1", "yes", "on")
+            qs = qs.filter(min_stock__gt=0)
+            if only_low:
+                qs = qs.filter(stock_yards__lt=F("min_stock"))
+            else:
+                qs = qs.filter(stock_yards__gte=F("min_stock"))
         return qs
 
     def get_queryset(self):
@@ -287,6 +296,68 @@ class FabricViewSet(viewsets.ModelViewSet):
             )
         return Response(
             {"detail": settings.API_MESSAGES["deleted"]},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-price-update")
+    def bulk_price_update(self, request):
+        import re
+
+        field = request.data.get("field", "sale_price_yard")
+        mode = request.data.get("mode", "percent")
+        value_raw = request.data.get("value")
+        direction = request.data.get("direction", "increase")
+
+        if field not in ("sale_price_yard", "purchase_price", "min_sale_yard"):
+            return Response(
+                {"detail": "الحقل المطلوب غير صالح"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if mode not in ("percent", "fixed"):
+            return Response(
+                {"detail": "نوع التعديل غير صالح"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if direction not in ("increase", "decrease"):
+            return Response(
+                {"detail": "الاتجاه غير صالح"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            value = Decimal(str(value_raw).strip())
+        except Exception:
+            return Response(
+                {"detail": "القيمة المطلوبة غير صالحة"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if value < 0:
+            return Response(
+                {"detail": "لا يمكن استخدام قيمة سالبة"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if mode == "percent" and value > 100:
+            return Response(
+                {"detail": "النسبة لا يمكن أن تتجاوز 100%"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        qs = self.filter_queryset(self.get_queryset())
+        qs = self._apply_filters(qs, self.request.query_params)
+
+        sign = Decimal("1") if direction == "increase" else Decimal("-1")
+        updated = 0
+        with transaction.atomic():
+            for fabric in qs.select_for_update():
+                old = getattr(fabric, field) or Decimal("0")
+                if mode == "percent":
+                    new = old + sign * (old * value / Decimal("100"))
+                else:
+                    new = old + sign * value
+                if new < 0:
+                    new = Decimal("0")
+                new = new.quantize(Decimal("0.001"))
+                setattr(fabric, field, new)
+                fabric.save(update_fields=[field, "updated_at"])
+                updated += 1
+        return Response(
+            {
+                "detail": f"تم تحديث أسعار {updated} صنف",
+                "updated": updated,
+            },
             status=status.HTTP_200_OK,
         )
 

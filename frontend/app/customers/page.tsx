@@ -16,11 +16,11 @@ import Badge from '@/components/ui/Badge';
 import Select from '@/components/ui/Select';
 import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
-import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone } from 'lucide-react';
+import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle } from 'lucide-react';
 import { Customer, CustomersSummary, Paginated, Branch } from '@/types';
 import { listCustomers, createCustomer, updateCustomer, deleteCustomer, getCustomersSummary } from '@/services/customers';
 import { listBranches } from '@/services/branches';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatCurrency } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
@@ -167,6 +167,8 @@ export default function CustomersPage() {
                   <tr>
                     <Th>اسم الزبون</Th>
                     <Th>رقم الهاتف</Th>
+                    <Th>إجمالي المشتريات</Th>
+                    <Th>آخر شراء</Th>
                     <Th>البريد الإلكتروني</Th>
                     <Th>الفرع</Th>
                     <Th>ملاحظات</Th>
@@ -179,7 +181,30 @@ export default function CustomersPage() {
                   {data.results.map((c) => (
                     <Tr key={c.id}>
                       <Td className="font-medium">{c.name}</Td>
-                      <Td dir="ltr" className="text-left">{c.phone || '-'}</Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <span dir="ltr" className="text-left">{c.phone || '-'}</span>
+                          {c.phone ? (
+                            <a
+                              href={`https://wa.me/${c.phone.replace(/[^\d]/g, '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors"
+                              title="تواصل عبر واتساب"
+                            >
+                              <MessageCircle size={15} />
+                            </a>
+                          ) : null}
+                        </div>
+                      </Td>
+                      <Td className="text-sm tabular-nums">
+                        {c.purchase_count ? (
+                          <span className="block">{formatCurrency(c.purchase_total ?? 0)}</span>
+                        ) : (
+                          <span className="text-xs text-neutral-400">بدون مشتريات</span>
+                        )}
+                      </Td>
+                      <Td className="text-sm">{c.last_purchase_date ? formatDate(c.last_purchase_date) : '-'}</Td>
                       <Td>{c.email || '-'}</Td>
                       <Td>{c.branch_name || '-'}</Td>
                       <Td className="max-w-[200px] truncate">{c.notes || '-'}</Td>

@@ -1,5 +1,6 @@
 from django.conf import settings
 import re
+from django.db.models import Count, Max, Sum
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -39,6 +40,56 @@ class CustomerViewSet(viewsets.ModelViewSet):
         if date_to:
             qs = qs.filter(created_at__date__lte=date_to)
         return qs
+
+    def _phone_variants(self, phones):
+        out = set()
+        for p in phones:
+            if not p:
+                continue
+            out.add(p)
+            out.add(re.sub(r"\s", "", p))
+        return out
+
+    def _purchase_stats(self, phones):
+        """إجمالي المشتريات وعددها وآخر تاريخ شراء لكل رقم هاتف."""
+        stats = {}
+        if not phones:
+            return stats
+        rows = (
+            scope_queryset(
+                self.request,
+                SaleSessionItem.objects.filter(customer_phone__in=phones),
+                branch_field="session__branch",
+            )
+            .values("customer_phone")
+            .annotate(
+                total=Sum("total"),
+                count=Count("id"),
+                last=Max("sale_date"),
+            )
+        )
+        for r in rows:
+            stats[r["customer_phone"]] = r
+        return stats
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        customers = response.data.get("results") or []
+        phones = self._phone_variants([c.get("phone") for c in customers])
+        stats = self._purchase_stats(phones)
+        for c in customers:
+            variants = self._phone_variants([c.get("phone")])
+            total = sum(float(stats.get(v, {}).get("total") or 0) for v in variants)
+            count = sum(int(stats.get(v, {}).get("count") or 0) for v in variants)
+            last = None
+            for v in variants:
+                v_last = stats.get(v, {}).get("last")
+                if v_last and (last is None or v_last > last):
+                    last = v_last
+            c["purchase_total"] = total
+            c["purchase_count"] = count
+            c["last_purchase_date"] = last.isoformat() if last else None
+        return response
 
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):
