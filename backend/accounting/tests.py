@@ -196,6 +196,43 @@ class AutoPostTests(AccountingSetup):
         self.assertIsNotNone(entry)
         self.assertGreaterEqual(entry.lines.count(), 2)
 
+    def test_returned_items_excluded_from_journal(self):
+        from sale_sessions.models import Employee, SaleSession, SaleSessionItem
+        from sale_sessions.services import close_session, return_session_items
+
+        emp = Employee.objects.create(name="مندوب", branch=self.branch)
+        session = SaleSession.objects.create(employee=emp, branch=self.branch)
+        SaleSessionItem.objects.create(
+            session=session,
+            fabric=self.fabric,
+            sale_type=SaleSessionItem.SaleType.YARD,
+            quantity=Decimal("10"),
+            unit_price=Decimal("20"),
+            total=Decimal("200"),
+            net_total=Decimal("200"),
+            sale_date=date.today(),
+            payment_method=SaleSessionItem.PaymentMethod.CASH,
+        )
+        returned = SaleSessionItem.objects.create(
+            session=session,
+            fabric=self.fabric,
+            sale_type=SaleSessionItem.SaleType.YARD,
+            quantity=Decimal("5"),
+            unit_price=Decimal("20"),
+            total=Decimal("100"),
+            net_total=Decimal("100"),
+            sale_date=date.today(),
+            payment_method=SaleSessionItem.PaymentMethod.CASH,
+        )
+        close_session(session)
+        return_session_items(session, [returned])
+        entry = JournalEntry.objects.filter(source=JournalEntry.Source.SESSION, source_id=session.pk).first()
+        self.assertIsNotNone(entry)
+        rev = Account.objects.get(source_key="SALE_REVENUE")
+        rev_line = entry.lines.filter(account=rev).first()
+        self.assertIsNotNone(rev_line)
+        self.assertEqual(rev_line.debit + rev_line.credit, Decimal("200"))
+
     def test_post_expense(self):
         exp = Expense.objects.create(
             branch=self.branch,

@@ -154,7 +154,7 @@ def post_session_close(session):
         }
         cogs = Decimal("0")
     else:
-        rows = list(session.items.select_related("fabric"))
+        rows = list(session.items.select_related("fabric").filter(is_returned=False))
         if not rows:
             return
         totals = {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values}
