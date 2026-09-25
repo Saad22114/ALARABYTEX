@@ -31,6 +31,7 @@ def employee_payload(emp):
             emp.allowed_branches.order_by("name").values_list("name", flat=True)
         ),
         "is_active": emp.is_active,
+        "must_change_password": emp.must_change_password,
         "username": emp.user.username if emp.user_id else None,
         "commission_active": emp.commission_active,
         "birth_date": emp.birth_date,
@@ -113,6 +114,72 @@ class MeView(APIView):
         employee = request.user.employee
         return Response(
             {
+                "employee": employee_payload(employee),
+                "sections": SECTIONS,
+                "roles": ROLE_PRESETS,
+            }
+        )
+
+
+class ChangePasswordView(APIView):
+    """تغيير كلمة مرور الموظف الحالي — مطلوب في أول دخول عند تفعيل must_change_password."""
+
+    permission_section = "@identity"
+
+    def post(self, request):
+        employee = request.user.employee
+        current = request.data.get("current_password") or ""
+        new = request.data.get("new_password") or ""
+        confirm = request.data.get("confirm_password") or ""
+        if not new:
+            return Response(
+                {"detail": "كلمة المرور الجديدة مطلوبة"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not current:
+            return Response(
+                {"detail": "كلمة المرور الحالية مطلوبة"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new != confirm:
+            return Response(
+                {"detail": "تأكيد كلمة المرور غير متطابق"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(new) < 6:
+            return Response(
+                {"detail": "كلمة المرور يجب أن تكون 6 أحرف على الأقل"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not request.user.check_password(current):
+            return Response(
+                {"detail": "كلمة المرور الحالية غير صحيحة"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new == current:
+            return Response(
+                {"detail": "كلمة المرور الجديدة يجب أن تختلف عن الحالية"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.set_password(new)
+        request.user.save(update_fields=["password"])
+        Employee.objects.filter(pk=employee.pk).update(must_change_password=False)
+        employee.must_change_password = False
+
+        from audit.services import log_audit
+        log_audit(
+            "auth",
+            "update",
+            employee=employee,
+            request=request,
+            model_name="sale_sessions.employee",
+            object_id=employee.pk,
+            object_repr=employee.name,
+            changes={"field": "password", "must_change_password": False},
+        )
+        return Response(
+            {
+                "detail": "تم تغيير كلمة المرور بنجاح",
                 "employee": employee_payload(employee),
                 "sections": SECTIONS,
                 "roles": ROLE_PRESETS,

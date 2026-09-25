@@ -174,8 +174,8 @@ class SaleSessionItem(TimeStampedModel):
         CARD = "card", "ماكينة"
 
     class CardType(models.TextChoices):
-        CREDIT = "credit", "إئتماني"
-        DEBIT = "debit", "خصم مباشر"
+        CREDIT = "credit", "إئتماني / Credit"
+        DEBIT = "debit", "خصم مباشر / Debit"
 
     session = models.ForeignKey(
         SaleSession, on_delete=models.CASCADE, related_name="items", verbose_name="الوردية"

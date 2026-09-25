@@ -233,6 +233,87 @@ class AutoPostTests(AccountingSetup):
         self.assertIsNotNone(rev_line)
         self.assertEqual(rev_line.debit + rev_line.credit, Decimal("200"))
 
+    def test_session_journal_dated_on_sale_date(self):
+        from sale_sessions.models import Employee, SaleSession, SaleSessionItem
+        from sale_sessions.services import close_session
+
+        emp = Employee.objects.create(name="مندوب", branch=self.branch)
+        session = SaleSession.objects.create(employee=emp, branch=self.branch)
+        SaleSessionItem.objects.create(
+            session=session,
+            fabric=self.fabric,
+            sale_type=SaleSessionItem.SaleType.YARD,
+            quantity=Decimal("10"),
+            unit_price=Decimal("20"),
+            total=Decimal("200"),
+            net_total=Decimal("200"),
+            sale_date=date(2025, 5, 2),
+            payment_method=SaleSessionItem.PaymentMethod.CASH,
+        )
+        close_session(session)
+        entries = list(JournalEntry.objects.filter(
+            source=JournalEntry.Source.SESSION, source_id=session.pk
+        ))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].date, date(2025, 5, 2))
+
+    def test_session_journal_split_by_sale_date(self):
+        from sale_sessions.models import Employee, SaleSession, SaleSessionItem
+        from sale_sessions.services import close_session
+
+        emp = Employee.objects.create(name="مندوب", branch=self.branch)
+        session = SaleSession.objects.create(employee=emp, branch=self.branch)
+        SaleSessionItem.objects.create(
+            session=session,
+            fabric=self.fabric,
+            sale_type=SaleSessionItem.SaleType.YARD,
+            quantity=Decimal("10"),
+            unit_price=Decimal("20"),
+            total=Decimal("200"),
+            net_total=Decimal("200"),
+            sale_date=date(2025, 5, 2),
+            payment_method=SaleSessionItem.PaymentMethod.CASH,
+        )
+        SaleSessionItem.objects.create(
+            session=session,
+            fabric=self.fabric,
+            sale_type=SaleSessionItem.SaleType.YARD,
+            quantity=Decimal("2"),
+            unit_price=Decimal("20"),
+            total=Decimal("40"),
+            net_total=Decimal("40"),
+            sale_date=date(2025, 5, 3),
+            payment_method=SaleSessionItem.PaymentMethod.CASH,
+        )
+        close_session(session)
+        entries = list(JournalEntry.objects.filter(
+            source=JournalEntry.Source.SESSION, source_id=session.pk
+        ).order_by("date"))
+        dates = [e.date for e in entries]
+        self.assertEqual(dates, [date(2025, 5, 2), date(2025, 5, 3)])
+        rev = Account.objects.get(source_key="SALE_REVENUE")
+        amounts = {}
+        for e in entries:
+            rev_line = e.lines.filter(account=rev).first()
+            amounts[e.date] = rev_line.debit + rev_line.credit
+        self.assertEqual(amounts[date(2025, 5, 2)], Decimal("200"))
+        self.assertEqual(amounts[date(2025, 5, 3)], Decimal("40"))
+
+    def test_manual_session_journal_dated_on_manual_date(self):
+        from sale_sessions.models import Employee, SaleSession
+        from sale_sessions.services import create_manual_session
+
+        emp = Employee.objects.create(name="مندوب", branch=self.branch)
+        session = create_manual_session(
+            employee=emp, branch=self.branch, sale_date=date(2025, 4, 15),
+            cash=Decimal("100"), transfer=Decimal("0"), card=Decimal("0"),
+        )
+        entries = list(JournalEntry.objects.filter(
+            source=JournalEntry.Source.SESSION, source_id=session.pk
+        ))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].date, date(2025, 4, 15))
+
     def test_post_expense(self):
         exp = Expense.objects.create(
             branch=self.branch,

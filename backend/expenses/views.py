@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.conf import settings
 from datetime import date
+import logging
 from core.branch_scope import scope_queryset
 from .models import Expense, ExpenseBudget, ExpenseCategory
 from .serializers import (
@@ -10,6 +11,8 @@ from .serializers import (
     ExpenseReadSerializer,
     ExpenseWriteSerializer,
 )
+
+logger = logging.getLogger("accounting")
 
 
 class ExpenseCategoryViewSet(viewsets.ModelViewSet):
@@ -72,7 +75,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
             from accounting.services import post_expense
             post_expense(expense)
         except Exception:
-            pass
+            logger.exception("فشل ترحيل قيد المصروف (id=%s)", expense.pk)
 
     def perform_update(self, serializer):
         expense = serializer.save()
@@ -80,7 +83,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
             from accounting.services import post_expense
             post_expense(expense)
         except Exception:
-            pass
+            logger.exception("فشل ترحيل قيد المصروف (id=%s)", expense.pk)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -89,7 +92,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
             from accounting.services import unpost_source
             unpost_source(JournalEntry.Source.EXPENSE, instance.pk)
         except Exception:
-            pass
+            logger.exception("فشل إلغاء قيد المصروف (id=%s)", instance.pk)
         self.perform_destroy(instance)
         return Response(
             {"detail": settings.API_MESSAGES["deleted"]},

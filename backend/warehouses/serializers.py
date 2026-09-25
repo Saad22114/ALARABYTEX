@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from suppliers.models import Fabric, Supplier
 from branches.models import Branch
+from core.branch_scope import assert_write_branch_allowed
 
 from .models import (
     DocumentSequence,
@@ -61,6 +62,15 @@ class FabricRollSerializer(serializers.ModelSerializer):
             "status_label", "received_date", "notes", "created_at",
         ]
         read_only_fields = ["id", "code", "remaining_yards", "created_at"]
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None:
+            assert_write_branch_allowed(
+                request,
+                warehouses=[attrs.get("warehouse") or getattr(self.instance, "warehouse", None)],
+            )
+        return attrs
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
@@ -173,6 +183,12 @@ class GoodsReceiptWriteSerializer(serializers.Serializer):
         branch = attrs.get("branch")
         if bool(warehouse) == bool(branch):
             raise serializers.ValidationError("حدد وجهة واحدة للاستلام: إمّا مخزن أَو فرع")
+        request = self.context.get("request")
+        if request is not None:
+            assert_write_branch_allowed(
+                request,
+                branches=[branch if branch is not None else (warehouse.branch if warehouse else None)],
+            )
         return attrs
 
     def validate_items(self, items):
@@ -278,6 +294,13 @@ class StockTransferWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("حدد وجهة واحدة للتحويل: إمّا مخزن أَو فرع")
         if attrs["from_warehouse"].pk == (to_warehouse.pk if to_warehouse else None):
             raise serializers.ValidationError("لا يمكن التحويل من مخزن إلى نفسه")
+        request = self.context.get("request")
+        if request is not None:
+            assert_write_branch_allowed(
+                request,
+                branches=[to_branch],
+                warehouses=[attrs["from_warehouse"], to_warehouse],
+            )
         if not attrs.get("items"):
             raise serializers.ValidationError("أضف صنفاً واحداً على الأقل")
         attrs["items"] = _item_tuples(attrs["items"], support_mode=True)
@@ -355,6 +378,12 @@ class StockAdjustmentWriteSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     items = serializers.ListField(child=serializers.DictField(), required=False)
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None:
+            assert_write_branch_allowed(request, warehouses=[attrs.get("warehouse")])
+        return attrs
+
     def validate_items(self, items):
         if not items:
             raise serializers.ValidationError("أضف صنفاً واحداً على الأقل")
@@ -406,6 +435,12 @@ class StockCountWriteSerializer(serializers.Serializer):
     warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all())
     date = serializers.DateField()
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None:
+            assert_write_branch_allowed(request, warehouses=[attrs.get("warehouse")])
+        return attrs
 
     def create(self, validated_data):
         return StockCount.objects.create(
@@ -466,6 +501,12 @@ class StockOpeningWriteSerializer(serializers.Serializer):
     date = serializers.DateField()
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     items = serializers.ListField(child=serializers.DictField(), required=False)
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None:
+            assert_write_branch_allowed(request, warehouses=[attrs.get("warehouse")])
+        return attrs
 
     def validate_items(self, items):
         if not items:

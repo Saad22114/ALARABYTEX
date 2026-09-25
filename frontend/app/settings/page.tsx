@@ -1067,7 +1067,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="p-4 bg-sand-50 rounded-xl">
                 <p className="text-xs text-neutral-400 mb-1">النسخة</p>
-                <p className="font-semibold text-neutral-800">1.0.0</p>
+                <p className="font-semibold text-neutral-800">1.5.0</p>
               </div>
               <div className="p-4 bg-sand-50 rounded-xl">
                 <p className="text-xs text-neutral-400 mb-1">الاسم التجاري</p>

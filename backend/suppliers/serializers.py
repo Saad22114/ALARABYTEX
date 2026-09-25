@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db import transaction
 from rest_framework import serializers
 from branches.models import Branch
+from core.branch_scope import assert_write_branch_allowed
 from warehouses.models import Warehouse
 from warehouses.services import create_purchase_receipts
 
@@ -249,6 +250,16 @@ class PurchaseItemInputSerializer(serializers.Serializer):
     )
     branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False, allow_null=True)
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None:
+            assert_write_branch_allowed(
+                request,
+                branches=[attrs.get("branch")],
+                warehouses=[attrs.get("warehouse")],
+            )
+        return attrs
+
 
 class LedgerEntryCreateSerializer(serializers.Serializer):
     entry_type = serializers.ChoiceField(choices=LedgerEntry.EntryType.choices)
@@ -340,6 +351,28 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
         data.pop("items", None)
         data["_items"] = items
         data["_payment_amount"] = immediate_payment
+
+        # نطاق الكتابة: وجة التوريد (مخزن/فرع) تُستخدم في قيود الشراء فقط
+        request = self.context.get("request")
+        if request is not None and entry_type == LedgerEntry.EntryType.PURCHASE:
+            dest_branches = [b for b in [branch] if b is not None]
+            dest_warehouses = [w for w in [warehouse] if w is not None]
+            for itm in items:
+                iw = itm.get("warehouse")
+                ib = itm.get("branch")
+                if iw is not None and not isinstance(iw, (int, str)):
+                    dest_warehouses.append(iw)
+                elif iw is not None:
+                    dest_warehouses.append(Warehouse.objects.filter(pk=iw).first())
+                if ib is not None and not isinstance(ib, (int, str)):
+                    dest_branches.append(ib)
+                elif ib is not None:
+                    dest_branches.append(Branch.objects.filter(pk=ib).first())
+            assert_write_branch_allowed(
+                request,
+                branches=[b for b in dest_branches if b is not None],
+                warehouses=[w for w in dest_warehouses if w is not None],
+            )
         return data
 
     def create(self, validated_data):

@@ -69,3 +69,60 @@ def scope_queryset_or(request, queryset, branch_fields):
         else:
             q |= Q(**{f"{field}_id__in": allowed})
     return queryset.filter(q)
+
+
+def _branch_id_of(value):
+    """يستخرج معرف الفرع من: فرع، مخزن، أو معرّف خام. None إن لم يُحدَّد."""
+    if value is None:
+        return None
+    if isinstance(value, (int,)):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    if hasattr(value, "branch_id") and value.branch_id is not None:
+        return value.branch_id
+    if hasattr(value, "id"):
+        return value.id
+    return None
+
+
+def write_scope_allowed(request, branches=(), warehouses=()):
+    """هل يُسمح للموظف الحالي بالكتابة على هذه الفروع/المخازن؟
+
+    - مدير/مشرف أو سياق بلا موظف: لا يوجد تقييد (True).
+    - فرقّات فارغة (لا هدف للكتابة): يُسمح.
+    - فرقّات محددة: كلها يجب أن تقع ضمن نطاق الفروع المسموح.
+    """
+    employee = get_request_employee(request)
+    if employee is None:
+        return True
+    allowed = employee_branch_scope(employee)
+    if allowed is None:
+        return True
+    if not allowed:
+        return False
+    ids = set()
+    for b in branches:
+        bid = _branch_id_of(b)
+        if bid is not None:
+            ids.add(bid)
+    for w in warehouses:
+        bid = _branch_id_of(w)
+        if bid is not None:
+            ids.add(bid)
+    if not ids:
+        return True
+    return ids.issubset(allowed)
+
+
+def assert_write_branch_allowed(request, branches=(), warehouses=(), message=None):
+    """يمنع (403) الكتابة على فروع/مخازن خارج نطاق الموظف الحالي."""
+    from rest_framework.exceptions import PermissionDenied
+
+    if not write_scope_allowed(request, branches=branches, warehouses=warehouses):
+        raise PermissionDenied(
+            message or "لا يمكنك التعامل مع فرع خارج نطاق فروعك المسموحة"
+        )

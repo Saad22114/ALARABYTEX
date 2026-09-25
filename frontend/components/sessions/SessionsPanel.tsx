@@ -57,8 +57,8 @@ const PAYMENT_OPTIONS = [
 ];
 
 const CARD_TYPE_OPTIONS = [
-  { value: 'credit', label: 'إئتماني' },
-  { value: 'debit', label: 'خصم مباشر' },
+  { value: 'credit', label: 'إئتماني / Credit' },
+  { value: 'debit', label: 'خصم مباشر / Debit' },
 ];
 
 interface ItemForm {
@@ -1098,7 +1098,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                   {line.payment_method === 'card' && calc.cardFee > 0 && calc.netAfterFee != null && (
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2">
                       <span className="text-xs text-neutral-600">
-                        عمولة الماكينة {calc.feePercent}% ({line.card_type === 'debit' ? 'خصم مباشر' : 'إئتماني'}):
+                        عمولة الماكينة {calc.feePercent}% ({line.card_type === 'debit' ? 'خصمهههه مباشر' : 'إئتماني'}):
                       </span>
                       <span className="text-xs font-semibold text-red-600 tabular-nums">- {formatCurrency(calc.cardFee)}</span>
                       <span className="text-sm font-bold text-brand-700 tabular-nums">الصافي: {formatCurrency(calc.netAfterFee)}</span>

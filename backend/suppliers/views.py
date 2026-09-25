@@ -1,4 +1,5 @@
 from decimal import Decimal
+import logging
 
 from django.conf import settings
 from django.db import transaction
@@ -23,6 +24,8 @@ from .serializers import (
     LedgerEntrySerializer,
     SupplierSerializer,
 )
+
+logger = logging.getLogger("accounting")
 
 
 class SupplierViewSet(viewsets.ModelViewSet):
@@ -463,7 +466,7 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
                 if payment:
                     post_supplier_entry(payment)
         except Exception:
-            pass
+            logger.exception("فشل ترحيل قيد مورد (id=%s)", created.pk)
         entry = next(
             (row for row in self._annotated_ledger(supplier) if row.pk == created.pk),
             created,
@@ -476,26 +479,27 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
     def destroy(self, request, pk=None, entry_pk=None):
         supplier = get_object_or_404(Supplier, pk=pk)
         entry = get_object_or_404(LedgerEntry, pk=entry_pk, supplier=supplier)
+        payment = None
+        if entry.entry_type == LedgerEntry.EntryType.PURCHASE and entry.receipt_no:
+            payment = LedgerEntry.objects.filter(
+                supplier=supplier,
+                entry_type=LedgerEntry.EntryType.PAYMENT,
+                receipt_no=entry.receipt_no,
+                date=entry.date,
+                description__startswith="سداد فوري",
+            ).first()
         try:
             from accounting.models import JournalEntry
             from accounting.services import unpost_source
 
             unpost_source(JournalEntry.Source.PURCHASE, entry.pk)
-            if (
-                entry.entry_type == LedgerEntry.EntryType.PURCHASE
-                and entry.receipt_no
-            ):
-                payment = LedgerEntry.objects.filter(
-                    supplier=supplier,
-                    entry_type=LedgerEntry.EntryType.PAYMENT,
-                    receipt_no=entry.receipt_no,
-                    date=entry.date,
-                ).first()
-                if payment:
-                    unpost_source(JournalEntry.Source.PURCHASE, payment.pk)
+            if payment:
+                unpost_source(JournalEntry.Source.PURCHASE, payment.pk)
         except Exception:
-            pass
+            logger.exception("فشل إلغاء قيد مورد (id=%s)", entry.pk)
         entry.delete()
+        if payment:
+            payment.delete()
         return Response(
             {"detail": settings.API_MESSAGES["deleted"]},
             status=status.HTTP_200_OK,

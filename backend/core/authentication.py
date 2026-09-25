@@ -16,6 +16,30 @@ _last_seen_written = {}
 class PresenceTokenAuthentication(TokenAuthentication):
     """توكن كالمعتاد لكنه يحدّث «آخر ظهور» للموظف عند كل طلب مصادق."""
 
+    #: المسارات التي تبقى متاحة لمن عليه تغيير كلمة المرور الإلزامي
+    MUST_CHANGE_ALLOWED_PATHS = (
+        "/api/auth/me/",
+        "/api/auth/logout/",
+        "/api/auth/change-password/",
+        "/api/settings/public/",
+    )
+
+    def authenticate(self, request):
+        result = super().authenticate(request)
+        if result is None:
+            return None
+        user, token = result
+        employee = getattr(user, "employee", None)
+        if employee is not None and employee.must_change_password:
+            path = request.path or ""
+            if not any(path.startswith(p) for p in self.MUST_CHANGE_ALLOWED_PATHS):
+                from rest_framework.exceptions import PermissionDenied
+
+                raise PermissionDenied(
+                    {"detail": "يجب تغيير كلمة المرور قبل استخدام النظام", "code": "must_change_password"}
+                )
+        return result
+
     def authenticate_credentials(self, key):
         user, token = super().authenticate_credentials(key)
         self._touch(user)

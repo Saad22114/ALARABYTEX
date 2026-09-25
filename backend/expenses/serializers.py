@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
+from core.branch_scope import assert_write_branch_allowed
 from .models import Expense, ExpenseBudget, ExpenseCategory
 
 
@@ -50,6 +51,13 @@ class ExpenseWriteSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None:
+            branch = attrs.get("branch") or getattr(self.instance, "branch", None)
+            assert_write_branch_allowed(request, branches=[branch])
+        return attrs
+
 
 class ExpenseBudgetSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
@@ -62,3 +70,10 @@ class ExpenseBudgetSerializer(serializers.ModelSerializer):
             "month", "amount", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None:
+            branch = attrs.get("branch") or getattr(self.instance, "branch", None)
+            assert_write_branch_allowed(request, branches=[branch])
+        return attrs

@@ -4,6 +4,7 @@ import { AuthSession } from '@/types';
 const TOKEN_KEY = 'qomash_token';
 const SESSION_KEY = 'qomash_session';
 export const LOGIN_PENDING_KEY = 'qomash_login_pending';
+export const MUST_CHANGE_KEY = 'qomash_must_change';
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -42,6 +43,8 @@ export function clearAuthStorage(): void {
   try {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(MUST_CHANGE_KEY);
+    sessionStorage.removeItem(LOGIN_PENDING_KEY);
   } catch {}
 }
 
@@ -54,6 +57,11 @@ export async function login(
     body: JSON.stringify({ username, password }),
   });
   setAuthCredentials(session.token, session);
+  try {
+    if (!session.employee?.must_change_password) {
+      sessionStorage.removeItem(MUST_CHANGE_KEY);
+    }
+  } catch {}
   return session;
 }
 
@@ -70,6 +78,30 @@ export async function logout(): Promise<void> {
 export async function refreshSession(): Promise<AuthSession> {
   const me = await apiRequest<Omit<AuthSession, 'token'>>('/auth/me/');
   const session: AuthSession = { token: getToken() || '', ...me };
+  if (session.token) setAuthCredentials(session.token, session);
+  try {
+    if (session.employee && !session.employee.must_change_password) {
+      sessionStorage.removeItem(MUST_CHANGE_KEY);
+    }
+  } catch {}
+  return session;
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<AuthSession> {
+  const res = await apiRequest<
+    Omit<AuthSession, 'token'> & { detail?: string }
+  >('/auth/change-password/', {
+    method: 'POST',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      confirm_password: newPassword,
+    }),
+  });
+  const session: AuthSession = { token: getToken() || '', ...res };
   if (session.token) setAuthCredentials(session.token, session);
   return session;
 }

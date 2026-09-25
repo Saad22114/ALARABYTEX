@@ -338,7 +338,9 @@ class PartnerOperationViewSet(viewsets.ModelViewSet):
             from accounting.services import post_partner_operation
             post_partner_operation(instance)
         except Exception:
-            pass
+            logging.getLogger("accounting").exception(
+                "فشل ترحيل عملية شريك (id=%s)", instance.pk
+            )
         return Response(
             PartnerOperationReadSerializer(instance, context=self.get_serializer_context()).data,
             status=201,
@@ -360,7 +362,9 @@ class PartnerOperationViewSet(viewsets.ModelViewSet):
             try:
                 post_partner_operation(instance)
             except Exception:
-                pass
+                logging.getLogger("accounting").exception(
+                    "فشل ترحيل عملية شريك (id=%s)", instance.pk
+                )
         return Response(
             PartnerOperationReadSerializer(instance, context=self.get_serializer_context()).data,
             status=200,

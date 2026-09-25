@@ -142,7 +142,11 @@ def _round2(value):
 
 
 def post_session_close(session):
-    """قيد إغلاق الوردية: نقد/بنك مقابل مبيعات + تكلفة البضاعة مقابل المخزون."""
+    """قيد إغلاق الوردية: نقد/بنك مقابل مبيعات + تكلفة البضاعة مقابل المخزون.
+
+    يُرتب حسب التاريخ الفعلي للبيع (sale_date) ليطابق السجل اليومي،
+    وللورديات اليدوية حسب manual_date إن وُجد.
+    """
     unpost_source(JournalEntry.Source.SESSION, session.pk)
     from sale_sessions.models import SaleSessionItem
 
@@ -153,39 +157,51 @@ def post_session_close(session):
             "card": _round2(session.manual_card),
         }
         cogs = Decimal("0")
+        groups = [
+            (session.manual_date or (session.closed_at or timezone.now()).date(), totals, cogs)
+        ]
     else:
         rows = list(session.items.select_related("fabric").filter(is_returned=False))
         if not rows:
             return
-        totals = {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values}
-        cogs = Decimal("0")
+        by_date = {}
         for r in rows:
-            totals[r.payment_method] += _round2(r.net_total)
-            cogs += _round2((r.fabric.purchase_price or Decimal("0")) * r.yards_effective)
-    total = sum(totals.values(), Decimal("0"))
+            entry = by_date.setdefault(r.sale_date, {
+                "totals": {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values},
+                "cogs": Decimal("0"),
+            })
+            entry["totals"][r.payment_method] += _round2(r.net_total)
+            entry["cogs"] += _round2((r.fabric.purchase_price or Decimal("0")) * r.yards_effective)
+        groups = [
+            (sale_date, data["totals"], data["cogs"])
+            for sale_date, data in sorted(by_date.items())
+        ]
 
-    lines = []
-    if total > 0:
-        for method, amount in totals.items():
-            if amount <= 0:
-                continue
-            acc = payment_account(method)
-            lines.append((acc, amount, Decimal("0"), ""))
-        lines.append((revenue_account(), Decimal("0"), total, ""))
-    if cogs > 0:
-        lines.append((cogs_account(), cogs, Decimal("0"), ""))
-        lines.append((inventory_account(), Decimal("0"), cogs, ""))
-
-    if not lines:
-        return
-    closed = session.closed_at or timezone.now()
-    create_entry(
-        closed.date(),
-        f"إغلاق وردية بيع #{session.pk} — {session.employee.name} ({session.branch.name})",
-        JournalEntry.Source.SESSION,
-        session.pk,
-        lines,
+    description = (
+        f"إغلاق وردية بيع #{session.pk} — {session.employee.name} ({session.branch.name})"
     )
+    for entry_date, totals, cogs in groups:
+        lines = []
+        total = sum(totals.values(), Decimal("0"))
+        if total > 0:
+            for method, amount in totals.items():
+                if amount <= 0:
+                    continue
+                acc = payment_account(method)
+                lines.append((acc, amount, Decimal("0"), ""))
+            lines.append((revenue_account(), Decimal("0"), total, ""))
+        if cogs > 0:
+            lines.append((cogs_account(), cogs, Decimal("0"), ""))
+            lines.append((inventory_account(), Decimal("0"), cogs, ""))
+
+        if lines:
+            create_entry(
+                entry_date,
+                description,
+                JournalEntry.Source.SESSION,
+                session.pk,
+                lines,
+            )
 
 
 def post_supplier_entry(entry):
@@ -210,16 +226,21 @@ def post_supplier_entry(entry):
             (payable, abs_amount, Decimal("0"), ""),
             (inventory_account(), Decimal("0"), abs_amount, ""),
         ]
-    elif entry_type == LedgerEntry.EntryType.OPENING:
+    elif entry_type in (LedgerEntry.EntryType.OPENING, LedgerEntry.EntryType.ADJUSTMENT):
+        note = (
+            "تسوية رصيد مورد"
+            if entry_type == LedgerEntry.EntryType.ADJUSTMENT
+            else "رصيد افتتاحي"
+        )
         if amount > 0:
             lines = [
-                (opening_offset_account(), abs_amount, Decimal("0"), "رصيد افتتاحي"),
+                (opening_offset_account(), abs_amount, Decimal("0"), note),
                 (payable, Decimal("0"), abs_amount, ""),
             ]
         else:
             lines = [
                 (payable, abs_amount, Decimal("0"), ""),
-                (opening_offset_account(), Decimal("0"), abs_amount, "رصيد افتتاحي"),
+                (opening_offset_account(), Decimal("0"), abs_amount, note),
             ]
     else:  # PURCHASE
         if amount > 0:

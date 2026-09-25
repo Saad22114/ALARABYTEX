@@ -88,7 +88,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return attrs
 
     def _resolve_user(self, instance, username, password, is_active):
-        """يُحدّث أو يُنشئ حساب Django المرتبط بالموظف ويعيده."""
+        """يُحدّث أو يُنشئ حساب Django المرتبط بالموظف ويعيده.
+
+        يُرجع (user, used_default_password): يُستخدم الأخير لفرض تغيير كلمة
+        المرور عند أول دخول إذا أُنشئ الحساب بكلمة مرور افتراضية معروفة.
+        """
         if instance.user_id:
             user = instance.user
             if username is not None and username.strip() and username.strip() != user.username:
@@ -100,17 +104,24 @@ class EmployeeSerializer(serializers.ModelSerializer):
             if is_active is not None:
                 user.is_active = bool(is_active)
             user.save()
-            return user
+            return user, False
         if username is None or not username.strip():
             username = unique_username(instance.phone or instance.name)
         elif User.objects.filter(username=username.strip()).exists():
             username = unique_username(username.strip())
+        if password:
+            user = User.objects.create_user(
+                username=username.strip(),
+                password=password,
+                is_active=is_active if is_active is not None else (instance.is_active if instance.pk else True),
+            )
+            return user, False
         user = User.objects.create_user(
             username=username.strip(),
-            password=password or DEFAULT_EMPLOYEE_PASSWORD,
+            password=DEFAULT_EMPLOYEE_PASSWORD,
             is_active=is_active if is_active is not None else (instance.is_active if instance.pk else True),
         )
-        return user
+        return user, True
 
     def get_allowed_branches_names(self, obj):
         return list(
@@ -132,9 +143,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 employee.hidden_sections = hidden_sections
             else:
                 employee.apply_role_preset(role)
-            employee.user = self._resolve_user(
+            user, used_default = self._resolve_user(
                 employee, username, password, validated_data.get("is_active", True)
             )
+            employee.user = user
+            # أُنشئ الحساب بكلمة مرور افتراضية معروفة → أَجبره على تغييرها أول مرة
+            if used_default and not validated_data.get("must_change_password"):
+                employee.must_change_password = True
             employee.save()
             if allowed_branches:
                 employee.allowed_branches.set(allowed_branches)
@@ -144,6 +159,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
         allowed_branches = validated_data.pop("allowed_branches", None)
         username = validated_data.pop("username", None)
         password = validated_data.pop("password", None)
+        password_changed = bool(password and str(password).strip())
         requested_active = validated_data.get("is_active") if "is_active" in validated_data else None
         role = validated_data.pop("role", None)
         has_custom = "permissions" in validated_data or "hidden_sections" in validated_data
@@ -157,7 +173,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
             instance.permissions = validated_data["permissions"]
         if "hidden_sections" in validated_data:
             instance.hidden_sections = validated_data["hidden_sections"]
-        instance.user = self._resolve_user(instance, username, password, requested_active)
+        instance.user, _ = self._resolve_user(instance, username, password, requested_active)
+        # تصفير كلمة المرور من المدير → الموظف ملزم بتغييرها عند الدخول التالي
+        if password_changed and "must_change_password" not in validated_data:
+            instance.must_change_password = True
         instance.save()
         if allowed_branches is not None:
             instance.allowed_branches.set(allowed_branches)

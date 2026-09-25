@@ -1174,6 +1174,7 @@ export interface SessionEmployee {
   is_active: boolean;
   username: string | null;
   commission_active: boolean;
+  must_change_password: boolean;
 }
 
 export interface AuthSession {

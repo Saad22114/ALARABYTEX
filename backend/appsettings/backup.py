@@ -88,7 +88,10 @@ def _self_sorted(rows, self_fields):
 def _dump_rows(app_label, name):
     rows = list(_model(app_label, name).objects.all().values())
     if app_label == "auth" and name == "User":
-        rows = [r for r in rows]
+        # لا نصدّر هاش كلمات المرور أبداً: الحسابات المستعادة تُنشأ بدون كلمة
+        # مرور (غير قابلة للدخول) فتُصفَّر من المدير بعد الاستعادة.
+        for row in rows:
+            row.pop("password", None)
     return rows
 
 
@@ -97,7 +100,12 @@ def export_backup(settings_obj):
     for app_label, name in RESTORE_ORDER:
         data["tables"][f"{app_label}.{name}"] = _dump_rows(app_label, name)
     data["tables"]["appsettings.AppSettings"] = [
-        {f: getattr(settings_obj, f) for f in [x.name for x in settings_obj._meta.fields]}
+        {
+            f: getattr(settings_obj, f)
+            # لا تُصدَّر كلمة مرور النسخ الاحتياطي نفسها داخل الملف أبداً
+            for f in [x.name for x in settings_obj._meta.fields]
+            if f != "backup_password"
+        }
     ]
     employee = _model("sale_sessions", "Employee")
     data["m2m_employee_allowed_branches"] = list(
@@ -297,12 +305,15 @@ def restore_backup(payload):
             _delete_all()
 
             # 2) users: create missing accounts referenced by employees/journal
+            #    — كلمة المرور لا تُستعاد أبداً (حتى من نسخ قديمة): الحساب يُنشأ
+            #    بدون كلمة مرور ويديره المدير بصفّها بعد الاستعادة.
             backup_users = tables.get("auth.User", [])
             existing = set(User.objects.values_list("id", flat=True))
             for row in backup_users:
                 if row["id"] in existing:
                     continue
                 data = dict(row)
+                data.pop("password", None)
                 for stamp in ("created_at", "updated_at"):
                     data.pop(stamp, None)
                 uid = data.pop("id")

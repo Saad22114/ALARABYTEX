@@ -23,6 +23,19 @@ function redirectToLogin(): void {
   }
 }
 
+function redirectToChangePassword(): void {
+  try {
+    sessionStorage.setItem('qomash_must_change', '1');
+  } catch {}
+  if (
+    typeof window !== 'undefined' &&
+    window.location.pathname !== '/change-password' &&
+    window.location.pathname !== '/login'
+  ) {
+    window.location.href = '/change-password';
+  }
+}
+
 export function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
   const sp = new URLSearchParams();
   Object.entries(params).forEach(([key, val]) => {
@@ -59,6 +72,10 @@ export async function apiRequest<T>(
 
   if (!res.ok) {
     if (data && typeof data === 'object') {
+      if (data.code === 'must_change_password') {
+        redirectToChangePassword();
+        throw new Error(data.detail || 'يجب تغيير كلمة المرور قبل استخدام النظام');
+      }
       if (data.detail) {
         throw new Error(data.detail);
       }

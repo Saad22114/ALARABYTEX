@@ -240,6 +240,8 @@ class SupplierLedgerAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
         authenticate_admin(self.c)
+        from accounting.chart_of_accounts import ensure_seeded
+        ensure_seeded()
         self.supplier = Supplier.objects.create(name="مورد تجريبي")
         self.f1 = Fabric.objects.create(name="قطن", code="FAB-01", unit="yard", sale_price_yard=3)
         self.f2 = Fabric.objects.create(name="حرير", code="FAB-02", unit="yard", sale_price_yard=5)
@@ -385,6 +387,68 @@ class SupplierLedgerAPITest(TestCase):
         r = self.c.delete(f"/api/suppliers/{self.supplier.id}/ledger/{eid}/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(LedgerEntry.objects.count(), 0)
+
+    def test_delete_purchase_removes_immediate_payment(self):
+        r = self._ledger({
+            "entry_type": "purchase",
+            "date": self.today,
+            "payment_amount": 40,
+            "payment_method": "cash",
+            "receipt_no": "INV-DEL",
+            "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(LedgerEntry.objects.filter(entry_type="payment").count(), 1)
+        from accounting.models import JournalEntry
+        self.assertTrue(
+            JournalEntry.objects.filter(source=JournalEntry.Source.PURCHASE).exists()
+        )
+        r = self.c.delete(f"/api/suppliers/{self.supplier.id}/ledger/{r.data['id']}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(LedgerEntry.objects.count(), 0)
+        self.assertFalse(
+            JournalEntry.objects.filter(source=JournalEntry.Source.PURCHASE).exists()
+        )
+
+    def test_standalone_payment_delete_keeps_purchase(self):
+        self._ledger({
+            "entry_type": "purchase",
+            "date": self.today,
+            "receipt_no": "INV-STD",
+            "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
+        })
+        payment = LedgerEntry.objects.create(
+            supplier=self.supplier,
+            date=date.today(),
+            entry_type=LedgerEntry.EntryType.PAYMENT,
+            amount=-20,
+            payment_method=LedgerEntry.PaymentMethod.CASH,
+            description="دفعة عادية",
+        )
+        r = self.c.delete(f"/api/suppliers/{self.supplier.id}/ledger/{payment.pk}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(LedgerEntry.objects.filter(entry_type="payment").count(), 0)
+        self.assertEqual(LedgerEntry.objects.filter(entry_type="purchase").count(), 1)
+
+    def test_adjustment_posted_to_opening_offset_not_inventory(self):
+        r = self._ledger({
+            "entry_type": "adjustment", "date": self.today, "amount": 50,
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        from accounting.models import JournalEntry
+        entry = JournalEntry.objects.filter(
+            source=JournalEntry.Source.PURCHASE, source_id=r.data["id"]
+        ).first()
+        self.assertIsNotNone(entry)
+        from accounting.chart_of_accounts import ensure_seeded
+        ensure_seeded()
+        from accounting.models import Account
+        opening = Account.objects.get(source_key="OPENING_OFFSET")
+        inv = Account.objects.get(source_key="INVENTORY")
+        self.assertTrue(entry.lines.filter(account__source_key="OPENING_OFFSET").exists())
+        self.assertFalse(entry.lines.filter(account__source_key="INVENTORY").exists())
+        self.assertEqual(entry.lines.filter(account=opening).count(), 1)
+        self.assertEqual(entry.lines.filter(account=inv).count(), 0)
 
     def test_supplier_current_balance(self):
         self._ledger({"entry_type": "opening", "date": self.today, "amount": 100})

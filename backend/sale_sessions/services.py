@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
+import logging
 
 from django.db import transaction
 from django.utils import timezone
@@ -11,6 +12,8 @@ from warehouses.services import reverse_sale_consumption, sell_from_branch
 
 from .models import SaleSession, SaleSessionItem
 
+logger = logging.getLogger("accounting")
+
 
 def _unpost_session(session):
     try:
@@ -18,7 +21,7 @@ def _unpost_session(session):
         from accounting.services import unpost_source
         unpost_source(JournalEntry.Source.SESSION, session.pk)
     except Exception:
-        pass
+        logger.exception("فشل إلغاء قيد الوردية (id=%s)", session.pk)
 
 
 def _post_session(session):
@@ -26,7 +29,7 @@ def _post_session(session):
         from accounting.services import post_session_close
         post_session_close(session)
     except Exception:
-        pass
+        logger.exception("فشل ترحيل قيد الوردية (id=%s)", session.pk)
 
 
 def effective_sale_date(now=None):

@@ -1572,7 +1572,7 @@ class CardMachineFeeTest(TestCase):
         self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("2.00"))
         self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("98.00"))
         self.assertEqual(r.data["card_type"], "credit")
-        self.assertEqual(r.data["card_type_label"], "إئتماني")
+        self.assertEqual(r.data["card_type_label"], "إئتماني / Credit")
         self.c.post(f"/api/sale-sessions/{sid}/close/")
         sale = DailySale.objects.get(branch=self.branch, date=effective_sale_date())
         self.assertEqual(Decimal(str(sale.card_amount)), Decimal("98.00"))

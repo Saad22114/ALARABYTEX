@@ -29,7 +29,7 @@ export async function createCustomer(data: Partial<Customer>): Promise<Customer>
 
 export async function updateCustomer(id: number, data: Partial<Customer>): Promise<Customer> {
   return apiRequest<Customer>(`/customers/${id}/`, {
-    method: 'PUT',
+    method: 'PATCH',
     body: JSON.stringify(data),
   });
 }

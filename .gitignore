@@ -44,3 +44,8 @@ Thumbs.db
 # Temporary
 *.tmp
 .env.local
+
+# Sensitive / runtime artifacts — لا تُرفع إلى المستودع
+backend/media/backups/
+backend/config/settings.rar
+backend/public/
