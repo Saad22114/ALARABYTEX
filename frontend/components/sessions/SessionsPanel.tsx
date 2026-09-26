@@ -1168,6 +1168,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       subtotal={calc.subtotal}
                       discount={line.discount}
                       onDiscountChange={(d) => updateLine(idx, { discount: d })}
+                      quantity={calc.quantityNum}
+                      onUnitPriceChange={(p) => updateLine(idx, { unit_price: p })}
                     />
                   </div>
 

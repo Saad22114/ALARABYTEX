@@ -214,7 +214,13 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
             onChange={(e) => setDiscount(e.target.value)}
             placeholder=""
           />
-          <FinalAmountInput subtotal={subtotal} discount={discount} onDiscountChange={setDiscount} />
+          <FinalAmountInput
+            subtotal={subtotal}
+            discount={discount}
+            onDiscountChange={setDiscount}
+            quantity={qtyNum}
+            onUnitPriceChange={setUnitPrice}
+          />
           <Select
             label="طريقة الدفع"
             value={paymentMethod}
