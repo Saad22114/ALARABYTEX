@@ -20,6 +20,7 @@ import {
   Calculator,
   MessageSquareText,
   Palette,
+  Wallet,
 } from 'lucide-react';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
@@ -34,6 +35,7 @@ const navItems = [
   { key: 'fabrics', href: '/fabrics', label: 'الأقمشة', icon: Tags },
   { key: 'sales', href: '/sales', label: 'المبيعات', icon: Banknote },
   { key: 'employees', href: '/employees', label: 'الموظفون', icon: UserCog },
+  { key: 'payroll', href: '/payroll', label: 'الرواتب', icon: Wallet },
   { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Boxes },
   { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText },
   { key: 'reports', href: '/reports', label: 'التقارير', icon: BarChart3 },

@@ -114,7 +114,7 @@ export default function SalesPage() {
     setDateTo(r.to);
     setEmpFrom(r.from);
     setEmpTo(r.to);
-  }, [settings?.default_period]);
+  }, [settings?.default_period, setDateFrom, setDateTo, setEmpFrom, setEmpTo]);
 
   useEffect(() => {
     try {

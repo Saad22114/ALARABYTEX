@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Bell, MessageSquareText, RefreshCw, Wallet } from 'lucide-react';
 import { getDashboardAlerts } from '@/services/dashboard';
@@ -16,18 +16,18 @@ export default function NotificationsBell() {
   const boxRef = useRef<HTMLDivElement>(null);
   const { currentEmployee } = useCurrentEmployee();
 
-  const load = () => {
+  const load = useCallback(() => {
     getDashboardAlerts().then(setAlerts).catch(() => {});
     if (currentEmployee) {
       getUnreadCount(currentEmployee.id).then((r) => setUnreadMessages(r.count)).catch(() => {});
     }
-  };
+  }, [currentEmployee]);
 
   useEffect(() => {
     load();
     const iv = setInterval(load, 60000);
     return () => clearInterval(iv);
-  }, [currentEmployee]);
+  }, [load]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {

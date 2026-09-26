@@ -32,6 +32,23 @@ def get_request_employee(request):
     return getattr(user, "employee", None)
 
 
+def section_view_allowed(request, section):
+    """هل يُسمح للموظف بعرض هذا القسم؟
+
+    نفس منطق ``SystemPermission`` لفعل ``view``، لكن متاح خارج صنف الإذن —
+    تستخدمه الواجهات التي تعرض نتائج من عدة أقسام (مثل البحث الشامل) لتقصي
+    ما لا يملك المستخدم صلاحية رؤيته بدل كشفه في نتائج البحث.
+    """
+    employee = get_request_employee(request)
+    if employee is None or not employee.is_active:
+        return False
+    if not section or section.startswith("@"):
+        return True
+    if section in SCOPE_VIEW_SECTIONS and (employee.branch_id or employee.allowed_branches.exists()):
+        return True
+    return bool(employee.has_permission(section, "view"))
+
+
 class SystemPermission(BasePermission):
     message = "لا تملك صلاحية تنفيذ هذا الإجراء"
 
@@ -47,13 +64,6 @@ class SystemPermission(BasePermission):
         if section.startswith("@"):
             return True
         action = METHOD_TO_ACTION.get(request.method.upper(), "view")
-        # الأقسام المقيدة بالنطاق (فروع/مبيعات/ورديات): الموظف الجزئي المسجَّل بفرع
-        # يُمنح العرضَ ضمن فرعه فقط — النطاق (branch_scope) هو الحد الفعلي، فلا يرى
-        # إلا فرعه، ويبقى الإنشاء/التعديل/الحذف مرهوناً بصلاحية القسم كما هو.
-        if (
-            action == "view"
-            and section in SCOPE_VIEW_SECTIONS
-            and (employee.branch_id or employee.allowed_branches.exists())
-        ):
-            return True
+        if action == "view":
+            return section_view_allowed(request, section)
         return bool(employee.has_permission(section, action))

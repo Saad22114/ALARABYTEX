@@ -1,6 +1,10 @@
 from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.conf import settings
+from suppliers.models import Fabric
 from core.branch_scope import scope_queryset
 from .models import Branch, FabricBranchPrice
 from .serializers import BranchSerializer, FabricBranchPriceSerializer
@@ -46,3 +50,29 @@ class FabricBranchPriceViewSet(viewsets.ModelViewSet):
         if fabric:
             qs = qs.filter(fabric_id=fabric)
         return qs
+
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk_upsert(self, request):
+        fabric_id = request.data.get("fabric")
+        prices = request.data.get("prices", [])
+        fabric = get_object_or_404(Fabric, id=fabric_id)
+        created = updated = 0
+        errors = []
+        with transaction.atomic():
+            for item in prices:
+                branch_id = item.get("branch")
+                branch = get_object_or_404(Branch, id=branch_id)
+                obj, was_created = FabricBranchPrice.objects.update_or_create(
+                    branch=branch, fabric=fabric,
+                    defaults={
+                        "sale_price_yard": item.get("sale_price_yard", 0),
+                        "sale_price_roll": item.get("sale_price_roll"),
+                        "min_sale_yard": item.get("min_sale_yard", 0),
+                        "min_sale_roll": item.get("min_sale_roll"),
+                    },
+                )
+                if was_created:
+                    created += 1
+                else:
+                    updated += 1
+        return Response({"created": created, "updated": updated, "errors": errors})

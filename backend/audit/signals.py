@@ -11,6 +11,13 @@ from customers.models import Customer
 from expenses.models import Expense, ExpenseBudget, ExpenseCategory
 from messaging.models import Message
 from partners.models import Partner, PartnerMovement, PartnerOperation
+from payroll.models import (
+    AdvanceInstallment,
+    PayrollRun,
+    Payslip,
+    SalaryAdvance,
+    SalaryStructure,
+)
 from sale_sessions.models import Employee, SaleSession, SaleSessionItem
 from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric, LedgerEntry, PurchaseItem, Supplier
@@ -69,6 +76,11 @@ AUDIT_MODELS = {
     JournalLine: "accounting",
     AppSettings: "settings",
     Message: "messages",
+    SalaryStructure: "payroll",
+    SalaryAdvance: "payroll",
+    AdvanceInstallment: "payroll",
+    PayrollRun: "payroll",
+    Payslip: "payroll",
 }
 
 _OLD_ATTR = "_qomash_old_state"
@@ -84,14 +96,22 @@ def _clean(value):
     return value
 
 
+def _tracked_fields(sender):
+    """الحقول المُقارنة بين النسخة القديمة والجديدة.
+
+    تُستثنى ``id`` وأي حقل ``auto_now/auto_now_add`` (مثل ``created_at`` و
+    ``updated_at``) لأن قيمتها تتغيّر في كل حفظ، فوجودها يجعل كل عملية حفظ
+    تبدو تعديلاً حتى لو لم يتغيّر أي حقل عمل حقيقي.
+    """
+    return [
+        f
+        for f in sender._meta.fields
+        if f.name != "id" and not getattr(f, "auto_now", False) and not getattr(f, "auto_now_add", False)
+    ]
+
+
 def _snapshot(instance):
-    state = {}
-    for field in instance._meta.fields:
-        name = field.name
-        if name in ("id",):
-            continue
-        state[field.attname] = _clean(getattr(instance, field.attname, None))
-    return state
+    return {f.attname: _clean(getattr(instance, f.attname, None)) for f in _tracked_fields(instance._meta.model)}
 
 
 def _diff(old, new):
@@ -111,11 +131,12 @@ def _track_old_state(sender, instance, **kwargs):
     if instance.pk is None:
         return
     try:
-        old = sender.objects.filter(pk=instance.pk).values()
+        attnames = [f.attname for f in _tracked_fields(sender)]
+        old = sender.objects.filter(pk=instance.pk).values("id", *attnames)
         setattr(
             instance,
             _OLD_ATTR,
-            {r["id"]: {k: _clean(v) for k, v in r.items()} for r in old},
+            {r["id"]: {k: _clean(v) for k, v in r.items() if k != "id"} for r in old},
         )
     except Exception:
         pass

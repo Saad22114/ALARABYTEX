@@ -1,4 +1,4 @@
-export interface Branch {
+﻿export interface Branch {
   id: number;
   name: string;
   code: string;
@@ -1553,4 +1553,303 @@ export interface EmployeeProfile {
 
 export interface AccountAvatarResult {
   employee: SessionEmployee;
+}
+
+/* ------------------------------------------------------------------ */
+/* الرواتب                                                             */
+/* ------------------------------------------------------------------ */
+
+export type PayrollRunStatus = 'DRAFT' | 'APPROVED' | 'PAID' | 'CANCELLED';
+export type SalaryAdvanceStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SETTLED';
+export type PayrollMethod = 'CASH' | 'BANK';
+
+export interface SalaryStructure {
+  id: number;
+  employee: number;
+  employee_name: string;
+  branch_name: string;
+  base_salary: number;
+  housing_allowance: number;
+  transport_allowance: number;
+  other_allowance: number;
+  overtime_hour_rate: number;
+  working_days: number;
+  effective_from: string;
+  effective_to: string | null;
+  notes: string;
+  is_active: boolean;
+  total_allowances: number;
+  gross: number;
+  daily_rate: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdvanceInstallment {
+  id: number;
+  advance: number;
+  date: string;
+  amount: number;
+  method: string;
+  method_label?: string;
+  payslip: number | null;
+  notes: string;
+  created_at: string;
+}
+
+export interface SalaryAdvance {
+  id: number;
+  employee: number;
+  employee_name: string;
+  branch: number | null;
+  branch_name: string;
+  amount: number;
+  date: string;
+  method: string;
+  method_label?: string;
+  status: SalaryAdvanceStatus;
+  status_label: string;
+  reason: string;
+  notes: string;
+  settled_at: string | null;
+  recovered_amount: number;
+  remaining_amount: number;
+  is_settled: boolean;
+  installments: AdvanceInstallment[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Payslip {
+  id: number;
+  run: number;
+  month: string;
+  run_status: PayrollRunStatus;
+  employee: number;
+  employee_name: string;
+  branch: number | null;
+  branch_name: string;
+  base_salary: number;
+  housing_allowance: number;
+  transport_allowance: number;
+  other_allowance: number;
+  working_days: number;
+  daily_rate: number;
+  overtime_hour_rate: number;
+  overtime_hours: number;
+  overtime_amount: number;
+  bonus: number;
+  commission_amount: number;
+  absence_days: number;
+  absence_deduction: number;
+  late_deduction: number;
+  other_deduction: number;
+  advance_deduction: number;
+  total_allowances: number;
+  gross: number;
+  total_deductions: number;
+  net_pay: number;
+  is_paid: boolean;
+  paid_at: string | null;
+  payment_method: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PayrollRunTotals {
+  employees: number;
+  gross: number;
+  deductions: number;
+  net: number;
+  advances: number;
+  overtime: number;
+  bonus: number;
+  commission: number;
+}
+
+export interface PayrollRun {
+  id: number;
+  month: string;
+  branch: number | null;
+  branch_name: string;
+  status: PayrollRunStatus;
+  status_label: string;
+  payment_method: PayrollMethod | null;
+  paid_at: string | null;
+  approved_at: string | null;
+  notes: string;
+  totals: PayrollRunTotals;
+  payslips?: Payslip[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PayrollPreviewRow {
+  employee: number;
+  employee_name: string;
+  branch: number | null;
+  branch_name: string;
+  position: string;
+  department: string;
+  has_structure: boolean;
+  working_days: number;
+  base_salary: number;
+  housing_allowance: number;
+  transport_allowance: number;
+  other_allowance: number;
+  overtime_hour_rate: number;
+  daily_rate: number;
+  commission_amount: number;
+  advances_total: number;
+  advances_count: number;
+  gross: number;
+}
+
+export interface PayrollPreview {
+  month: string;
+  month_end: string;
+  rows: PayrollPreviewRow[];
+  totals: {
+    employees: number;
+    base_salary: number;
+    allowances: number;
+    commission: number;
+    advances: number;
+    gross: number;
+  };
+}
+
+export interface PayrollSummary {
+  month: string;
+  employees: number;
+  gross: number;
+  deductions: number;
+  net: number;
+  advances: number;
+  recovered: number;
+  outstanding_advances: number;
+  runs: number;
+  paid_runs: number;
+  pending_runs: number;
+  approved_runs: number;
+  missing_structures: number[];
+}
+
+export interface PayrollEmployeeRow {
+  employee: number;
+  employee_name: string;
+  branch: number | null;
+  branch_name: string;
+  position: string;
+  department: string;
+  phone: string;
+  base_salary: number;
+  housing_allowance: number;
+  transport_allowance: number;
+  other_allowance: number;
+  overtime_hour_rate: number;
+  daily_rate: number;
+  gross: number;
+  has_structure: boolean;
+  advances_total: number;
+  advances_count: number;
+}
+
+export interface PayrollEmployeesResult {
+  month: string;
+  rows: PayrollEmployeeRow[];
+  count: number;
+}
+
+export interface PayrollStatementRow {
+  date: string;
+  type: 'payslip' | 'advance';
+  type_label: string;
+  debit: number;
+  credit: number;
+  net: number;
+  ref: string;
+  notes: string;
+}
+
+export interface PayrollStatement {
+  employee: number;
+  employee_name: string;
+  date_from: string;
+  date_to: string;
+  rows: PayrollStatementRow[];
+  totals: {
+    payslips: number;
+    advances: number;
+    recovered: number;
+    outstanding: number;
+    net_paid: number;
+  };
+}
+
+export interface PayrollDates {
+  today: string;
+  month: string;
+  month_end: string;
+  previous_month: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reports V2 — العقد الموحّد                                            */
+/* ------------------------------------------------------------------ */
+
+export type ReportValueType = 'money' | 'number' | 'percent' | 'text';
+
+export interface ReportColumn {
+  key: string;
+  label: string;
+  type: ReportValueType;
+  total?: boolean;
+  width?: number;
+}
+
+export interface ReportKpi {
+  key: string;
+  label: string;
+  type: ReportValueType;
+  value: number;
+  previous: number | null;
+  change_pct: number | null;
+}
+
+export interface ReportPeriod {
+  from: string;
+  to: string;
+}
+
+export interface ReportSeries {
+  labels: string[];
+  current: number[];
+  previous?: number[];
+}
+
+export interface ReportEnvelope {
+  key: string;
+  title: string;
+  group_by: string;
+  columns: ReportColumn[];
+  rows: Record<string, unknown>[];
+  totals: Record<string, number | string>;
+  kpis: ReportKpi[];
+  series: ReportSeries | null;
+  period?: ReportPeriod;
+  previous?: ReportPeriod;
+  meta: Record<string, unknown>;
+}
+
+export interface AnalyticsReportDef {
+  key: string;
+  label: string;
+  group: string;
+  window: string;
+  supportsGroupBy: boolean;
+  supportsIdleDays: boolean;
+  description: string;
 }

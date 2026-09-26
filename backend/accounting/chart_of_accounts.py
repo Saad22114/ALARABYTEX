@@ -11,6 +11,8 @@
   OPENING_OFFSET    -> مقابل الأرصدة الافتتاحية (دائن)
   RETAINED_EARNINGS -> الأرباح المحتجزة (دائن)
   EXPENSE_ROOT      -> جذر حسابات المصاريف (لبناء حسابات التصنيفات تحته)
+  SALARY_EXPENSE    -> مصروف الرواتب
+  ADVANCE_RECEIVABLE -> سلف الموظفين (أصل يُسدَّد من الرواتب)
 """
 
 from django.db import transaction
@@ -35,6 +37,7 @@ ACCOUNTS = [
     ("1102", "البنك", "asset", "11", "BANK"),
     ("1103", "ذمم العملاء", "asset", "11", ""),
     ("1104", "مخزون البضاعة", "asset", "11", "INVENTORY"),
+    ("1105", "سلف الموظفين", "asset", "11", "ADVANCE_RECEIVABLE"),
     ("1210", "أصول ثابتة", "asset", "12", ""),
     # التزامات
     ("21", "الالتزامات المتداولة", "liability", "2", ""),
@@ -63,7 +66,41 @@ ACCOUNTS = [
     ("5201", "مصاريف التشغيل", "expense", "52", "EXPENSE_ROOT"),
     ("5301", "مصاريف عامة وإدارية", "expense", "53", ""),
     ("5401", "مصاريف أخرى", "expense", "5", ""),
+    ("5501", "مصروف الرواتب", "expense", "5", "SALARY_EXPENSE"),
 ]
+
+# حسابات تُضاف لنظام قائم (قديمة) عند أول استخدام بعد التحديث.
+EXTRA_ACCOUNTS = [
+    ("1105", "سلف الموظفين", "asset", "11", "ADVANCE_RECEIVABLE"),
+    ("5501", "مصروف الرواتب", "expense", "5", "SALARY_EXPENSE"),
+]
+
+
+def ensure_extra_accounts():
+    """ينشئ حسابات الرواتب والسلف إن لم تكن موجودة (شجرة حسابات قديمة)."""
+    created = []
+    for code, name, type_, parent_code, source_key in EXTRA_ACCOUNTS:
+        if Account.objects.filter(source_key=source_key).exists():
+            continue
+        parent = None
+        if parent_code:
+            parent = Account.objects.filter(code=parent_code).first()
+        final_code = code
+        guard = 0
+        while Account.objects.filter(code=final_code).exists() and guard < 50:
+            guard += 1
+            final_code = f"{code}{guard}"
+        created.append(
+            Account.objects.create(
+                code=final_code,
+                name=name,
+                type=type_,
+                parent=parent,
+                source_key=source_key,
+                is_system=True,
+            )
+        )
+    return created
 
 
 @transaction.atomic
@@ -87,3 +124,5 @@ def seed_chart_of_accounts():
 def ensure_seeded():
     if not Account.objects.exists():
         seed_chart_of_accounts()
+    else:
+        ensure_extra_accounts()

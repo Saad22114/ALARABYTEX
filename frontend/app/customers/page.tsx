@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -44,7 +44,7 @@ export default function CustomersPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     const params: Record<string, string | number | undefined | null> = {
@@ -58,9 +58,9 @@ export default function CustomersPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [page, pageSize, search, filterBranch, dateFrom, dateTo, toast]);
 
-  useEffect(() => fetchData(), [page, search, settings?.default_page_size, filterBranch, dateFrom, dateTo]);
+  useEffect(() => fetchData(), [fetchData]);
 
   useEffect(() => {
     getCustomersSummary({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
@@ -43,13 +43,13 @@ export default function BranchesPage() {
   const [stopping, setStopping] = useState<Branch | null>(null);
   const [toggleLoading, setToggleLoading] = useState(false);
 
-  const fetchSummary = () => {
+  const fetchSummary = useCallback(() => {
     listBranches({ page_size: 200, date_from: dateFrom || undefined, date_to: dateTo || undefined })
       .then((res) => setSummary(res.results))
       .catch(() => setSummary(null));
-  };
+  }, [dateFrom, dateTo]);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     const params: Record<string, string | number | undefined | null> = {
@@ -61,10 +61,10 @@ export default function BranchesPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [page, pageSize, search, dateFrom, dateTo, toast]);
 
-  useEffect(() => fetchData(), [page, search, settings?.default_page_size, dateFrom, dateTo]);
-  useEffect(() => { fetchSummary(); }, [dateFrom, dateTo]);
+  useEffect(() => fetchData(), [fetchData]);
+  useEffect(() => { fetchSummary(); }, [fetchSummary]);
 
   const totals = summary
     ? summary.reduce(

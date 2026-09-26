@@ -58,6 +58,16 @@ def retained_account():
     return account_by_key("RETAINED_EARNINGS")
 
 
+def salary_expense_account():
+    ensure_seeded()
+    return account_by_key("SALARY_EXPENSE")
+
+
+def advance_receivable_account():
+    ensure_seeded()
+    return account_by_key("ADVANCE_RECEIVABLE")
+
+
 def payment_account(payment_method):
     """نقد -> حساب الخزنة، أي طريقة أخرى -> البنك."""
     if payment_method == "cash":
@@ -310,6 +320,80 @@ def post_partner_operation(operation):
         operation.pk,
         lines,
     )
+
+
+def post_salary_advance(advance):
+    """قيد صرف سلفة: سلف الموظفين (مدين) مقابل النقد/البنك (دائن)."""
+    unpost_source(JournalEntry.Source.SALARY_ADVANCE, advance.pk)
+    amount = _round2(advance.amount)
+    if amount <= 0:
+        return
+    lines = [
+        (advance_receivable_account(), amount, Decimal("0"), ""),
+        (payment_account(advance.method), Decimal("0"), amount, ""),
+    ]
+    create_entry(
+        advance.date,
+        f"سلفة راتب — {advance.employee.name} ({advance.reason or 'بدون سبب'})",
+        JournalEntry.Source.SALARY_ADVANCE,
+        advance.pk,
+        lines,
+    )
+
+
+def post_advance_repayment(advance, installment):
+    """قيد سداد سلفة نقداً/تحويلاً: النقد/البنك مدين، سلف الموظفين دائن."""
+    amount = _round2(installment.amount)
+    if amount <= 0:
+        return
+    method = "cash" if installment.method == "cash" else "transfer"
+    lines = [
+        (payment_account(method), amount, Decimal("0"), ""),
+        (advance_receivable_account(), Decimal("0"), amount, ""),
+    ]
+    create_entry(
+        installment.date,
+        f"سداد سلفة — {advance.employee.name} (سلفة #{advance.pk})",
+        JournalEntry.Source.SALARY_ADVANCE,
+        advance.pk,
+        lines,
+    )
+
+
+def post_payroll_run(run):
+    """قيد صرف مسيّر الرواتب: مصروف الرواتب (مدين) مقابل النقد، مع تخفيض
+    حساب سلف الموظفين مقابل ما خُصم من الرواتب."""
+    unpost_source(JournalEntry.Source.PAYROLL, run.pk)
+    payslips = list(run.payslips.select_related("employee").all())
+    if not payslips:
+        return
+    net_total = _round2(sum((p.net_pay for p in payslips), Decimal("0")))
+    advance_total = _round2(sum((p.advance_deduction for p in payslips), Decimal("0")))
+    # الإجمالي = الصافي + خصم السلفة، فالمدين يغطي كامل الاستحقاق.
+    gross_total = _round2(net_total + advance_total)
+    if gross_total <= 0 and advance_total <= 0:
+        return
+    expense = salary_expense_account()
+    receivable = advance_receivable_account()
+    lines = []
+    if gross_total > 0:
+        lines.append((expense, gross_total, Decimal("0"), "رواتب ومستحقات الموظفين"))
+    if net_total > 0:
+        lines.append((payment_account(run.payment_method or "cash"), Decimal("0"), net_total, "صافي مصروف"))
+    if advance_total > 0:
+        lines.append((receivable, Decimal("0"), advance_total, "تسديد سلف من الرواتب"))
+    branch_name = run.branch.name if run.branch_id else "كل الفروع"
+    create_entry(
+        run.paid_at.date() if run.paid_at else run.month,
+        f"مسيّر رواتب {run.month:%Y-%m} — {branch_name}",
+        JournalEntry.Source.PAYROLL,
+        run.pk,
+        lines,
+    )
+
+
+def unpost_payroll_run(run):
+    unpost_source(JournalEntry.Source.PAYROLL, run.pk)
 
 
 @transaction.atomic

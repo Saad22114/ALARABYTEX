@@ -1,12 +1,13 @@
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import CommandError
 from django.db import transaction
 
 from branches.models import Branch
+from core.management.base import ArabicSafeCommand
 from sale_sessions.models import Employee
 
 
-class Command(BaseCommand):
+class Command(ArabicSafeCommand):
     help = "إنشاء حساب مدير نظام (موظف + مستخدم) فوراً للدخول على خادم جديد"
 
     def add_arguments(self, parser):
@@ -70,9 +71,11 @@ class Command(BaseCommand):
             employee.save()
 
         action = "تم التحديث" if not created_user else "تم الإنشاء"
-        self.stdout.write(self.style.SUCCESS(
-            f"{action}: الموظف «{employee.name}» (id={employee.pk}) — الدخول باسم «{username}» وكلمة المرور المحددة."
-        ))
-        self.stdout.write(self.style.WARNING(
-            "تسجيل الدخول عبر /api/auth/login/ (اسم المستخدم + كلمة المرور)."
-        ))
+        self.write_line(
+            f"{action}: الموظف «{employee.name}» (id={employee.pk}) — الدخول باسم «{username}» وكلمة المرور المحددة.",
+            self.style.SUCCESS,
+        )
+        self.write_line(
+            "تسجيل الدخول عبر /api/auth/login/ (اسم المستخدم + كلمة المرور).",
+            self.style.WARNING,
+        )

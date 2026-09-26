@@ -47,7 +47,7 @@ export default function CustomerForm({ initial, defaultBranch, onSubmit, onCance
         branch: initial.branch ?? '',
       });
     }
-  }, [initial?.id]);
+  }, [initial?.id, initial?.name, initial?.phone, initial?.email, initial?.address, initial?.notes, initial?.branch]);
 
   const validate = () => {
     const e: Record<string, string> = {};

@@ -13,7 +13,7 @@ class AuditLogPagination(LimitOffsetPagination):
 
 
 class AuditLogView(APIView):
-    permission_section = "settings"
+    permission_section = "audit"
 
     def get(self, request):
         qs = AuditLog.objects.select_related("employee").all()

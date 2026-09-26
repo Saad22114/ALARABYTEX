@@ -22,7 +22,7 @@ export default function ConfirmDialog({
   title = 'تأكيد الإيقاف',
   message = 'هل أنت متأكد من الحذف؟ لا يمكن التراجع عن هذا الإجراء.',
   loading = false,
-  confirmLabel = 'إيقاف مؤقتا',
+  confirmLabel = 'حذف او ايقاف',
   children,
 }: ConfirmDialogProps) {
   return (

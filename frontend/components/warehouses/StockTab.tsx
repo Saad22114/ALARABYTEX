@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
@@ -68,7 +68,7 @@ export default function StockTab() {
       .catch(() => {});
   }, []);
 
-  const fetchBalances = () => {
+  const fetchBalances = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     getStockBalances({ search: search || undefined, warehouse: warehouse || undefined, low_stock: lowStockOnly ? 'true' : undefined })
@@ -76,9 +76,9 @@ export default function StockTab() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [search, warehouse, lowStockOnly, toast]);
 
-  const fetchOpenings = () => {
+  const fetchOpenings = useCallback(() => {
     let cancelled = false;
     setOpeningsLoading(true);
     listOpenings({ page_size: 100 })
@@ -86,13 +86,13 @@ export default function StockTab() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setOpeningsLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [toast]);
 
-  useEffect(() => fetchBalances(), [search, warehouse, lowStockOnly]);
+  useEffect(() => fetchBalances(), [fetchBalances]);
 
   useEffect(() => {
     if (tab === 'openings' && openings === null) fetchOpenings();
-  }, [tab]);
+  }, [tab, openings, fetchOpenings]);
 
   const setLine = (idx: number, patch: Partial<OpeningLine>) =>
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));

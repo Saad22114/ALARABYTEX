@@ -40,6 +40,9 @@ INSTALLED_APPS = [
     "accounting",
     "messaging",
     "audit",
+    "search",
+    "dataimport",
+    "payroll",
 ]
 
 MIDDLEWARE = [

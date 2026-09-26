@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import AppShell from '@/components/layout/AppShell';
@@ -77,7 +77,7 @@ export default function PartnerDetailPage() {
     setOpDate(new Date().toISOString().slice(0, 10));
   }, [opModalOpen]);
 
-  const fetchData = (from: string, to: string) => {
+  const fetchData = useCallback((from: string, to: string) => {
     let cancelled = false;
     setLoading(true);
     getPartnerMovements(id, {
@@ -88,9 +88,9 @@ export default function PartnerDetailPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, toast]);
 
-  const fetchDistribution = () => {
+  const fetchDistribution = useCallback(() => {
     let cancelled = false;
     setDistributionLoading(true);
     getPartnerDistribution()
@@ -98,13 +98,13 @@ export default function PartnerDetailPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setDistributionLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [toast]);
 
-  useEffect(() => fetchData(dateFrom, dateTo), [id]);
+  useEffect(() => fetchData(dateFrom, dateTo), [id, dateFrom, dateTo, fetchData]);
 
   useEffect(() => {
     if (tab === 'distribution') return fetchDistribution();
-  }, [tab, id]);
+  }, [tab, id, fetchDistribution]);
 
   const currentItem = distribution?.items.find((it) => it.id === id) || null;
 
@@ -273,7 +273,7 @@ export default function PartnerDetailPage() {
         {tab === 'statement' && (
           <div className="space-y-4">
             <Card className="!p-4">
-              <DateRangeToolbar from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); fetchData(f, t); }} />
+              <DateRangeToolbar from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
             </Card>
 
             {data && (

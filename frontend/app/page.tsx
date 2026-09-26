@@ -91,7 +91,7 @@ export default function DashboardPage() {
     const range = getRangeForKey(settings.default_period as DateRangeKey);
     setDateFrom(range.from);
     setDateTo(range.to);
-  }, [settings, settings?.default_period]);
+  }, [settings, settings?.default_period, setDateFrom, setDateTo]);
 
   useEffect(() => {
     let cancelled = false;

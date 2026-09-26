@@ -52,6 +52,50 @@ def log_audit(
     return None
 
 
+def _jsonable(value):
+    """يحوّل القيم إلى أنواع قابلة للتسلسل في JSONField (Decimal/التاريخ/القواميس)."""
+    from datetime import date, datetime, time
+    from decimal import Decimal
+
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, (Decimal, date, datetime, time)):
+        return str(value)
+    return value
+
+
+def log_activity(section, event, instance=None, employee=None, request=None, details=None):
+    """يسجّل حدثاً تشغيلياً (اعتماد/صرف/توليد/إلغاء…) لا تلتقطه إشارات الحفظ.
+
+    ``event`` نص قصير يظهر في واجهة سجل التدقيق، و``details`` خريطة قيم إضافية
+    تُحفظ في حقل ``changes`` للبحث والتصفية لاحقاً.
+    """
+    from .models import AuditLog
+
+    if request is None or employee is None:
+        active_request, actor = current_actor()
+        request = request or active_request
+        employee = employee or actor
+
+    changes = {"event": event}
+    if details:
+        changes["details"] = _jsonable(details)
+
+    return log_audit(
+        section,
+        AuditLog.Action.OTHER,
+        instance=instance,
+        changes=changes,
+        employee=employee,
+        request=request,
+        model_name=instance._meta.label if instance is not None else event,
+        object_id=getattr(instance, "pk", None),
+        object_repr=(f"{instance} — {event}" if instance is not None else event)[:255],
+    )
+
+
 def log_audit_login(employee, request):
     log_audit(
         "auth",

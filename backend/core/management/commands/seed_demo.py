@@ -3,9 +3,9 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
 
 from branches.models import Branch
+from core.management.base import ArabicSafeCommand
 from expenses import models as expenses_models
 from sales.models import DailySale
 from suppliers.models import Fabric, LedgerEntry, PurchaseItem, Supplier
@@ -54,7 +54,7 @@ DEMO_EXPENSE_NOTES = [
 ]
 
 
-class Command(BaseCommand):
+class Command(ArabicSafeCommand):
     help = "إنشاء بيانات تجريبية للمعاينة (فروع، موردون، مبيعات، مصاريف، أقمشة، دفتر موردين)"
 
     def handle(self, *args, **options):
@@ -196,10 +196,12 @@ class Command(BaseCommand):
                 balance -= payment_amount
                 ledger_count += 1
 
-        self.stdout.write(self.style.SUCCESS(
+        self.write_line(
             f"تم إنشاء البيانات التجريبية: {len(branches)} فروع، {len(suppliers)} موردين، "
-            f"{sales_count} عملية بيع، {expenses_count} مصروف خلال آخر 30 يومًا"
-        ))
-        self.stdout.write(self.style.SUCCESS(
-            f"تم إنشاء {fabric_count} أقمشة، {ledger_count} قيد دفتر مورد، {items_count} صنف شراء"
-        ))
+            f"{sales_count} عملية بيع، {expenses_count} مصروف خلال آخر 30 يومًا",
+            self.style.SUCCESS,
+        )
+        self.write_line(
+            f"تم إنشاء {fabric_count} أقمشة، {ledger_count} قيد دفتر مورد، {items_count} صنف شراء",
+            self.style.SUCCESS,
+        )

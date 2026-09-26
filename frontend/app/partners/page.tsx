@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -140,7 +140,7 @@ export default function PartnersPage() {
 
   useEffect(refreshPartners, []);
 
-  const fetchOperations = () => {
+  const fetchOperations = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     const params: Record<string, string | number | undefined | null> = {
@@ -155,9 +155,9 @@ export default function PartnersPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [page, pageSize, search, from, to, toast]);
 
-  const fetchSummary = () => {
+  const fetchSummary = useCallback(() => {
     let cancelled = false;
     setSummaryLoading(true);
     getPartnerOperationsSummary({ date_from: from, date_to: to })
@@ -165,9 +165,9 @@ export default function PartnersPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setSummaryLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [from, to, toast]);
 
-  const fetchDistribution = () => {
+  const fetchDistribution = useCallback(() => {
     let cancelled = false;
     setDistributionLoading(true);
     getPartnerDistribution({ date_from: from, date_to: to })
@@ -175,17 +175,17 @@ export default function PartnersPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setDistributionLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [from, to, toast]);
 
   useEffect(() => {
     const c1 = fetchOperations();
     const c2 = fetchSummary();
     return () => { c1(); c2(); };
-  }, [page, search, from, to, pageSize]);
+  }, [fetchOperations, fetchSummary]);
 
   useEffect(() => {
     if (tab === 'distribution') return fetchDistribution();
-  }, [tab, from, to]);
+  }, [tab, fetchDistribution]);
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 

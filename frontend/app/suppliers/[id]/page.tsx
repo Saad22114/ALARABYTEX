@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
@@ -115,7 +115,7 @@ export default function SupplierDetailPage() {
 
   const listPageSize = activeTab === 'ledger' ? pageSize : 500;
 
-  const fetchAll = () => {
+  const fetchAll = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     Promise.all([
@@ -133,9 +133,9 @@ export default function SupplierDetailPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, activeTab, page, listPageSize, toast]);
 
-  useEffect(() => fetchAll(), [id, page, activeTab, settings?.default_page_size]);
+  useEffect(() => fetchAll(), [fetchAll]);
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab);

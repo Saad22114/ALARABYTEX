@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -79,7 +79,7 @@ export default function ExpensesPage() {
     }];
   }, [branches, editing]);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     const params: Record<string, string | number | undefined | null> = {
@@ -96,9 +96,9 @@ export default function ExpensesPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [page, pageSize, search, filterBranch, filterCategory, dateFrom, dateTo, toast]);
 
-  useEffect(() => fetchData(), [page, search, filterBranch, filterCategory, dateFrom, dateTo, settings?.default_page_size]);
+  useEffect(() => fetchData(), [fetchData]);
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 

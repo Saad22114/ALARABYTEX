@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -215,7 +215,7 @@ export default function SettingsPage() {
   const [deleteBudgetLoading, setDeleteBudgetLoading] = useState(false);
   const [budgetBranches, setBudgetBranches] = useState<Branch[]>([]);
 
-  const fetchCategories = () => {
+  const fetchCategories = useCallback(() => {
     let cancelled = false;
     setCategoriesLoading(true);
     listExpenseCategories({ page_size: 200 })
@@ -223,9 +223,9 @@ export default function SettingsPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setCategoriesLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [toast]);
 
-  useEffect(() => fetchCategories(), []);
+  useEffect(() => fetchCategories(), [fetchCategories]);
 
   const fetchBudgetBranches = () => {
     let cancelled = false;
@@ -234,7 +234,7 @@ export default function SettingsPage() {
     });
     return () => { cancelled = true; };
   };
-  const fetchBudgets = () => {
+  const fetchBudgets = useCallback(() => {
     let cancelled = false;
     setBudgetsLoading(true);
     listExpenseBudgets({ page_size: 200 })
@@ -242,9 +242,9 @@ export default function SettingsPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setBudgetsLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [toast]);
   useEffect(() => fetchBudgetBranches(), []);
-  useEffect(() => fetchBudgets(), []);
+  useEffect(() => fetchBudgets(), [fetchBudgets]);
 
   const fetchAutoBackups = () => {
     getAutoBackups()

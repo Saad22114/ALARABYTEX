@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
@@ -139,7 +139,7 @@ export default function WarehousesPage() {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     const params: Record<string, string | number | undefined | null> = { page, page_size: pageSize, search: search || undefined };
@@ -148,9 +148,9 @@ export default function WarehousesPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [page, pageSize, search, toast]);
 
-  useEffect(() => fetchData(), [page, search, settings?.default_page_size]);
+  useEffect(() => fetchData(), [fetchData]);
 
   useEffect(() => {
     if (!viewing) return;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -78,7 +78,7 @@ export default function ThemesPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const fetchCategories = () => {
+  const fetchCategories = useCallback(() => {
     let cancelled = false;
     setCategoriesLoading(true);
     listExpenseCategories({ page_size: 200 })
@@ -86,9 +86,9 @@ export default function ThemesPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setCategoriesLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [toast]);
 
-  useEffect(() => fetchCategories(), []);
+  useEffect(() => fetchCategories(), [fetchCategories]);
 
   const handleThemeSelect = (id: string) => {
     setTheme(id);

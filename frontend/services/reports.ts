@@ -1,4 +1,4 @@
-import { apiRequest, buildQuery } from './api';
+import { apiRequest, buildQuery, downloadBlob, API_URL } from './api';
 import {
   SalesReportData,
   ExpensesReportData,
@@ -12,6 +12,7 @@ import {
   CogsReportResult,
   ProfitLossReportResult,
   JournalReportResult,
+  ReportEnvelope,
 } from '@/types';
 
 export interface SalesReportResult {
@@ -137,4 +138,25 @@ export async function getJournalReport(
 ): Promise<JournalReportResult> {
   const q = buildQuery(params || {});
   return apiRequest<JournalReportResult>(`/reports/journal/${q}`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Reports V2 — تقارير تحليلية بعقد موحّد                                */
+/* ------------------------------------------------------------------ */
+
+export async function getAnalyticsReport(
+  key: string,
+  params?: Record<string, string | number | boolean | undefined | null>,
+): Promise<ReportEnvelope> {
+  const q = buildQuery(params || {});
+  return apiRequest<ReportEnvelope>(`/reports/${key}/${q}`);
+}
+
+export async function exportAnalyticsReport(
+  key: string,
+  params?: Record<string, string | number | boolean | undefined | null>,
+  filename?: string,
+): Promise<void> {
+  const q = buildQuery({ ...(params || {}), export: 'xlsx' });
+  await downloadBlob(`${API_URL}/reports/${key}/${q}`, `${filename || key}.xlsx`);
 }

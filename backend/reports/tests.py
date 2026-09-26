@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 
 from django.core.management import call_command
 from django.test import TestCase
@@ -284,3 +285,199 @@ class AdvancedReportsAPITest(TestCase):
         r = self.c.get("/api/reports/journal/", {"export": "xlsx"})
         self.assertEqual(r.status_code, 200)
         self.assertIn("spreadsheetml.sheet", r.headers["Content-Type"])
+
+
+class AnalyticsReportsTests(TestCase):
+    """تقارير Reports V2 — العقد الموحّد والمقارنة مع الفترة السابقة."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        call_command("seed_categories", verbosity=0)
+
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="فرع التقارير", code="R2")
+        self.supplier = Supplier.objects.create(name="مورد التقارير")
+        self.cat = ExpenseCategory.objects.get(name="إيجار")
+        self.today = date.today()
+        self.fabric = Fabric.objects.create(
+            name="قطن", code="R2-F1", unit="yard", sale_price_yard=20, min_stock=10
+        )
+        warehouse = Warehouse.objects.create(name="مخزن التقارير")
+        receipt = GoodsReceipt.objects.create(
+            number="GR-R2", warehouse=warehouse, date=self.today, status="posted"
+        )
+        GoodsReceiptItem.objects.create(
+            receipt=receipt, fabric=self.fabric, rolls_count=1, yards=100,
+            unit_price=16, total=1600,
+        )
+        sale = DailySale.objects.create(
+            branch=self.branch, date=self.today, total_sales=1000,
+            cash_amount=600, transfer_amount=200, card_amount=150, other_amount=50,
+            employee=Employee.objects.create(name="مندعف", branch=self.branch),
+        )
+        DailySaleItem.objects.create(sale=sale, fabric=self.fabric, yards=10)
+        Expense.objects.create(
+            branch=self.branch, category=self.cat, date=self.today, amount=300
+        )
+        # مبيعات الفترة السابقة (اليوم الذي قبل) لاختبار المقارنة
+        DailySale.objects.create(
+            branch=self.branch, date=self.today - timedelta(days=1),
+            total_sales=400, cash_amount=400,
+        )
+
+    def _params(self, **extra):
+        params = {"date_from": self.today.isoformat(), "date_to": self.today.isoformat()}
+        params.update(extra)
+        return params
+
+    def test_summary_kpis_compare_previous_period(self):
+        r = self.c.get("/api/reports/summary/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        keys = [k["key"] for k in r.data["kpis"]]
+        self.assertIn("sales", keys)
+        self.assertIn("net", keys)
+        self.assertIn("margin", keys)
+        self.assertEqual(r.data["period"]["to"], self.today.isoformat())
+        # الفترة السابقة = اليوم السابق (400)، فالمقارنة 1000 مقابل 400 = +150%
+        sales = next(k for k in r.data["kpis"] if k["key"] == "sales")
+        self.assertEqual(sales["value"], 1000.0)
+        self.assertEqual(sales["previous"], 400.0)
+        self.assertEqual(sales["change_pct"], 150.0)
+
+    def test_sales_trend_buckets_and_series(self):
+        r = self.c.get("/api/reports/sales-trend/", self._params(group_by="day"))
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["group_by"], "day")
+        self.assertEqual(len(r.data["rows"]), 1)
+        row = r.data["rows"][0]
+        self.assertEqual(row["total_sales"], 1000.0)
+        self.assertEqual(row["cash"], 600.0)
+        self.assertEqual(row["avg_ticket"], 1000.0)
+        self.assertEqual(r.data["series"]["current"], [1000.0])
+
+    def test_sales_trend_auto_grouping(self):
+        r = self.c.get("/api/reports/sales-trend/", self._params())
+        self.assertEqual(r.data["group_by"], "day")
+        r = self.c.get("/api/reports/sales-trend/", {
+            "date_from": (self.today - timedelta(days=200)).isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.data["group_by"], "month")
+
+    def test_branch_performance(self):
+        r = self.c.get("/api/reports/branch-performance/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        row = next(x for x in r.data["rows"] if x["branch_name"] == "فرع التقارير")
+        self.assertEqual(row["sales"], 1000.0)
+        self.assertEqual(row["expenses"], 300.0)
+        self.assertEqual(row["net"], 700.0)
+        self.assertEqual(row["share"], 100.0)
+
+    def test_employee_performance(self):
+        r = self.c.get("/api/reports/employee-performance/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        row = next(x for x in r.data["rows"] if x["employee_name"] == "مندعف")
+        self.assertEqual(row["sales"], 1000.0)
+
+    def test_fabric_profitability(self):
+        r = self.c.get("/api/reports/fabric-profitability/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        row = next(x for x in r.data["rows"] if x["fabric_name"] == "قطن")
+        self.assertEqual(row["yards"], 10.0)
+        self.assertEqual(row["revenue"], 200.0)
+        self.assertEqual(row["cogs"], 160.0)
+        self.assertEqual(row["profit"], 40.0)
+        self.assertEqual(row["margin"], 20.0)
+
+    def test_inventory_slow_marks_unsold_fabric(self):
+        from suppliers.models import Fabric as Fab
+        from warehouses.models import FabricRoll, Warehouse
+
+        idle = Fab.objects.create(name="راكد", code="R2-IDLE")
+        warehouse = Warehouse.objects.get(name="مخزن التقارير")
+        FabricRoll.objects.create(
+            warehouse=warehouse, fabric=idle, code="ROLL-IDLE",
+            yards=40, remaining_yards=40, status=FabricRoll.Status.AVAILABLE,
+        )
+        r = self.c.get("/api/reports/inventory-slow/", self._params(idle_days="1"))
+        self.assertEqual(r.status_code, 200, r.data)
+        row = next(x for x in r.data["rows"] if x["fabric_name"] == "راكد")
+        self.assertEqual(row["status"], "لم يُبع")
+        self.assertEqual(row["yards"], 40.0)
+
+    def test_supplier_aging_buckets(self):
+        from suppliers.models import LedgerEntry
+
+        LedgerEntry.objects.create(
+            supplier=self.supplier, date=self.today - timedelta(days=100),
+            entry_type=LedgerEntry.EntryType.PURCHASE, amount=Decimal("500"),
+        )
+        LedgerEntry.objects.create(
+            supplier=self.supplier, date=self.today - timedelta(days=5),
+            entry_type=LedgerEntry.EntryType.PAYMENT, amount=Decimal("-200"),
+        )
+        r = self.c.get("/api/reports/supplier-aging/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        row = next(x for x in r.data["rows"] if x["party_name"] == "مورد التقارير")
+        self.assertEqual(row["balance"], 300.0)
+        self.assertEqual(row["over_90"], 300.0)
+        self.assertEqual(row["oldest_days"], 100)
+
+    def test_partner_aging_balance(self):
+        from partners.models import Partner, PartnerMovement, PartnerOperation
+
+        partner = Partner.objects.create(name="شريك اختبار", share_percent=Decimal("50"))
+        support = PartnerOperation.objects.create(
+            number="OP-1", partner=partner, date=self.today - timedelta(days=40),
+            operation_type=PartnerOperation.OperationType.SUPPORT, amount=Decimal("1000"),
+        )
+        withdraw = PartnerOperation.objects.create(
+            number="OP-2", partner=partner, date=self.today,
+            operation_type=PartnerOperation.OperationType.WITHDRAW, amount=Decimal("400"),
+        )
+        # حركة لكل شريك عند كل عملية (كما ينشئها الـAPI)
+        PartnerMovement.objects.create(
+            operation=support, partner=partner,
+            movement_type=PartnerMovement.MovementType.SUPPORT, amount=Decimal("1000"),
+        )
+        PartnerMovement.objects.create(
+            operation=withdraw, partner=partner,
+            movement_type=PartnerMovement.MovementType.WITHDRAW, amount=Decimal("400"),
+        )
+        r = self.c.get("/api/reports/partner-aging/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        row = next(x for x in r.data["rows"] if x["party_name"] == "شريك اختبار")
+        self.assertEqual(row["balance"], 600.0)
+        self.assertEqual(row["d31_60"], 600.0)
+        self.assertEqual(row["withdraw"], 400.0)
+
+    def test_cashflow_in_out(self):
+        r = self.c.get("/api/reports/cashflow/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        row = r.data["rows"][0]
+        self.assertEqual(row["inflow"], 600.0)
+        self.assertEqual(row["outflow"], 300.0)
+        self.assertEqual(row["net"], 300.0)
+
+    def test_payroll_report_empty(self):
+        r = self.c.get("/api/reports/payroll/", self._params())
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["rows"], [])
+        self.assertEqual(r.data["totals"]["net"], 0.0)
+
+    def test_xlsx_export_uses_columns(self):
+        r = self.c.get("/api/reports/branch-performance/", self._params(export="xlsx"))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheetml.sheet", r.headers["Content-Type"])
+
+    def test_envelope_contract(self):
+        r = self.c.get("/api/reports/fabric-profitability/", self._params())
+        for field in ("key", "title", "columns", "rows", "totals", "kpis", "period", "previous"):
+            self.assertIn(field, r.data)
+        for col in r.data["columns"]:
+            self.assertIn("key", col)
+            self.assertIn("label", col)
+            self.assertIn(col["type"], ("text", "money", "number", "percent", "date"))

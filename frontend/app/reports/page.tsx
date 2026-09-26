@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -15,16 +15,18 @@ import { listBranches } from '@/services/branches';
 import { listWarehouses } from '@/services/warehouses';
 import { getSalesReport, getExpensesReport, getExpensesBudgetReport, getCommissionsReport, getNetDailyReport, getSuppliersReport, getBranchesReport, getInventoryReport, getInventoryMovementsReport, getCogsReport, getProfitLossReport, getJournalReport } from '@/services/reports';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
-import { PAYMENT_METHODS_MAP } from '@/lib/constants';
+import { PAYMENT_METHODS_MAP, ANALYTICS_REPORTS, REPORT_GROUPS } from '@/lib/constants';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { hasWindow } from '@/lib/permissions';
+import AnalyticsReportView from '@/components/reports/AnalyticsReportView';
 
-type Tab = 'sales' | 'expenses' | 'budget' | 'commissions' | 'net' | 'suppliers' | 'branches' | 'inventory' | 'inventory-movements' | 'profit-loss' | 'cogs' | 'journal';
+type Tab = 'analytics' | 'sales' | 'expenses' | 'budget' | 'commissions' | 'net' | 'suppliers' | 'branches' | 'inventory' | 'inventory-movements' | 'profit-loss' | 'cogs' | 'journal';
 
 const tabs: { value: Tab; label: string }[] = [
+  { value: 'analytics', label: 'التقارير التحليلية' },
   { value: 'sales', label: 'تقرير المبيعات' },
   { value: 'expenses', label: 'تقرير المصاريف' },
   { value: 'budget', label: 'المصاريف مقابل الميزانية' },
@@ -59,7 +61,7 @@ export default function ReportsPage() {
   const { toast } = useToast();
   const { session } = useAuth();
   const me = session?.employee;
-  const [activeTab, setActiveTab] = useUrlState<Tab>('report', 'sales');
+  const [activeTab, setActiveTab] = useUrlState<Tab>('report', 'analytics');
   const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
   const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
@@ -91,6 +93,17 @@ export default function ReportsPage() {
   const [filterMovementType, setFilterMovementType] = useUrlState('movement_type', '');
   const [filterSearch, setFilterSearch] = useUrlState('q', '');
 
+  // Reports V2
+  const [analyticsKey, setAnalyticsKey] = useUrlState('report_key', 'summary');
+  const [analyticsGroup, setAnalyticsGroup] = useUrlState('report_group', 'overview');
+  const [groupBy, setGroupBy] = useUrlState('group_by', '');
+  const [idleDays, setIdleDays] = useUrlState('idle_days', '60');
+  const [compare, setCompare] = useUrlState('compare', '1');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const activeReport =
+    ANALYTICS_REPORTS.find((r) => r.key === analyticsKey) || ANALYTICS_REPORTS[0];
+
   useEffect(() => {
     let cancelled = false;
     listBranches({ page_size: 100 }).then((res) => {
@@ -102,13 +115,13 @@ export default function ReportsPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const buildParams = () => {
+  const buildParams = useCallback(() => {
     const p: Record<string, string | number | undefined | null> = {};
     if (dateFrom) p.date_from = dateFrom;
     if (dateTo) p.date_to = dateTo;
     if (filterBranch) p.branch = filterBranch;
     return p;
-  };
+  }, [dateFrom, dateTo, filterBranch]);
 
   const buildExportUrl = (base: string) => {
     const params = new URLSearchParams();
@@ -119,7 +132,7 @@ export default function ReportsPage() {
     return `${API_URL}${base}?${params.toString()}`;
   };
 
-  const loadTab = async (tab: Tab) => {
+  const loadTab = useCallback(async (tab: Tab) => {
     setLoading(true);
     try {
       const params = buildParams();
@@ -202,11 +215,14 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    buildParams, budgetMonth, commissionMonth, dateFrom, dateTo, filterBranch,
+    filterMovementType, filterSearch, filterWarehouse, toast,
+  ]);
 
   useEffect(() => {
     loadTab(activeTab);
-  }, [activeTab, dateFrom, dateTo, filterBranch, filterWarehouse, filterMovementType, filterSearch, budgetMonth, commissionMonth]);
+  }, [activeTab, loadTab]);
 
   const getExportUrl = () => {
     switch (activeTab) {
@@ -252,6 +268,78 @@ export default function ReportsPage() {
   return (
     <AppShell>
       <div className="space-y-6">
+        {activeTab === 'analytics' ? (
+          <>
+            <div className="flex flex-wrap items-end gap-4">
+              <DateRangeToolbar from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
+              <Select
+                value={filterBranch}
+                onChange={(e) => setFilterBranch(e.target.value)}
+                options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+                className="w-full sm:w-48"
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">
+                {REPORT_GROUPS.map((g) => (
+                  <button
+                    key={g.key}
+                    onClick={() => {
+                      setAnalyticsGroup(g.key);
+                      const first = ANALYTICS_REPORTS.find((r) => r.group === g.key);
+                      if (first) setAnalyticsKey(first.key);
+                    }}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                      analyticsGroup === g.key
+                        ? 'bg-brand-600 text-white shadow-sm'
+                        : 'bg-surface text-neutral-600 border border-sand-200 hover:bg-sand-50'
+                    }`}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 text-sm text-neutral-600">
+                <input
+                  type="checkbox"
+                  checked={compare === '1'}
+                  onChange={(e) => setCompare(e.target.checked ? '1' : '0')}
+                  className="w-4 h-4 rounded border-sand-300 text-brand-600"
+                />
+                مقارنة بالفترة السابقة
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {ANALYTICS_REPORTS.filter((r) => r.group === analyticsGroup).map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setAnalyticsKey(r.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    activeReport.key === r.key
+                      ? 'bg-brand-100 text-brand-800 dark:bg-brand-500/20 dark:text-brand-200'
+                      : 'bg-sand-100 text-neutral-600 hover:bg-sand-200'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <AnalyticsReportView
+              key={activeReport.key}
+              report={activeReport}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              branch={filterBranch}
+              compare={compare === '1'}
+              idleDays={idleDays}
+              onIdleDays={setIdleDays}
+              groupBy={groupBy}
+              onGroupBy={setGroupBy}
+              refreshKey={refreshKey}
+            />
+          </>
+        ) : (
+          <>
         {/* Filters */}
         <Card className="!p-4">
           <div className="flex flex-wrap items-end gap-4">
@@ -314,7 +402,9 @@ export default function ReportsPage() {
         {/* Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            {tabs.filter((t) => hasWindow(me?.permissions, 'reports', t.value)).map((t) => (
+            {tabs
+              .filter((t) => t.value === 'analytics' || hasWindow(me?.permissions, 'reports', t.value))
+              .map((t) => (
               <button
                 key={t.value}
                 onClick={() => setActiveTab(t.value)}
@@ -895,13 +985,15 @@ export default function ReportsPage() {
                           </tr>
                         </tfoot>
                       )}
-                    </Table>
-                  </>
-                )
-              )}
+                     </Table>
+                   </>
+                 )
+               )}
             </>
           )}
         </Card>
+          </>
+        )}
       </div>
     </AppShell>
   );

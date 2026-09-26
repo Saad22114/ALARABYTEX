@@ -1,3 +1,4 @@
+from copy import deepcopy
 from decimal import Decimal
 
 from django.conf import settings
@@ -66,6 +67,11 @@ class Employee(TimeStampedModel, ActiveModel):
         verbose_name="نسبة العمولة (%)",
     )
     department = models.CharField(max_length=100, blank=True, default="", verbose_name="القسم")
+    attendance_tracked = models.BooleanField(
+        default=False,
+        verbose_name="احتساب الحضور تلقائياً",
+        help_text="عند التفعيل تُحتسب أيام الحضور والغياب وساعات العمل الإضافي من الورديات وقت توليد مسيّر الرواتب",
+    )
     position = models.CharField(max_length=100, blank=True, default="", verbose_name="المسمى الوظيفي")
     email = models.EmailField(blank=True, default="", verbose_name="البريد الإلكتروني")
     birth_date = models.DateField(null=True, blank=True, verbose_name="تاريخ الميلاد")
@@ -96,8 +102,9 @@ class Employee(TimeStampedModel, ActiveModel):
 
         preset = ROLE_PRESETS.get(role, ROLE_PRESETS["custom"])
         self.role = role
-        self.permissions = preset["permissions"]
-        self.hidden_sections = preset["hidden_sections"]
+        # نسخة مستقلة: أي تعديل لاحق على صلاحيات الموظف يجب ألّا يعدّل الدور العام.
+        self.permissions = deepcopy(preset["permissions"])
+        self.hidden_sections = list(preset["hidden_sections"])
 
     def has_permission(self, section_key, action="view"):
         try:

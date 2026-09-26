@@ -1,10 +1,10 @@
-from django.core.management.base import BaseCommand
+from core.management.base import ArabicSafeCommand
 
 from appsettings.backup import run_auto_backup_if_due, write_backup_file
 from appsettings.models import AppSettings
 
 
-class Command(BaseCommand):
+class Command(ArabicSafeCommand):
     help = "ينشئ نسخة احتياطية تلقائية إذا كان موعدها قد حان (تُستدعى من المجدول: cron/systemd timer)."
 
     def add_arguments(self, parser):
@@ -23,12 +23,12 @@ class Command(BaseCommand):
             s.last_auto_backup_at = timezone.now()
             s.last_auto_backup_path = rel
             s.save(update_fields=["last_auto_backup_at", "last_auto_backup_path", "updated_at"])
-            self.stdout.write(self.style.SUCCESS(f"تم إنشاء النسخة التلقائية: {rel}"))
+            self.write_line(f"تم إنشاء النسخة التلقائية: {rel}", self.style.SUCCESS)
             return
         rel = run_auto_backup_if_due()
         if not rel:
-            self.stdout.write("لا حاجة لنسخة تلقائية الآن (غير مفعّلة أو لم يحن موعدها).")
+            self.write_line("لا حاجة لنسخة تلقائية الآن (غير مفعّلة أو لم يحن موعدها).")
             return
-        self.stdout.write(self.style.SUCCESS(f"تم إنشاء النسخة التلقائية: {rel}"))
-        self.stdout.write("ملاحظة: جدول عندك تشغيل هذا الأمر دورياً (مثال كل ساعة عبر cron) ليتم التنفيذ.")
-        self.stdout.write("  لمستخدمي Windows: أنشئ مهمة «Task Scheduler» تنفّذ هذا الأمر بشكل متكرر.")
+        self.write_line(f"تم إنشاء النسخة التلقائية: {rel}", self.style.SUCCESS)
+        self.write_line("ملاحظة: جدول عندك تشغيل هذا الأمر دورياً (مثال كل ساعة عبر cron) ليتم التنفيذ.")
+        self.write_line("  لمستخدمي Windows: أنشئ مهمة «Task Scheduler» تنفّذ هذا الأمر بشكل متكرر.")

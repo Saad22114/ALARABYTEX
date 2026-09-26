@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -50,7 +50,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
     min_sale_roll: '',
   });
 
-  const fetchPrices = () => {
+  const fetchPrices = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     listBranchPrices({ branch: branchId, page_size: 100 })
@@ -58,15 +58,15 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [branchId, toast]);
 
-  useEffect(() => fetchPrices(), [branchId]);
+  useEffect(() => fetchPrices(), [fetchPrices]);
 
   useEffect(() => {
     if (modalOpen && fabrics.length === 0) {
       listFabrics({ page_size: 100 }).then((res) => setFabrics(res.results)).catch(() => undefined);
     }
-  }, [modalOpen]);
+  }, [modalOpen, fabrics.length]);
 
   const openAdd = () => {
     setEditing(null);

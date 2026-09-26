@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
@@ -89,6 +89,9 @@ export default function BranchDetailPage() {
 
   // stock
   const [saleStock, setSaleStock] = useState<SaleStockResult | null>(null);
+  // مرجع لمخزون الفرع: يُستخدم كذاكرة مؤقتة داخل دوال الجلب دون أن يسبّب إعادة جلب عند تغيّره
+  const saleStockRef = useRef<SaleStockResult | null>(saleStock);
+  saleStockRef.current = saleStock;
   const [stockData, setStockData] = useState<StockBalanceResult | null>(null);
   const [stockLoading, setStockLoading] = useState(false);
 
@@ -129,7 +132,7 @@ export default function BranchDetailPage() {
     return () => { cancelled = true; };
   }, [id]);
 
-  const loadDashboard = () => {
+  const loadDashboard = useCallback(() => {
     let cancelled = false;
     setSummaryLoading(true);
     const prev = previousRange(dateFrom, dateTo);
@@ -151,9 +154,9 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setSummaryLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, dateFrom, dateTo, toast]);
 
-  const loadStock = () => {
+  const loadStock = useCallback(() => {
     let cancelled = false;
     setStockLoading(true);
     getSaleStock(id)
@@ -168,13 +171,14 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setStockLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, toast]);
 
-  const loadMovements = () => {
+  const loadMovements = useCallback(() => {
     let cancelled = false;
     setMovementsLoading(true);
-    const ensureWarehouse = saleStock?.warehouse != null
-      ? Promise.resolve(saleStock)
+    const cached = saleStockRef.current;
+    const ensureWarehouse = cached?.warehouse != null
+      ? Promise.resolve(cached)
       : getSaleStock(id);
     ensureWarehouse
       .then((sr) => {
@@ -191,9 +195,9 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setMovementsLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, dateFrom, dateTo, toast]);
 
-  const loadEmployees = () => {
+  const loadEmployees = useCallback(() => {
     let cancelled = false;
     setEmployeesLoading(true);
     listEmployees({ branch: id, page_size: 100 })
@@ -201,9 +205,9 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setEmployeesLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, toast]);
 
-  const loadExpenses = () => {
+  const loadExpenses = useCallback(() => {
     let cancelled = false;
     setExpensesLoading(true);
     listExpenses({ branch: id, date_from: dateFrom, date_to: dateTo, page_size: 100 })
@@ -211,9 +215,9 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setExpensesLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, dateFrom, dateTo, toast]);
 
-  const loadSales = () => {
+  const loadSales = useCallback(() => {
     let cancelled = false;
     setSalesLoading(true);
     listSales({ branch: id, date_from: dateFrom, date_to: dateTo, page_size: 200 })
@@ -221,9 +225,9 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setSalesLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, dateFrom, dateTo, toast]);
 
-  const loadByEmployee = () => {
+  const loadByEmployee = useCallback(() => {
     let cancelled = false;
     setByEmployeeLoading(true);
     getSalesByEmployee({ branch: id, date_from: dateFrom, date_to: dateTo })
@@ -231,13 +235,14 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setByEmployeeLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, dateFrom, dateTo, toast]);
 
-  const loadReports = () => {
+  const loadReports = useCallback(() => {
     let cancelled = false;
     setReportsLoading(true);
-    const ensureWarehouse = saleStock?.warehouse != null
-      ? Promise.resolve(saleStock)
+    const cached = saleStockRef.current;
+    const ensureWarehouse = cached?.warehouse != null
+      ? Promise.resolve(cached)
       : getSaleStock(id);
     ensureWarehouse
       .then((sr) => {
@@ -251,7 +256,7 @@ export default function BranchDetailPage() {
       })
       .then(([salesRes, inv]) => {
         if (!cancelled) {
-          setSaleStock((prev) => prev || saleStock || null);
+          setSaleStock((prev) => prev || saleStockRef.current || null);
           setReportsData(salesRes.sales || []);
           setInventoryData(inv.items || []);
         }
@@ -259,39 +264,39 @@ export default function BranchDetailPage() {
       .catch((err: any) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setReportsLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [id, dateFrom, dateTo, toast]);
 
   useEffect(() => {
     if (tab === 'dashboard') return loadDashboard();
-  }, [tab, dateFrom, dateTo, id]);
+  }, [tab, loadDashboard]);
 
   useEffect(() => {
     if (tab === 'stock') return loadStock();
-  }, [tab, id]);
+  }, [tab, loadStock]);
 
   useEffect(() => {
     if (tab === 'movements') return loadMovements();
-  }, [tab, dateFrom, dateTo, id]);
+  }, [tab, loadMovements]);
 
   useEffect(() => {
     if (tab === 'employees' && employees === null) return loadEmployees();
-  }, [tab, id]);
+  }, [tab, employees, loadEmployees]);
 
   useEffect(() => {
     if (tab === 'expenses') return loadExpenses();
-  }, [tab, dateFrom, dateTo, id]);
+  }, [tab, loadExpenses]);
 
   useEffect(() => {
     if (tab === 'sales') return loadSales();
-  }, [tab, dateFrom, dateTo, id]);
+  }, [tab, loadSales]);
 
   useEffect(() => {
     if (tab === 'sales-employees') return loadByEmployee();
-  }, [tab, dateFrom, dateTo, id]);
+  }, [tab, loadByEmployee]);
 
   useEffect(() => {
     if (tab === 'reports') return loadReports();
-  }, [tab, dateFrom, dateTo, id]);
+  }, [tab, loadReports]);
 
   const handleUpdate = async (d: Partial<Branch>) => {
     await updateBranch(id, d);

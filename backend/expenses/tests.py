@@ -1,8 +1,11 @@
+import io
 from datetime import date
 
 from django.core.management import call_command
+from django.core.management.base import OutputWrapper
 from django.test import TestCase
 from rest_framework.test import APIClient
+from core.management.base import ArabicSafeCommand
 from core.testsupport import authenticate_admin
 
 from branches.models import Branch
@@ -130,3 +133,39 @@ class ExpenseBudgetAPITest(TestCase):
         eid = r.data["id"]
         r = self.c.delete(f"/api/expense-budgets/{eid}/")
         self.assertEqual(r.status_code, 200)
+
+
+class SeedCategoriesCommandTest(TestCase):
+    """حارس ضد انهيار الإخراج العربي على ترميز الطرفية غير UTF-8 (cp1252 في ويندوز)."""
+
+    def test_verbosity_zero_writes_nothing(self):
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", line_buffering=True)
+        call_command("seed_categories", stdout=stream, verbosity=0)
+        self.assertEqual(stream.buffer.tell(), 0)
+        self.assertEqual(ExpenseCategory.objects.count(), 9)
+
+    def test_arabic_output_does_not_crash_on_cp1252(self):
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", line_buffering=True)
+        call_command("seed_categories", stdout=stream, verbosity=1)
+        self.assertEqual(ExpenseCategory.objects.count(), 9)
+        stream.seek(0)
+        self.assertTrue(stream.read())
+
+    def test_write_line_falls_back_when_stream_cannot_encode(self):
+        command = ArabicSafeCommand()
+        command.stdout = OutputWrapper(
+            io.TextIOWrapper(io.BytesIO(), encoding="cp1252", line_buffering=True)
+        )
+        command.write_line("تمت إضافة 9 تصنيف مصروف أساسي")
+        command.stdout.flush()
+        self.assertTrue(command.stdout._out.buffer.getvalue().decode("cp1252"))
+
+    def test_write_line_keeps_arabic_on_utf8(self):
+        command = ArabicSafeCommand()
+        command.stdout = OutputWrapper(
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", line_buffering=True)
+        )
+        command.write_line("تمت إضافة 9 تصنيف مصروف أساسي")
+        command.stdout.flush()
+        text = command.stdout._out.buffer.getvalue().decode("utf-8")
+        self.assertIn("تمت إضافة", text)

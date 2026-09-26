@@ -1,4 +1,16 @@
 from django.urls import path
+from .analytics_views import (
+    BranchPerformanceReportView,
+    CashflowReportView,
+    EmployeePerformanceReportView,
+    FabricProfitabilityReportView,
+    InventorySlowReportView,
+    PartnerAgingReportView,
+    PayrollReportView,
+    SalesTrendReportView,
+    SummaryReportView,
+    SupplierAgingReportView,
+)
 from .views import (
     BranchReportView,
     CogsReportView,
@@ -27,4 +39,15 @@ urlpatterns = [
     path("profit-loss/", ProfitLossReportView.as_view(), name="report-profit-loss"),
     path("commissions/", CommissionsReportView.as_view(), name="report-commissions"),
     path("journal/", JournalReportView.as_view(), name="report-journal"),
+    # ---------- Reports V2: مؤشرات وتحليلات ----------
+    path("summary/", SummaryReportView.as_view(), name="report-summary"),
+    path("sales-trend/", SalesTrendReportView.as_view(), name="report-sales-trend"),
+    path("branch-performance/", BranchPerformanceReportView.as_view(), name="report-branch-performance"),
+    path("employee-performance/", EmployeePerformanceReportView.as_view(), name="report-employee-performance"),
+    path("fabric-profitability/", FabricProfitabilityReportView.as_view(), name="report-fabric-profitability"),
+    path("inventory-slow/", InventorySlowReportView.as_view(), name="report-inventory-slow"),
+    path("supplier-aging/", SupplierAgingReportView.as_view(), name="report-supplier-aging"),
+    path("partner-aging/", PartnerAgingReportView.as_view(), name="report-partner-aging"),
+    path("cashflow/", CashflowReportView.as_view(), name="report-cashflow"),
+    path("payroll/", PayrollReportView.as_view(), name="report-payroll"),
 ]

@@ -1,5 +1,4 @@
-from django.core.management.base import BaseCommand
-
+from core.management.base import ArabicSafeCommand
 from expenses.models import ExpenseCategory
 
 DEFAULT_CATEGORIES = [
@@ -15,7 +14,7 @@ DEFAULT_CATEGORIES = [
 ]
 
 
-class Command(BaseCommand):
+class Command(ArabicSafeCommand):
     help = "إنشاء تصنيفات المصاريف الأساسية"
 
     def handle(self, *args, **options):
@@ -26,6 +25,11 @@ class Command(BaseCommand):
             )
             if was_created:
                 created += 1
-        self.stdout.write(self.style.SUCCESS(f"تمت إضافة {created} تصنيف مصروف أساسي"))
-        if created == 0:
-            self.stdout.write("جميع التصنيفات الأساسية موجودة بالفعل")
+        # الاحترام الصريح للـ verbosity: الاستدعاءات الداخلية (الاختبارات والبيانات
+        # التجريبية) تمرر verbosity=0 فلا يُكتب شيء على الطرفية إطلاقاً.
+        if options.get("verbosity", 1) >= 1:
+            self.write_line(
+                f"تمت إضافة {created} تصنيف مصروف أساسي", self.style.SUCCESS
+            )
+            if created == 0:
+                self.write_line("جميع التصنيفات الأساسية موجودة بالفعل")

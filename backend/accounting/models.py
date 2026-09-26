@@ -61,6 +61,8 @@ class JournalEntry(TimeStampedModel):
         EXPENSE = "expense", "مصروف"
         PARTNER = "partner", "عملية شريك"
         CLOSING = "closing", "قيد إقفال دوري"
+        PAYROLL = "payroll", "مسيّر رواتب"
+        SALARY_ADVANCE = "salary_advance", "سلفة راتب"
 
     number = models.CharField(max_length=30, unique=True, verbose_name="رقم القيد")
     date = models.DateField(verbose_name="التاريخ")
