@@ -43,6 +43,7 @@ class SearchSpec:
     subtitle: Callable | None = None
     weight: int = 0
     extra: Callable = field(default=lambda obj: {})
+    active_only: bool = False
 
 
 def _first(*values):
@@ -133,6 +134,7 @@ SPECS = (
         fields=("name", "code", "phone", "city", "address"),
         branch_field="id",
         subtitle=lambda o: _first(o.code, o.city, o.phone),
+        active_only=True,
     ),
     SearchSpec(
         key="expense_category",
@@ -248,6 +250,8 @@ class GlobalSearchView(APIView):
         qs = spec.model.objects.filter(_matches(spec, query))
         if spec.branch_field:
             qs = scope_queryset(request, qs, spec.branch_field)
+        if spec.active_only:
+            qs = qs.filter(is_active=True)
         rows = list(qs[: limit * 4])
         rows.sort(key=_rank(spec, query))
         return [_row(spec, obj) for obj in rows[:limit]]

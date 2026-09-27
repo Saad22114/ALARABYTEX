@@ -616,6 +616,7 @@ export interface AppSettings {
   default_payment_method: SessionPaymentMethod;
   discount_max_percent: number;
   min_sale_percent: number;
+  min_piece_price_multiplier: number;
   card_credit_fee_percent: number;
   card_debit_fee_percent: number;
   receipt_show_tax: boolean;

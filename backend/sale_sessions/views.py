@@ -204,7 +204,8 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
             data=request.data, context={"session": session}
         )
         serializer.is_valid(raise_exception=True)
-        item = serializer.save()
+        with transaction.atomic():
+            item = serializer.save()
         return Response(SaleSessionItemSerializer(item).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="items/bulk")

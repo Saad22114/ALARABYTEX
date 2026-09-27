@@ -18,6 +18,7 @@ from warehouses.models import FabricRoll, Warehouse
 from .models import Employee, SaleSession, SaleSessionItem
 from .services import (
     create_manual_session,
+    deduct_item_stock,
     elapsed_reference,
     reopen_session,
     session_sale_date,
@@ -566,6 +567,31 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 }
             )
 
+        # منع البيع نهائياً إذا كان سعر القطعة النهائي أقل من تكلفة الشراء × المضاعف المضبوط من الإعدادات
+        piece_multiplier = settings.min_piece_price_multiplier
+        purchase_yard = Decimal(str(fabric.purchase_price if fabric.purchase_price is not None else 0))
+        if (
+            piece_multiplier > 0
+            and purchase_yard > 0
+            and session.status != SaleSession.Status.CLOSED
+        ):
+            if sale_type == SaleSessionItem.SaleType.ROLL:
+                ypr = Decimal(str(fabric.yards_per_roll or 0))
+                piece_price_now = unit_price / ypr * Decimal("3.5") if ypr > 0 else None
+            else:
+                piece_price_now = unit_price * Decimal("3.5")
+            required_piece_price = purchase_yard * Decimal("3.5") * piece_multiplier
+            if piece_price_now is not None and piece_price_now < required_piece_price:
+                raise serializers.ValidationError(
+                    {
+                        "detail": (
+                            f"سعر القطعة النهائي ({piece_price_now.normalize()}) أقل من الحد المطلوب "
+                            f"({required_piece_price.normalize()}) = تكلفة الشراء × "
+                            f"{piece_multiplier.normalize()} — هذا البيع مرفوض، ارفع السعر أو عدّل الحد من الإعدادات"
+                        )
+                    }
+                )
+
         warehouse = Warehouse.for_branch(session.branch)
         available = Decimal("0")
         if warehouse is not None:
@@ -578,13 +604,12 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 ).aggregate(total=Sum("remaining_yards"))["total"]
                 or Decimal("0")
             )
-        pending = (
-            session.items.filter(fabric=fabric, is_returned=False)
-            .exclude(pk=self.instance.pk if self.instance is not None else None)
-            .select_related("fabric")
-        )
-        pending_yards = sum(it.yards_effective for it in pending)
-        effective_available = max(Decimal("0"), available - pending_yards)
+        # الخصم فوري عند الإضافة: الرصيد الحالي يعكس بنود الوردية المخصومة فعلاً.
+        # عند التعديل تُعاد الكمية القديمة قبل خصم الجديدة، لذا يُضاف مخزون البند الجاري.
+        avail_extra = Decimal("0")
+        if self.instance is not None and not self.instance.is_returned:
+            avail_extra = self.instance.yards_effective or Decimal("0")
+        effective_available = max(Decimal("0"), available + avail_extra)
         if sale_type == SaleSessionItem.SaleType.ROLL:
             yards_need = quantity * (fabric.yards_per_roll or Decimal("0"))
         else:
@@ -594,7 +619,7 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 {
                     "detail": (
                         f"الكمية غير متوفرة في فرع الوردية — القماش «{fabric.name}» "
-                        f"متوفر {effective_available.normalize()} ياردة فقط بعد بنود الوردية المعلقة"
+                        f"متوفر {effective_available.normalize()} ياردة فقط"
                     )
                 }
             )
@@ -648,7 +673,9 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         validated_data["session"] = self.context["session"]
         validated_data["sale_group"] = self.context.get("sale_group") or str(uuid.uuid4())
-        return SaleSessionItem.objects.create(**validated_data)
+        item = SaleSessionItem.objects.create(**validated_data)
+        deduct_item_stock(item)
+        return item
 
 
 class SaleSessionItemEditSerializer(SaleSessionItemCreateSerializer):

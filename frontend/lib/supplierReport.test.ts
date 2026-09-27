@@ -34,6 +34,7 @@ function makeSettings(): AppSettings {
     default_payment_method: 'transfer',
     discount_max_percent: 20,
     min_sale_percent: 15,
+    min_piece_price_multiplier: 1,
     card_credit_fee_percent: 0,
     card_debit_fee_percent: 0,
     receipt_show_tax: false,

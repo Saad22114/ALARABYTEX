@@ -8,7 +8,8 @@ from django.utils import timezone
 
 from appsettings.models import AppSettings
 from sales.models import DailySale, DailySaleItem
-from warehouses.services import reverse_sale_consumption, sell_from_branch
+from warehouses.models import FabricRoll, StockMovement, Warehouse
+from warehouses.services import consume_rolls
 
 from .models import SaleSession, SaleSessionItem
 
@@ -99,6 +100,51 @@ def _item_yards(item):
     return item.quantity
 
 
+def deduct_item_stock(item):
+    """يخصم كمية البند فورياً من مخزن فرع الوردية عند حفظ البيعة."""
+    if item is None or item.is_returned:
+        return
+    warehouse = Warehouse.for_branch(item.session.branch)
+    if warehouse is None:
+        return
+    yards = _item_yards(item)
+    if yards <= 0:
+        return
+    consume_rolls(
+        warehouse, item.fabric, yards, StockMovement.Type.SALE,
+        reference=SaleSessionItem, reference_id=item.pk,
+        reference_no=f"SI-{item.pk:05d}", date=item.sale_date,
+        notes=f"بيعة #SI-{item.pk:05d} — {item.session.employee.name}",
+    )
+
+
+def restock_item(item):
+    """يعيد كمية البند إلى مخزن الفرع الذي خُصم منه (عند الحذف/الاسترجاع/التعديل/الإفراغ)."""
+    movements = list(
+        StockMovement.objects.filter(
+            movement_type=StockMovement.Type.SALE,
+            reference_type="SaleSessionItem",
+            reference_id=item.pk,
+        ).select_related("roll")
+    )
+    if not movements:
+        return
+    roll_ids = {m.roll_id for m in movements if m.roll_id}
+    rolls = {r.pk: r for r in FabricRoll.objects.filter(pk__in=roll_ids)}
+    for m in movements:
+        if m.roll_id and m.roll_id in rolls:
+            roll = rolls[m.roll_id]
+            roll.remaining_yards = roll.remaining_yards + abs(m.quantity)
+            if roll.remaining_yards > 0 and roll.status == FabricRoll.Status.CONSUMED:
+                roll.status = FabricRoll.Status.AVAILABLE
+            roll.save(update_fields=["remaining_yards", "status"])
+    StockMovement.objects.filter(
+        movement_type=StockMovement.Type.SALE,
+        reference_type="SaleSessionItem",
+        reference_id=item.pk,
+    ).delete()
+
+
 def _manual_total(session):
     return (
         (session.manual_cash or Decimal("0"))
@@ -141,7 +187,6 @@ def _apply_manual_to_daily(session, sign=1):
 def _reverse_manual_session(session):
     if session.manual_date is None:
         return
-    allow_negative = False
     sale = DailySale.objects.filter(branch=session.branch, date=session.manual_date).first()
     if sale is None:
         return
@@ -150,7 +195,8 @@ def _reverse_manual_session(session):
     sale.transfer_amount -= session.manual_transfer or Decimal("0")
     sale.card_amount -= session.manual_card or Decimal("0")
     sale.save(update_fields=["total_sales", "cash_amount", "transfer_amount", "card_amount"])
-    _cleanup_sale(sale, allow_negative)
+    if sale.total_sales <= 0 and sale.payment_total <= 0:
+        sale.delete()
 
 
 @transaction.atomic
@@ -239,10 +285,6 @@ def close_session(session):
                 else:
                     existing[fabric_id] = DailySaleItem.objects.create(sale=sale, fabric_id=fabric_id, yards=yards)
 
-            if item_rows:
-                allow_negative = False
-                sell_from_branch(session.branch, sale, item_rows, allow_negative=allow_negative)
-
         session.status = SaleSession.Status.CLOSED
         # وقت الإغلاق يُسجَّل على تاريخ الوردية بنفس الساعة — يبقى التسلسل والمدة متسقة
         session.closed_at = now_on(session_business_date(session), floor=session.opened_at)
@@ -281,48 +323,41 @@ def _add_item(sale, item):
         )
 
 
-def _rebuild_stock(sale, allow_negative):
-    reverse_sale_consumption(sale)
-    items = [(it.fabric, it.yards) for it in sale.sale_items.select_related("fabric").all()]
-    if items:
-        sell_from_branch(sale.branch, sale, items, allow_negative=allow_negative)
-
-
-def _cleanup_sale(sale, allow_negative):
+def _remove_from_daily(sale, item):
+    """يزيل بنداً من السجل اليومي ويحذف السجل إن أصبح فارغاً (المخزون لا يتأثر هنا)."""
+    _subtract_item(sale, item)
     if sale.total_sales <= 0 and sale.payment_total <= 0:
-        reverse_sale_consumption(sale)
         sale.delete()
-    else:
-        _rebuild_stock(sale, allow_negative)
 
 
 def _reverse_closed_items(session):
-    """عكس استهلاك الوردية المغلق من السجلات اليومية والمخزون."""
-    allow_negative = False
+    """عكس بنود الوردية المغلقة من السجلات اليومية فقط — المخزون يبقى مخصوماً (الخصم فوري عند الإضافة)."""
     rows = list(session.items.select_related("fabric").filter(is_returned=False))
     for item in rows:
         sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if sale:
-            _subtract_item(sale, item)
-            _cleanup_sale(sale, allow_negative)
+            _remove_from_daily(sale, item)
 
 
 @transaction.atomic
 def delete_session(session):
-    """حذف وردية كاملة وإرجاع المخزون والسجلات اليومية للورديات المغلقة."""
+    """حذف وردية كاملة وإرجاع المخزون المخصوم لكل بند وإلغاء السجلات اليومية."""
     if session.status == SaleSession.Status.CLOSED:
         _unpost_session(session)
         if session.is_manual:
             _reverse_manual_session(session)
         else:
             _reverse_closed_items(session)
+    for item in session.items.select_related("fabric").all():
+        if not item.is_returned:
+            restock_item(item)
     session.items.all().delete()
     session.delete()
 
 
 @transaction.atomic
 def reopen_session(session):
-    """إعادة فتح وردية مغلقة: عكس المبيعات اليومية والمخزون، ثم فتح الوردية."""
+    """إعادة فتح وردية مغلقة: إلغاء السجلات اليومية ثم فتح الوردية — المخزون يبقى مخصوماً."""
     if session.status != SaleSession.Status.CLOSED:
         raise ValueError("لا يمكن إعادة فتح وردية مفتوحة")
     if session.is_manual:
@@ -362,17 +397,22 @@ def move_session_item(source_session, item, target_session):
         context={"session": target_session},
     )
     check.is_valid(raise_exception=True)
+    restock_item(item)  # إرجاع الخصم الفوري لمخزن الفرع المصدر
     item.session = target_session
     item.sale_date = session_sale_date(target_session)
     item.save(update_fields=["session", "sale_date"])
+    deduct_item_stock(item)  # خصم فوري من مخزن الفرع الهدف
     return item
 
 
 @transaction.atomic
 def clear_session_items(session):
-    """إفراغ كل بنود وردية مفتوحة دفعة واحدة."""
+    """إفراغ كل بنود وردية مفتوحة دفعة واحدة مع إرجاع الخصم الفوري لكل بند."""
     if session.status == SaleSession.Status.CLOSED:
         raise ValueError("لا يمكن إفراغ وردية مغلقة")
+    for item in session.items.select_related("fabric").all():
+        if not item.is_returned:
+            restock_item(item)
     session.items.all().delete()
 
 
@@ -380,12 +420,11 @@ def clear_session_items(session):
 def delete_session_item(session, item):
     if item.is_returned:
         raise ValueError("البند مسترجع — لا يمكن حذفه؛ يمكنك إلغاء الاسترجاع أو إعادة الوردية")
-    allow_negative = False
     if session.status == SaleSession.Status.CLOSED:
         sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if sale:
-            _subtract_item(sale, item)
-            _cleanup_sale(sale, allow_negative)
+            _remove_from_daily(sale, item)
+    restock_item(item)
     item.delete()
     if session.status == SaleSession.Status.CLOSED:
         recompute_commission(session)
@@ -397,12 +436,12 @@ def delete_session_item(session, item):
 def update_session_item(session, item, attrs):
     if item.is_returned:
         raise ValueError("البند مسترجع — لا يمكن تعديل بند مُسترجع؛ ألغِ الاسترجاع أولاً إذا كان خطاً")
-    allow_negative = False
     closed = session.status == SaleSession.Status.CLOSED
     if closed:
         current_sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if current_sale:
-            _subtract_item(current_sale, item)
+            _remove_from_daily(current_sale, item)
+    restock_item(item)  # إرجاع الخصم الفوري للكمية القديمة (للوردية المفتوحة والمغلقة)
     for field in ("fabric", "sale_type", "quantity", "unit_price", "payment_method", "card_type", "card_fee_amount", "net_total", "discount_amount", "customer_name", "customer_phone"):
         if field in attrs:
             setattr(item, field, attrs[field])
@@ -423,13 +462,10 @@ def update_session_item(session, item, attrs):
                 notes=f"وردية بيع: {session.employee.name}",
             )
         _add_item(target_sale, item)
-        if current_sale and current_sale.pk != target_sale.pk:
-            _cleanup_sale(current_sale, allow_negative)
-        if target_sale.pk:
-            _rebuild_stock(target_sale, allow_negative)
         recompute_commission(session)
         session.save(update_fields=["commission_amount"])
         _post_session(session)
+    deduct_item_stock(item)  # خصم فوري للكمية الجديدة
     return item
 
 
@@ -437,8 +473,8 @@ def update_session_item(session, item, attrs):
 def return_session_items(session, items, reason=""):
     """استرجاع بنود مبيعة: إبقاء السجل مع وسم «مسترجع» وترجيع الكمية إلى المخزون.
 
-    للوردية المغلقة يُعكس البند من اليومي والمخزون (مثل الحذف) لكن يبقى البند
-    مسجلاً بوسم مسترجع؛ وللوردية المفتوحة يُومَض ببساطة (تُستثنى من الإغلاق).
+    يُرجَع الخصم الفوري للبند من المخزن في كل الحالات، وللوردية المغلقة يُعكس
+    البند من السجل اليومي أيضاً لكن يبقى البند مسجلاً بوسم مسترجع.
     """
     if session is None:
         raise ValueError("الوردية غير موجودة")
@@ -448,13 +484,12 @@ def return_session_items(session, items, reason=""):
             raise ValueError("بعض البنود لا تنتمي إلى الوردية")
         if item.is_returned:
             raise ValueError("البند مسترجع مسبقاً")
-    allow_negative = False
     for item in items:
         if closed:
             sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
             if sale:
-                _subtract_item(sale, item)
-                _cleanup_sale(sale, allow_negative)
+                _remove_from_daily(sale, item)
+        restock_item(item)  # إرجاع الخصم الفوري (للوردية المفتوحة والمغلقة)
         item.is_returned = True
         item.returned_at = timezone.now()
         item.return_reason = (reason or "").strip()[:255]

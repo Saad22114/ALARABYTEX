@@ -299,8 +299,8 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(SaleSession.objects.filter(id=sid).count(), 1)
         self.assertEqual(SaleSessionItem.objects.filter(session_id=sid).count(), 1)
         self.roll.refresh_from_db()
-        # المخزون عاد متاحاً بعد إعادة الفتح (عكس الاستهلاك عند الإغلاق)
-        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+        # الخصم فوري عند الإضافة — إعادة الفتح لا تُرجع المخزون (يبقى 500 - 20)
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("480"))
 
     # ---- فتح وردية بتاريخ محدد ----
 
@@ -505,6 +505,47 @@ class SaleSessionAPITest(TestCase):
         r = self._add_item(sid, quantity=1, unit_price=2)
         self.assertEqual(r.status_code, 400, r.data)
         r = self._add_item(sid, quantity=1, unit_price=3)
+        self.assertEqual(r.status_code, 201, r.data)
+
+    def test_piece_below_purchase_multiplier_rejected(self):
+        # المضاعف الافتراضي 1: سعر القطعة (ياردة × 3.5) يجب ألا يقل عن تكلفة الشراء
+        self.fabric.purchase_price = 10
+        self.fabric.save()
+        sid = self._open_session()["id"]
+        # ياردة 9 → القطعة 31.5 < 35 → مرفوض
+        r = self._add_item(sid, quantity=1, unit_price=9)
+        self.assertEqual(r.status_code, 400, r.data)
+        # ياردة 10 → القطعة 35 = التكلفة → مقبول
+        r = self._add_item(sid, quantity=1, unit_price=10)
+        self.assertEqual(r.status_code, 201, r.data)
+
+    def test_piece_multiplier_follows_settings(self):
+        from appsettings.models import AppSettings
+        s = AppSettings.load()
+        s.min_piece_price_multiplier = 2
+        s.save()
+        self.fabric.purchase_price = 10
+        self.fabric.save()
+        sid = self._open_session()["id"]
+        # ياردة 15 → القطعة 52.5 < 70 (10×3.5×2) → مرفوض
+        r = self._add_item(sid, quantity=1, unit_price=15)
+        self.assertEqual(r.status_code, 400, r.data)
+        # ياردة 21 → القطعة 73.5 ≥ 70 → مقبول
+        r = self._add_item(sid, quantity=1, unit_price=21)
+        self.assertEqual(r.status_code, 201, r.data)
+
+    def test_piece_multiplier_roll_uses_yard_equivalent(self):
+        from appsettings.models import AppSettings
+        s = AppSettings.load()
+        s.min_piece_price_multiplier = 2
+        s.save()
+        self.fabric.purchase_price = 10
+        self.fabric.save()
+        sid = self._open_session()["id"]
+        # لفة = 50 ياردة → مطلوب سعر لفة ≥ 10×50×2 = 1000
+        r = self._add_item(sid, sale_type="roll", quantity=1, unit_price=900)
+        self.assertEqual(r.status_code, 400, r.data)
+        r = self._add_item(sid, sale_type="roll", quantity=1, unit_price=1100)
         self.assertEqual(r.status_code, 201, r.data)
 
     def test_add_item_custom_price(self):
@@ -755,14 +796,35 @@ class SaleSessionAPITest(TestCase):
         )
         self.assertEqual(r.status_code, 400)
 
-    def test_remove_item(self):
+    def test_remove_item_returns_stock_immediately(self):
         sid = self._open_session()["id"]
         item = self._add_item(sid, quantity=5)
         iid = item.data["id"]
+        self.roll.refresh_from_db()
+        # الخصم فوري بمجرد الحفظ
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("495"))
         r = self.c.delete(f"/api/sale-sessions/{sid}/items/{iid}/")
         self.assertEqual(r.status_code, 200)
+        self.roll.refresh_from_db()
+        # حذف البيعة يُرجع المخزون فوراً
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
         r2 = self.c.get("/api/sale-sessions/")
         self.assertEqual(r2.data["results"][0]["totals"]["total"], 0)
+
+    def test_stock_deducted_immediately_on_add(self):
+        sid = self._open_session()["id"]
+        r = self._add_item(sid, quantity=20, payment_method="cash")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.roll.refresh_from_db()
+        # الخصم حدث لحظياً قبل إغلاق الوردية
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("480"))
+        self.assertEqual(
+            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 1
+        )
+        # الإغلاق لا يخصم مرة أخرى
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("480"))
 
     def test_close_creates_daily_sale_and_deducts_stock(self):
         sid = self._open_session()["id"]
@@ -1016,9 +1078,9 @@ class ClosedSessionEditDeleteTest(TestCase):
         # المخزون: 500 - 25 = 475
         self.roll.refresh_from_db()
         self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("475"))
-        # حركات البيع أُعيد بناؤها (بند أجمد واحد بعد الدمج)
+        # حركة لكل بند: بعد التعديل أُعيدت حركة القديمة ونشأت حركة الجديدة = حركتان
         self.assertEqual(
-            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 1
+            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 2
         )
 
     def test_edit_closed_item_changes_payment_method(self):
@@ -1113,22 +1175,25 @@ class ClosedSessionEditDeleteTest(TestCase):
             StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0
         )
 
-    def test_delete_open_session_no_stock_touch(self):
+    def test_delete_open_session_returns_stock(self):
         r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
         sid = r.data["id"]
         self.c.post(f"/api/sale-sessions/{sid}/items/",
                     {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 20,
                      "payment_method": "cash"}, format="json")
+        self.roll.refresh_from_db()
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("480"))
         r = self.c.delete(f"/api/sale-sessions/{sid}/")
         self.assertEqual(r.status_code, 200)
         self.assertFalse(SaleSession.objects.filter(pk=sid).exists())
         self.roll.refresh_from_db()
+        # حذف الوردية يرجّع كل الخصم الفوري
         self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
         self.assertEqual(
             StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0
         )
 
-    def test_reopen_closed_session_restores_stock(self):
+    def test_reopen_closed_session_keeps_stock_deducted(self):
         sid = self._closed_session()
         sale_date = effective_sale_date()
         r = self.c.post(f"/api/sale-sessions/{sid}/reopen/")
@@ -1138,9 +1203,11 @@ class ClosedSessionEditDeleteTest(TestCase):
         self.assertIsNone(session.closed_at)
         self.assertFalse(DailySale.objects.filter(branch=self.branch, date=sale_date).exists())
         self.roll.refresh_from_db()
-        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+        # الخصم فوري عند الإضافة — إعادة الفتح لا تُرجع المخزون (يبقى 500 - 30)
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("470"))
+        # حركة لكل بند ما زالت مرتبطة بالبند
         self.assertEqual(
-            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 0
+            StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 2
         )
 
     def test_reopen_then_add_item_and_close(self):
@@ -1641,7 +1708,7 @@ class ReturnAndRollOverrideTest(TestCase):
         item.refresh_from_db()
         self.assertTrue(item.is_returned)
 
-    def test_return_open_item_only_marks_no_stock_touch(self):
+    def test_return_open_item_returns_stock(self):
         sid = self._open_session()
         self._add_item(sid, quantity=20, phone="055444")
         item = SaleSessionItem.objects.get(session_id=sid)
@@ -1651,6 +1718,7 @@ class ReturnAndRollOverrideTest(TestCase):
         item.refresh_from_db()
         self.assertTrue(item.is_returned)
         self.roll.refresh_from_db()
+        # استرجاع بند وردية مفتوحة يرجّع الخصم الفوري إلى المخزون
         self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
 
     def test_return_then_close_excludes_returned_from_daily(self):
@@ -1679,8 +1747,8 @@ class ReturnAndRollOverrideTest(TestCase):
         self.assertEqual(r.status_code, 200, r.data)
         self.c.post(f"/api/sale-sessions/{sid}/reopen/")
         self.roll.refresh_from_db()
-        # لا يجب أن يُتراجع عن البند المسترجع مرة أخرى؛ رصيد بعد الاسترجاع 490 عاد كاملاً عند إعادة الفتح
-        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
+        # الخصم فوري: بعد الاسترجاع رصيد 490 (عادت 20) — إعادة الفتح لا تُغيّر المخزون
+        self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("490"))
 
     def test_returned_item_cannot_be_edited_or_deleted(self):
         sid = self._open_session()

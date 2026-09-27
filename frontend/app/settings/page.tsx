@@ -120,6 +120,7 @@ export default function SettingsPage() {
     default_payment_method: 'cash' | 'transfer' | 'card';
     discount_max_percent: number;
     min_sale_percent: number;
+    min_piece_price_multiplier: number;
     card_credit_fee_percent: number;
     card_debit_fee_percent: number;
     previous_day_cutoff_hour: number;
@@ -133,6 +134,7 @@ export default function SettingsPage() {
     default_payment_method: 'transfer',
     discount_max_percent: 100,
     min_sale_percent: 15,
+    min_piece_price_multiplier: 1,
     card_credit_fee_percent: 0,
     card_debit_fee_percent: 0,
     previous_day_cutoff_hour: 2,
@@ -169,6 +171,7 @@ export default function SettingsPage() {
         default_payment_method: settings.default_payment_method || 'transfer',
         discount_max_percent: Number(settings.discount_max_percent ?? 100),
         min_sale_percent: Number(settings.min_sale_percent ?? 15),
+        min_piece_price_multiplier: Number(settings.min_piece_price_multiplier ?? 1),
         card_credit_fee_percent: Number(settings.card_credit_fee_percent ?? 0),
         card_debit_fee_percent: Number(settings.card_debit_fee_percent ?? 0),
         previous_day_cutoff_hour: settings.previous_day_cutoff_hour ?? 2,
@@ -781,6 +784,19 @@ export default function SettingsPage() {
               </p>
               <div className="grid sm:grid-cols-2 gap-4">
                 <Input
+                  label="الحد الأدنى لسعر القطعة (ضعف من سعر الشراء)"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={prefsForm.min_piece_price_multiplier}
+                  onChange={(e) => setPrefsForm({ ...prefsForm, min_piece_price_multiplier: Number(e.target.value) })}
+                />
+              </div>
+              <p className="text-xs text-neutral-400 -mt-2">
+                يُرفض البيع نهائياً إذا كان سعر القطعة النهائي أقل من تكلفة الشراء × هذه القيمة — تكتب ما يناسبك (1 = ضعف واحد، 1.5 = ضعف ونصف، 2 = ضعفان، …) و 0 = إيقاف الميزة.
+              </p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Input
                   label="نسبة عمولة الماكينة (إئتماني) %"
                   type="number"
                   min="0"
@@ -1135,6 +1151,10 @@ export default function SettingsPage() {
               <div className="p-4 bg-sand-50 rounded-xl">
                 <p className="text-xs text-neutral-400 mb-1">الحد الأدنى للبيع (نسبة من سعر البيع)</p>
                 <p className="font-semibold text-neutral-800">{Number(settings?.min_sale_percent ?? 15)}%</p>
+              </div>
+              <div className="p-4 bg-sand-50 rounded-xl">
+                <p className="text-xs text-neutral-400 mb-1">أقل سعر للقطعة (ضعف من سعر الشراء)</p>
+                <p className="font-semibold text-neutral-800">×{Number(settings?.min_piece_price_multiplier ?? 1)}</p>
               </div>
               <div className="p-4 bg-sand-50 rounded-xl">
                 <p className="text-xs text-neutral-400 mb-1">طريقة الدفع الافتراضية</p>

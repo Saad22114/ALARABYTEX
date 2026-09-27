@@ -44,7 +44,7 @@ export default function BranchesPage() {
   const [toggleLoading, setToggleLoading] = useState(false);
 
   const fetchSummary = useCallback(() => {
-    listBranches({ page_size: 200, date_from: dateFrom || undefined, date_to: dateTo || undefined })
+    listBranches({ page_size: 200, date_from: dateFrom || undefined, date_to: dateTo || undefined, include_inactive: 1 })
       .then((res) => setSummary(res.results))
       .catch(() => setSummary(null));
   }, [dateFrom, dateTo]);
@@ -55,6 +55,7 @@ export default function BranchesPage() {
     const params: Record<string, string | number | undefined | null> = {
       page, page_size: pageSize, search: search || undefined,
       date_from: dateFrom || undefined, date_to: dateTo || undefined,
+      include_inactive: 1,
     };
     listBranches(params)
       .then((res) => { if (!cancelled) setData(res); })

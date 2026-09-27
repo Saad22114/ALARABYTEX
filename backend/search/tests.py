@@ -175,6 +175,14 @@ class SearchPermissionTests(TestCase):
         self.employee.save(update_fields=["is_active"])
         self.assertEqual(self.client.get("/api/search/?q=المعطل").status_code, 403)
 
+    def test_inactive_branches_hidden_from_search(self):
+        Branch.objects.create(name="فرع معطل", code="BR-OFF", is_active=False)
+        Branch.objects.create(name="فرع نشط", code="BR-ON")
+        payload = self.client.get("/api/search/?q=فرع").json()
+        branch_titles = [r["title"] for r in payload["results"] if r["type"] == "branch"]
+        self.assertIn("فرع نشط", branch_titles)
+        self.assertNotIn("فرع معطل", branch_titles)
+
 
 class SearchScopeTests(TestCase):
     """النطاق بالفرع: المدير يرى كل شيء، أما موظف بفرع فيقتصر بحثه على فرعه."""

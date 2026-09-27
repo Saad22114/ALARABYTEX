@@ -199,6 +199,14 @@ class AppSettings(TimeStampedModel):
         verbose_name="الحد الأدنى للبيع كنسبة من سعر البيع (%)",
         help_text="يُعبأ الحد الأدنى لسعر بيع الياردة تلقائياً بهذه النسبة من سعر البيع (افتراضياً 15%) — وتبقى القيمة قابلة للتعديل",
     )
+    min_piece_price_multiplier = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("1"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        verbose_name="الحد الأدنى لسعر القطعة (ضعف من سعر الشراء)",
+        help_text="يُرفض البيع نهائياً إذا كان سعر القطعة النهائي أقل من سعر الشراء مضروباً في هذا العدد — ضع 0 لإيقاف الميزة (مثال: 1 = ضعف واحد، 1.5 = ضعف ونصف، 2 = ضعفان)",
+    )
     receipt_show_tax = models.BooleanField(
         default=False,
         verbose_name="إظهار الضريبة في الإيصال المطبوع",

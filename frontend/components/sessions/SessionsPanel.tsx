@@ -75,9 +75,9 @@ interface ItemForm {
   card_type: SessionCardType | '';
 }
 
-const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '', unit_price: '', discount: '', payment_method: payment || 'cash', card_type: '' });
+const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '3.5', unit_price: '', discount: '', payment_method: payment || 'cash', card_type: '' });
 
-const defaultQuantityForType = (): string => '';
+const defaultQuantityForType = (saleType?: SessionSaleType): string => (saleType === 'roll' ? '' : '3.5');
 
 type SessionSortKey = 'newest' | 'oldest' | 'total' | 'employee';
 
@@ -364,14 +364,9 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   };
 
   const lineCalc = (line: ItemForm) => {
+    // الرصيد القادم من الباكند يعكس الخصم الفوري للبنود المحفوظة فعلاً — لا حاجة لطرح المعلق
     const stockYards = line.fabric != null ? stock?.items.find((i) => i.fabric === line.fabric)?.yards : undefined;
-    const pendingYards =
-      line.fabric != null && selected
-        ? selected.items
-            .filter((i) => i.fabric === line.fabric)
-            .reduce((s, i) => s + (i.yards_effective || 0), 0)
-        : 0;
-    const availableYards = stockYards === undefined ? undefined : Math.max(0, stockYards - pendingYards);
+    const availableYards = stockYards; // جاهز فعلاً
     const selectedFabric = line.fabric != null ? fabrics.find((f) => f.id === line.fabric) : undefined;
     const yardsPerRoll = Number(selectedFabric?.yards_per_roll) || 0;
     const availableUnit =
@@ -454,7 +449,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           next.sale_type = 'yard';
         }
         if ('sale_type' in patch && patch.sale_type) {
-          next.quantity = defaultQuantityForType();
+          next.quantity = defaultQuantityForType(next.sale_type);
         }
         if (candidate) {
           const bp = next.fabric != null ? branchPriceByFabric[next.fabric] : undefined;
@@ -521,10 +516,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       }
       if (line.fabric && stock) {
         const entry = stock.items.find((i) => i.fabric === line.fabric);
-        const pending = selected.items
-          .filter((i) => i.fabric === line.fabric)
-          .reduce((s, i) => s + (i.yards_effective || 0), 0);
-        const avail = Math.max(0, (entry ? entry.yards : 0) - pending);
+        // الخصم فوري — رصيد الباكند يعكس البنود المحفوظة فعلاً
+        const avail = entry ? entry.yards : 0;
         const need = line.sale_type === 'roll'
           ? quantity * (Number(fabrics.find((f) => f.id === line.fabric)?.yards_per_roll) || 0)
           : quantity;
@@ -533,7 +526,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           return;
         }
         if (need > avail) {
-          toast('error', `الكمية غير متوفرة في مخزون الفرع — المتوفر ${formatNumber(avail)} ياردة فقط بعد بنود الوردية المعلقة`);
+          toast('error', `الكمية غير متوفرة في مخزون الفرع — المتوفر ${formatNumber(avail)} ياردة فقط`);
           return;
         }
       }

@@ -64,6 +64,52 @@ class BranchAPITest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 0)
 
+    def test_list_excludes_inactive_branches_by_default(self):
+        self.c.post("/api/branches/", {"name": "A", "code": "A"})
+        r = self.c.post("/api/branches/", {"name": "B", "code": "B"})
+        self.c.patch(f"/api/branches/{r.data['id']}/", {"is_active": False})
+        r = self.c.get("/api/branches/")
+        codes = {b["code"] for b in r.data["results"]}
+        self.assertIn("A", codes)
+        self.assertNotIn("B", codes)
+
+    def test_list_includes_inactive_with_include_inactive_param(self):
+        self.c.post("/api/branches/", {"name": "A", "code": "A"})
+        r = self.c.post("/api/branches/", {"name": "B", "code": "B"})
+        self.c.patch(f"/api/branches/{r.data['id']}/", {"is_active": False})
+        r = self.c.get("/api/branches/?include_inactive=1")
+        codes = {b["code"] for b in r.data["results"]}
+        self.assertIn("A", codes)
+        self.assertIn("B", codes)
+        stopped = next(b for b in r.data["results"] if b["code"] == "B")
+        self.assertFalse(stopped["is_active"])
+
+    def test_retrieve_inactive_branch_still_works(self):
+        r = self.c.post("/api/branches/", {"name": "Stopped", "code": "ST"})
+        bid = r.data["id"]
+        self.c.patch(f"/api/branches/{bid}/", {"is_active": False})
+        r = self.c.get(f"/api/branches/{bid}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.data["is_active"])
+
+    def test_delete_inactive_branch_without_records(self):
+        r = self.c.post("/api/branches/", {"name": "Gone", "code": "G"})
+        bid = r.data["id"]
+        self.c.patch(f"/api/branches/{bid}/", {"is_active": False})
+        r = self.c.delete(f"/api/branches/{bid}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(Branch.objects.filter(pk=bid).exists())
+        r = self.c.get("/api/branches/?include_inactive=1")
+        self.assertNotIn("G", {b["code"] for b in r.data["results"]})
+
+    def test_reactivate_inactive_branch(self):
+        r = self.c.post("/api/branches/", {"name": "Back", "code": "BK"})
+        bid = r.data["id"]
+        self.c.patch(f"/api/branches/{bid}/", {"is_active": False})
+        self.c.patch(f"/api/branches/{bid}/", {"is_active": True})
+        codes = {b["code"] for b in self.c.get("/api/branches/").data["results"]}
+        self.assertIn("BK", codes)
+
     def test_search(self):
         self.c.post("/api/branches/", {"name": "Al Khuwair", "code": "KH"})
         self.c.post("/api/branches/", {"name": "Salalah", "code": "SL"})
