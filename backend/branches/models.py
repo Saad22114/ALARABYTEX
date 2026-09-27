@@ -43,6 +43,14 @@ class FabricBranchPrice(TimeStampedModel):
     min_sale_roll = models.DecimalField(
         max_digits=12, decimal_places=3, blank=True, null=True, verbose_name="الحد الأدنى لسعر بيع اللفة"
     )
+    piece_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        blank=True,
+        null=True,
+        verbose_name="سعر القطعة",
+        help_text="سعر الطرد/القطعة كاملة في هذا الفرع؛ يُقسَم على 3.5 ليُحتسب سعر بيع الياردة تلقائياً",
+    )
 
     class Meta:
         verbose_name = "سعر قماش في فرع"

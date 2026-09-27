@@ -31,6 +31,7 @@ class SettingsAPITest(TestCase):
         self.assertEqual(r.data["trade_name"], "")
         self.assertEqual(r.data["commercial_registration"], "")
         self.assertEqual(r.data["invoice_notes"], "")
+        self.assertEqual(r.data["min_sale_percent"], "15.00")
 
     def test_patch_invoice_registration_fields(self):
         r = self.c.patch("/api/settings/", {
@@ -99,6 +100,7 @@ class SettingsAPITest(TestCase):
             "session_danger_hours": 8,
             "default_payment_method": "card",
             "discount_max_percent": 50,
+            "min_sale_percent": 30,
             "receipt_show_tax": True,
             "receipt_show_phone": False,
         }, format="json")
@@ -112,6 +114,7 @@ class SettingsAPITest(TestCase):
         self.assertEqual(r.data["session_danger_hours"], 8)
         self.assertEqual(r.data["default_payment_method"], "card")
         self.assertEqual(r.data["discount_max_percent"], "50.00")
+        self.assertEqual(r.data["min_sale_percent"], "30.00")
         self.assertEqual(r.data["receipt_show_tax"], True)
         self.assertEqual(r.data["receipt_show_phone"], False)
 
@@ -121,6 +124,7 @@ class SettingsAPITest(TestCase):
             {"currency_position": "inside"},
             {"previous_day_cutoff_hour": 30},
             {"discount_max_percent": 101},
+            {"min_sale_percent": 101},
             {"default_payment_method": "gold"},
             {"session_warn_hours": 0},
         ):

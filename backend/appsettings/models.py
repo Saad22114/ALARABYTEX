@@ -191,6 +191,14 @@ class AppSettings(TimeStampedModel):
         verbose_name="أقصى خصم مسموح (%)",
         help_text="الحد الأقصى لخصم البند كنسبة من إجماليه (100 تعني بدون حد)",
     )
+    min_sale_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("15"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        verbose_name="الحد الأدنى للبيع كنسبة من سعر البيع (%)",
+        help_text="يُعبأ الحد الأدنى لسعر بيع الياردة تلقائياً بهذه النسبة من سعر البيع (افتراضياً 15%) — وتبقى القيمة قابلة للتعديل",
+    )
     receipt_show_tax = models.BooleanField(
         default=False,
         verbose_name="إظهار الضريبة في الإيصال المطبوع",

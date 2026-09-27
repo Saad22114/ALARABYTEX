@@ -74,7 +74,15 @@ export default function FinalAmountInput({
         value={shown}
         disabled={subtotal == null}
         onChange={(e) => handleChange(e.target.value)}
-        onFocus={() => setDraft(shown)}
+        onFocus={(e) => {
+          // صفر → خانة فارغة؛ غير ذلك → تحديد النص كله ليُستبدل بالكتابة مباشرة
+          if (parseFloat(shown) === 0) {
+            setDraft('');
+          } else {
+            setDraft(shown);
+            e.target.select();
+          }
+        }}
         onBlur={() => { setDraft(null); setRaised(false); }}
         placeholder={subtotal == null ? 'أكمل الكمية والسعر أولاً' : ''}
         className={subtotal == null ? 'opacity-60 cursor-not-allowed' : ''}

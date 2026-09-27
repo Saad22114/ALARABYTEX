@@ -492,8 +492,15 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
         )
         bp_yard = branch_price.sale_price_yard if branch_price else None
         bp_roll = branch_price.sale_price_roll if branch_price else None
+        bp_piece = (
+            Decimal(str(branch_price.piece_price))
+            if branch_price and branch_price.piece_price
+            else None
+        )
 
-        auto_yard = Decimal(str(bp_yard)) if bp_yard else global_yard
+        auto_yard = Decimal(str(bp_yard)) if bp_yard else (
+            (bp_piece / Decimal("3.5")) if bp_piece else global_yard
+        )
         if sale_type == SaleSessionItem.SaleType.ROLL:
             auto = (
                 Decimal(str(bp_roll))
@@ -518,11 +525,15 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 }
             )
 
+        from appsettings.models import AppSettings
+
+        settings = AppSettings.load()
         bp_min_yard = branch_price.min_sale_yard if branch_price else None
         bp_min_roll = branch_price.min_sale_roll if branch_price else None
+        min_percent = settings.min_sale_percent / Decimal("100")
         min_price = None
         if sale_type == SaleSessionItem.SaleType.ROLL:
-            if bp_min_roll is not None:
+            if bp_min_roll:
                 min_price = Decimal(str(bp_min_roll))
             elif bp_min_yard and fabric.yards_per_roll:
                 min_price = Decimal(str(bp_min_yard)) * Decimal(str(fabric.yards_per_roll))
@@ -530,11 +541,17 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 min_price = Decimal(str(fabric.min_sale_roll))
             elif fabric.min_sale_yard and fabric.yards_per_roll:
                 min_price = Decimal(str(fabric.min_sale_yard)) * Decimal(str(fabric.yards_per_roll))
+            elif auto > 0:
+                # افتراضياً: الحد الأدنى = نسبة من سعر بيع الطاقة الفعلي (من الإعدادات)
+                min_price = auto * min_percent
         else:
             if bp_min_yard:
                 min_price = Decimal(str(bp_min_yard))
             elif fabric.min_sale_yard:
                 min_price = Decimal(str(fabric.min_sale_yard))
+            elif auto_yard > 0:
+                # افتراضياً: الحد الأدنى = نسبة من سعر بيع الياردة الفعلي (من الإعدادات)
+                min_price = auto_yard * min_percent
         if (
             min_price
             and min_price > 0
@@ -584,9 +601,6 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
 
         attrs["total"] = Decimal(str(quantity)) * unit_price
         discount = Decimal(str(attrs.get("discount_amount") or Decimal("0")))
-        from appsettings.models import AppSettings
-
-        settings = AppSettings.load()
         max_discount = attrs["total"] * (settings.discount_max_percent / Decimal("100"))
         if discount > max_discount:
             raise serializers.ValidationError(

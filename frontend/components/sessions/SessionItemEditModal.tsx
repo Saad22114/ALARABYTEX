@@ -9,6 +9,7 @@ import QuantityQuickPicks from '@/components/sessions/QuantityQuickPicks';
 import FinalAmountInput from '@/components/sessions/FinalAmountInput';
 import {
   Fabric, SaleSession, SessionCardType, SessionSaleType, SessionPaymentMethod, SessionSaleItem,
+  FabricBranchPrice,
 } from '@/types';
 import { updateSessionItem } from '@/services/sessions';
 import { formatCurrency, formatNumber } from '@/lib/format';
@@ -32,11 +33,13 @@ interface Props {
   session: SaleSession | null;
   item: SessionSaleItem | null;
   fabrics: Fabric[];
+  /** أسعار البيع الخاصة بفرع الوردية — إن وُجدت تُستخدم بدل الأسعار العامة */
+  branchPriceById?: Record<number, FabricBranchPrice>;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function SessionItemEditModal({ open, session, item, fabrics, onClose, onSaved }: Props) {
+export default function SessionItemEditModal({ open, session, item, fabrics, branchPriceById, onClose, onSaved }: Props) {
   const { toast } = useToast();
   const { settings } = useSettings();
   const [fabric, setFabric] = useState<number | null>(null);
@@ -64,12 +67,19 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
   const rollAllowed = rollSaleAllowed(selectedFabric, session?.branch);
   const autoPrice = () => {
     if (!selectedFabric) return 0;
-    const base = Number(selectedFabric.sale_price_yard) || 0;
+    const bp = fabric != null ? branchPriceById?.[fabric] : undefined;
+    const baseYard =
+      bp?.sale_price_yard
+        ? Number(bp.sale_price_yard)
+        : bp?.piece_price
+          ? Number(bp.piece_price) / 3.5
+          : Number(selectedFabric.sale_price_yard) || 0;
     if (saleType === 'roll') {
+      if (bp?.sale_price_roll != null) return Number(bp.sale_price_roll) || 0;
       if (selectedFabric.sale_price_roll != null) return Number(selectedFabric.sale_price_roll) || 0;
-      return base * (Number(selectedFabric.yards_per_roll) || 0);
+      return baseYard * (Number(selectedFabric.yards_per_roll) || 0);
     }
-    return base;
+    return baseYard;
   };
 
   const handleFabricOrType = (patch: Partial<{ fabric: number | null; sale_type: SessionSaleType }>) => {
@@ -81,10 +91,17 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
     setFabric(next.fabric);
     setSaleType(next.sale_type ?? saleType);
     if (candidate) {
-      const base = Number(candidate.sale_price_yard) || 0;
+      const bp = next.fabric != null ? branchPriceById?.[next.fabric] : undefined;
+      const base = bp?.sale_price_yard
+        ? Number(bp.sale_price_yard)
+        : bp?.piece_price
+          ? Number(bp.piece_price) / 3.5
+          : Number(candidate.sale_price_yard) || 0;
       let price = base;
       if (next.sale_type === 'roll') {
-        price = candidate.sale_price_roll != null ? (Number(candidate.sale_price_roll) || 0) : base * (Number(candidate.yards_per_roll) || 0);
+        if (bp?.sale_price_roll != null) price = Number(bp.sale_price_roll) || 0;
+        else if (candidate.sale_price_roll != null) price = Number(candidate.sale_price_roll) || 0;
+        else price = base * (Number(candidate.yards_per_roll) || 0);
       }
       setUnitPrice(String(price));
     }
@@ -193,6 +210,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               placeholder=""
+              selectOnFocus
             />
             {saleType === 'yard' && <QuantityQuickPicks value={quantity} onPick={setQuantity} />}
           </div>
@@ -204,6 +222,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
             value={unitPrice}
             onChange={(e) => setUnitPrice(e.target.value)}
             placeholder={String(autoPrice())}
+            selectOnFocus
           />
           <Input
             label="قيمة الخصم"
@@ -213,6 +232,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, onC
             value={discount}
             onChange={(e) => setDiscount(e.target.value)}
             placeholder=""
+            selectOnFocus
           />
           <FinalAmountInput
             subtotal={subtotal}

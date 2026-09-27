@@ -24,7 +24,7 @@ class AppSettingsSerializer(serializers.ModelSerializer):
             "invoice_prefix", "tax_rate",
             "previous_day_cutoff_hour",
             "session_warn_hours", "session_danger_hours",
-            "default_payment_method", "discount_max_percent",
+            "default_payment_method", "discount_max_percent", "min_sale_percent",
             "card_credit_fee_percent", "card_debit_fee_percent",
             "receipt_show_tax", "receipt_show_phone",
             "logo",

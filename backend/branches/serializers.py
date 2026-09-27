@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import transaction
 from django.db.models import Sum
 from rest_framework import serializers
@@ -5,6 +7,9 @@ from core.daterange import resolve_range
 from suppliers.models import Fabric
 from warehouses.models import Warehouse
 from .models import Branch, FabricBranchPrice
+
+# عدد الياردات في القطعة الواحدة — أساس تحويل سعر القطعة إلى سعر بيع الياردة
+PIECE_YARDS = Decimal("3.5")
 
 
 class BranchSerializer(serializers.ModelSerializer):
@@ -101,7 +106,7 @@ class FabricBranchPriceSerializer(serializers.ModelSerializer):
             "id", "branch", "branch_name", "fabric", "fabric_name", "fabric_code",
             "fabric_unit", "yards_per_roll", "global_sale_price_yard", "global_sale_price_roll",
             "sale_price_yard", "sale_price_roll", "min_sale_yard", "min_sale_roll",
-            "created_at", "updated_at",
+            "piece_price", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
@@ -111,5 +116,25 @@ class FabricBranchPriceSerializer(serializers.ModelSerializer):
         if fabric and fabric.unit == Fabric.Unit.ROLL and not fabric.yards_per_roll:
             raise serializers.ValidationError(
                 {"sale_price_roll": "لا يمكن تحديد سعر لفة قبل ضبط ياردات اللفة الواحدة للقماش"}
+            )
+        # سعر القطعة يملأ سعر بيع الياردة تلقائياً (قطعة ÷ 3.5) ما لم يُرسل سعر يارد صريح
+        piece_price = attrs.get("piece_price")
+        if piece_price is not None and "sale_price_yard" not in attrs:
+            attrs["sale_price_yard"] = (piece_price / PIECE_YARDS).quantize(Decimal("0.001"))
+        sale_yard = attrs.get("sale_price_yard")
+        min_yard = attrs.get("min_sale_yard")
+        if min_yard is not None and sale_yard is not None and Decimal(str(min_yard)) > Decimal(str(sale_yard)):
+            raise serializers.ValidationError(
+                {"min_sale_yard": "الحد الأدنى لسعر بيع الياردة لا يمكن أن يتجاوز سعر البيع"}
+            )
+        sale_roll = attrs.get("sale_price_roll")
+        min_roll = attrs.get("min_sale_roll")
+        if (
+            min_roll is not None
+            and sale_roll is not None
+            and Decimal(str(min_roll)) > Decimal(str(sale_roll))
+        ):
+            raise serializers.ValidationError(
+                {"min_sale_roll": "الحد الأدنى لسعر بيع اللفة لا يمكن أن يتجاوز سعر البيع"}
             )
         return attrs

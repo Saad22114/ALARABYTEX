@@ -6,12 +6,18 @@ import { Eye, EyeOff } from 'lucide-react';
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  /**
+   * عند التركيز: قيمة «0» تفرغ تلقائياً، وأي قيمة أخرى تُحدَّد بالكامل
+   * ليستبدلها أول رقم تكتبه — بدون الحاجة لحذف الرقم القديم.
+   */
+  selectOnFocus?: boolean;
 }
 
-export default function Input({ label, error, className = '', type, inputMode, pattern, onKeyDown, required, ...props }: InputProps) {
+export default function Input({ label, error, className = '', type, inputMode, pattern, onKeyDown, required, selectOnFocus, onFocus, onBlur, onChange, value, ...props }: InputProps) {
   const isNumber = type === 'number';
   const isPassword = type === 'password';
   const [showPw, setShowPw] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
   const effectiveType = isPassword ? (showPw ? 'text' : 'password') : type;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -20,6 +26,31 @@ export default function Input({ label, error, className = '', type, inputMode, p
     }
     onKeyDown?.(e);
   };
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (selectOnFocus) {
+      const v = value !== undefined && value !== null ? String(value) : '';
+      if (v === '0' || v === '') {
+        setDraft('');
+      } else {
+        setDraft(v);
+        e.target.select();
+      }
+    }
+    onFocus?.(e);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    setDraft(null);
+    onBlur?.(e);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setDraft(null);
+    onChange?.(e);
+  };
+
+  const shownValue = draft !== null ? draft : value;
 
   return (
     <div className="space-y-1.5">
@@ -34,9 +65,13 @@ export default function Input({ label, error, className = '', type, inputMode, p
           dir="rtl"
           type={effectiveType}
           required={required}
+          value={shownValue}
           inputMode={isNumber ? (inputMode ?? 'decimal') : inputMode}
           pattern={isNumber ? (pattern ?? '[0-9.]*') : pattern}
           onKeyDown={isNumber ? handleKeyDown : onKeyDown}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onChange={handleChange}
           className={`
             w-full rounded-xl border px-4 py-2.5 text-sm
             bg-surface text-neutral-800 placeholder:text-neutral-400

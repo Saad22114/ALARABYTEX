@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.conf import settings
+from decimal import Decimal
 from suppliers.models import Fabric
 from core.branch_scope import scope_queryset
 from .models import Branch, FabricBranchPrice
@@ -58,17 +59,26 @@ class FabricBranchPriceViewSet(viewsets.ModelViewSet):
         fabric = get_object_or_404(Fabric, id=fabric_id)
         created = updated = 0
         errors = []
+
         with transaction.atomic():
             for item in prices:
                 branch_id = item.get("branch")
                 branch = get_object_or_404(Branch, id=branch_id)
+                sale_yard = item.get("sale_price_yard")
+                piece_price = item.get("piece_price")
+                if (sale_yard in (None, "", 0)) and piece_price not in (None, "", 0):
+                    # سعر القطعة يحدّد سعر بيع الياردة تلقائياً (قطعة ÷ 3.5)
+                    sale_yard = (
+                        Decimal(str(piece_price)) / Decimal("3.5")
+                    ).quantize(Decimal("0.001"))
                 obj, was_created = FabricBranchPrice.objects.update_or_create(
                     branch=branch, fabric=fabric,
                     defaults={
-                        "sale_price_yard": item.get("sale_price_yard", 0),
+                        "sale_price_yard": sale_yard or 0,
                         "sale_price_roll": item.get("sale_price_roll"),
                         "min_sale_yard": item.get("min_sale_yard", 0),
                         "min_sale_roll": item.get("min_sale_roll"),
+                        "piece_price": piece_price,
                     },
                 )
                 if was_created:

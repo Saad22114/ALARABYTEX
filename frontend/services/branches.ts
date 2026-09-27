@@ -52,3 +52,22 @@ export async function updateBranchPrice(id: number, data: Partial<FabricBranchPr
 export async function deleteBranchPrice(id: number): Promise<void> {
   return apiRequest<void>(`/branch-prices/${id}/`, { method: 'DELETE' });
 }
+
+export interface BranchPriceUpsertItem {
+  branch: number;
+  sale_price_yard: number;
+  sale_price_roll?: number | null;
+  min_sale_yard: number;
+  min_sale_roll?: number | null;
+  piece_price?: number | null;
+}
+
+export async function upsertBranchPrices(
+  fabricId: number,
+  prices: BranchPriceUpsertItem[]
+): Promise<{ created: number; updated: number; errors: unknown[] }> {
+  return apiRequest<{ created: number; updated: number; errors: unknown[] }>(`/branch-prices/bulk/`, {
+    method: 'POST',
+    body: JSON.stringify({ fabric: fabricId, prices }),
+  });
+}

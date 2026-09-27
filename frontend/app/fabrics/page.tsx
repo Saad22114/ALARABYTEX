@@ -129,20 +129,22 @@ export default function FabricsPage() {
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 
   const handleCreate = async (d: Partial<Fabric>) => {
-    await createFabric(d);
+    const created = await createFabric(d);
     toast('success', 'تمت إضافة القماش بنجاح');
     setModalOpen(false);
     fetchData();
     fetchSummary();
+    return created;
   };
 
   const handleUpdate = async (d: Partial<Fabric>) => {
-    if (!editing) return;
-    await updateFabric(editing.id, d);
+    if (!editing) throw new Error('لا يوجد قماش قيد التعديل');
+    const updated = await updateFabric(editing.id, d);
     toast('success', 'تم تحديث القماش بنجاح');
     setEditing(null);
     fetchData();
     fetchSummary();
+    return updated;
   };
 
   const handleDelete = async () => {

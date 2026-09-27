@@ -18,6 +18,7 @@ import {
 } from '@/services/branches';
 import { listFabrics } from '@/services/fabrics';
 import { useToast } from '@/components/ui/Toast';
+import { useSettings } from '@/components/providers/SettingsProvider';
 
 interface BranchPricingPanelProps {
   branchId: number;
@@ -29,10 +30,13 @@ interface PriceForm {
   sale_price_roll: string;
   min_sale_yard: string;
   min_sale_roll: string;
+  piece_price: string;
 }
 
 export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps) {
   const { toast } = useToast();
+  const { settings } = useSettings();
+  const minSalePercent = settings?.min_sale_percent != null ? Number(settings.min_sale_percent) : 15;
   const [prices, setPrices] = useState<FabricBranchPrice[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -48,7 +52,11 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
     sale_price_roll: '',
     min_sale_yard: '',
     min_sale_roll: '',
+    piece_price: '',
   });
+
+  /** هل عُدِّل الحد الأدنى يدوياً في هذه النافذة؟ — يوقف التعبئة التلقائية. */
+  const [minManual, setMinManual] = useState(false);
 
   const fetchPrices = useCallback(() => {
     let cancelled = false;
@@ -71,19 +79,22 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
   const openAdd = () => {
     setEditing(null);
     setErrors({});
-    setForm({ fabric: '', sale_price_yard: '', sale_price_roll: '', min_sale_yard: '', min_sale_roll: '' });
+    setMinManual(false);
+    setForm({ fabric: '', sale_price_yard: '', sale_price_roll: '', min_sale_yard: '', min_sale_roll: '', piece_price: '' });
     setModalOpen(true);
   };
 
   const openEdit = (p: FabricBranchPrice) => {
     setEditing(p);
     setErrors({});
+    setMinManual(false);
     setForm({
       fabric: String(p.fabric),
       sale_price_yard: p.sale_price_yard ? String(p.sale_price_yard) : '',
       sale_price_roll: p.sale_price_roll != null ? String(p.sale_price_roll) : '',
       min_sale_yard: p.min_sale_yard ? String(p.min_sale_yard) : '',
       min_sale_roll: p.min_sale_roll != null ? String(p.min_sale_roll) : '',
+      piece_price: p.piece_price != null ? String(p.piece_price) : '',
     });
     setModalOpen(true);
   };
@@ -93,6 +104,36 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
     ? fabrics
     : fabrics.filter((f) => !pricedFabricIds.has(f.id));
 
+  /** الحد الأدنى التلقائي = نسبة الإعدادات (افتراضياً 15%) من سعر بيع الياردة. */
+  const minForYard = (yard: string): string => {
+    const y = Number(yard);
+    if (!Number.isFinite(y) || y <= 0 || minSalePercent <= 0) return '';
+    return String(Number((y * (minSalePercent / 100)).toFixed(3)));
+  };
+
+  /** كتابة سعر بيع الياردة يحدّث الحد الأدنى تلقائياً بنسبة الإعدادات — إلا إذا عُدِّل يدوياً في هذه النافذة. */
+  const setYard = (value: string) => {
+    setForm((f) => {
+      const next = { ...f, sale_price_yard: value };
+      if (!minManual) next.min_sale_yard = minForYard(value);
+      return next;
+    });
+  };
+
+  /** كتابة سعر القطعة يملأ سعر بيع الياردة (قطعة ÷ 3.5) ويحدّث الحد الأدنى تلقائياً — ويبقيان قابلين للتعديل. */
+  const setPiece = (value: string) => {
+    setForm((f) => {
+      const next = { ...f, piece_price: value };
+      const piece = value === '' ? null : Number(value);
+      if (piece != null && Number.isFinite(piece) && piece > 0) {
+        const yardStr = String(Number((piece / 3.5).toFixed(3)));
+        next.sale_price_yard = yardStr;
+        if (!minManual) next.min_sale_yard = minForYard(yardStr);
+      }
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     const e: Record<string, string> = {};
     if (!form.fabric) e.fabric = 'اختر القماش';
@@ -100,6 +141,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
     if (form.sale_price_roll !== '' && Number(form.sale_price_roll) < 0) e.sale_price_roll = 'لا يمكن أن تكون سالبة';
     if (Number(form.min_sale_yard) < 0) e.min_sale_yard = 'لا يمكن أن تكون سالبة';
     if (form.min_sale_roll !== '' && Number(form.min_sale_roll) < 0) e.min_sale_roll = 'لا يمكن أن تكون سالبة';
+    if (form.piece_price !== '' && Number(form.piece_price) < 0) e.piece_price = 'لا يمكن أن تكون سالبة';
     setErrors(e);
     if (Object.keys(e).length > 0) return;
 
@@ -111,6 +153,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
       sale_price_roll: form.sale_price_roll === '' ? null : Number(form.sale_price_roll),
       min_sale_yard: form.min_sale_yard === '' ? 0 : Number(form.min_sale_yard),
       min_sale_roll: form.min_sale_roll === '' ? null : Number(form.min_sale_roll),
+      piece_price: form.piece_price === '' ? null : Number(form.piece_price),
     };
     try {
       if (editing) {
@@ -172,6 +215,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
                 <Th>السعر الجاري</Th>
                 <Th>سعر الفرع/ياردة</Th>
                 <Th>سعر الفرع/طاقة</Th>
+                <Th>سعر القطعة</Th>
                 <Th>الحد الأدنى/ياردة</Th>
                 <Th>الحد الأدنى/طاقة</Th>
                 <Th>إجراءات</Th>
@@ -194,6 +238,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
                     </Badge>
                   </Td>
                   <Td>{p.sale_price_roll != null ? p.sale_price_roll : '—'}</Td>
+                  <Td>{p.piece_price != null ? p.piece_price : '—'}</Td>
                   <Td>{p.min_sale_yard || '—'}</Td>
                   <Td>{p.min_sale_roll != null ? p.min_sale_roll : '—'}</Td>
                   <Td>
@@ -232,7 +277,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
               type="number"
               min={0}
               value={form.sale_price_yard}
-              onChange={(e) => setForm({ ...form, sale_price_yard: e.target.value })}
+              onChange={(e) => setYard(e.target.value)}
               error={errors.sale_price_yard}
               placeholder="0 = استخدم السعر العام"
             />
@@ -245,15 +290,20 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
               error={errors.sale_price_roll}
               placeholder="اختياري"
             />
-            <Input
-              label="الحد الأدنى للياردة"
-              type="number"
-              min={0}
-              value={form.min_sale_yard}
-              onChange={(e) => setForm({ ...form, min_sale_yard: e.target.value })}
-              error={errors.min_sale_yard}
-              placeholder="اختياري"
-            />
+            <div className="space-y-1">
+              <Input
+                label="الحد الأدنى للياردة"
+                type="number"
+                min={0}
+                value={form.min_sale_yard}
+                onChange={(e) => { setForm({ ...form, min_sale_yard: e.target.value }); setMinManual(true); }}
+                error={errors.min_sale_yard}
+                placeholder="اختياري"
+              />
+              <p className="text-xs text-neutral-400">
+                يُحدَّث تلقائياً مع كل تعديل للسعر بنسبة {minSalePercent}% من سعر بيع الياردة — التعديل اليدوي يوقف التعبئة التلقائية.
+              </p>
+            </div>
             <Input
               label="الحد الأدنى للطاقة"
               type="number"
@@ -262,6 +312,16 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
               onChange={(e) => setForm({ ...form, min_sale_roll: e.target.value })}
               error={errors.min_sale_roll}
               placeholder="اختياري"
+            />
+            <Input
+              label="سعر القطعة (÷ 3.5)"
+              type="number"
+              min={0}
+              step="0.001"
+              value={form.piece_price}
+              onChange={(e) => setPiece(e.target.value)}
+              error={errors.piece_price}
+              placeholder="اختياري — يحدد سعر الياردة تلقائياً"
             />
           </div>
           <div className="flex justify-start gap-3 pt-2">

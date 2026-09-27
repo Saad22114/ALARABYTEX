@@ -18,6 +18,7 @@ import { Plus, Trash2, Pencil, LogIn, CircleDollarSign, RefreshCcw, Users, Packa
 import {
   SaleSession, Employee, Fabric, Branch, SessionSaleItem,
   SessionSaleType, SessionPaymentMethod, SessionCardType, SaleSessionSummary, SaleStockResult,
+  FabricBranchPrice,
 } from '@/types';
 import {
   listEmployees,
@@ -31,7 +32,7 @@ import {
   getSaleSessionSummary,
 } from '@/services/sessions';
 import { listFabrics } from '@/services/fabrics';
-import { listBranches } from '@/services/branches';
+import { listBranches, listBranchPrices } from '@/services/branches';
 import { getSaleStock } from '@/services/sales';
 import SessionItemEditModal from '@/components/sessions/SessionItemEditModal';
 import SessionDetailsModal from '@/components/sessions/SessionDetailsModal';
@@ -74,9 +75,9 @@ interface ItemForm {
   card_type: SessionCardType | '';
 }
 
-const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '3.5', unit_price: '', discount: '', payment_method: payment || 'cash', card_type: '' });
+const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '', unit_price: '', discount: '', payment_method: payment || 'cash', card_type: '' });
 
-const defaultQuantityForType = (saleType: SessionSaleType): string => (saleType === 'roll' ? '1' : '3.5');
+const defaultQuantityForType = (): string => '';
 
 type SessionSortKey = 'newest' | 'oldest' | 'total' | 'employee';
 
@@ -131,6 +132,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [sessions, setSessions] = useState<SaleSession[]>([]);
   const [summary, setSummary] = useState<SaleSessionSummary | null>(null);
   const [stock, setStock] = useState<SaleStockResult | null>(null);
+  const [branchPrices, setBranchPrices] = useState<FabricBranchPrice[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [branchFilter, setBranchFilter] = useState('');
@@ -241,6 +243,22 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   );
 
   useEffect(() => {
+    let cancelled = false;
+    if (!selected?.branch) { setBranchPrices([]); return; }
+    listBranchPrices({ branch: selected.branch, page_size: 100 })
+      .then((res) => { if (!cancelled) setBranchPrices(res.results); })
+      .catch(() => { if (!cancelled) setBranchPrices([]); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.branch]);
+
+  const branchPriceByFabric = useMemo(() => {
+    const map: Record<number, FabricBranchPrice> = {};
+    for (const bp of branchPrices) map[bp.fabric] = bp;
+    return map;
+  }, [branchPrices]);
+
+  useEffect(() => {
     setChecked(new Set());
   }, [selectedId]);
 
@@ -330,12 +348,19 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const fabricAutoPrice = (line: ItemForm): number => {
     const fabric = fabrics.find((f) => f.id === line.fabric);
     if (!fabric) return 0;
-    const base = Number(fabric.sale_price_yard) || 0;
+    const bp = line.fabric != null ? branchPriceByFabric[line.fabric] : undefined;
+    const baseYard =
+      bp?.sale_price_yard
+        ? Number(bp.sale_price_yard)
+        : bp?.piece_price
+          ? Number(bp.piece_price) / 3.5
+          : Number(fabric.sale_price_yard) || 0;
     if (line.sale_type === 'roll') {
+      if (bp?.sale_price_roll != null) return Number(bp.sale_price_roll) || 0;
       if (fabric.sale_price_roll != null) return Number(fabric.sale_price_roll) || 0;
-      return base * (Number(fabric.yards_per_roll) || 0);
+      return baseYard * (Number(fabric.yards_per_roll) || 0);
     }
-    return base;
+    return baseYard;
   };
 
   const lineCalc = (line: ItemForm) => {
@@ -429,13 +454,20 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           next.sale_type = 'yard';
         }
         if ('sale_type' in patch && patch.sale_type) {
-          next.quantity = defaultQuantityForType(next.sale_type);
+          next.quantity = defaultQuantityForType();
         }
         if (candidate) {
-          const base = Number(candidate.sale_price_yard) || 0;
+          const bp = next.fabric != null ? branchPriceByFabric[next.fabric] : undefined;
+          const base = bp?.sale_price_yard
+            ? Number(bp.sale_price_yard)
+            : bp?.piece_price
+              ? Number(bp.piece_price) / 3.5
+              : Number(candidate.sale_price_yard) || 0;
           let price = base;
           if (next.sale_type === 'roll') {
-            price = candidate.sale_price_roll != null ? (Number(candidate.sale_price_roll) || 0) : base * (Number(candidate.yards_per_roll) || 0);
+            if (bp?.sale_price_roll != null) price = Number(bp.sale_price_roll) || 0;
+            else if (candidate.sale_price_roll != null) price = Number(candidate.sale_price_roll) || 0;
+            else price = base * (Number(candidate.yards_per_roll) || 0);
           }
           next.unit_price = price > 0 ? String(price) : '';
         }
@@ -1140,6 +1172,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         value={line.quantity}
                         onChange={(e) => updateLine(idx, { quantity: e.target.value })}
                         placeholder=""
+                        selectOnFocus
                         className={overStock ? 'border-red-400 ring-2 ring-red-200' : ''}
                       />
                       {line.sale_type === 'yard' && (
@@ -1154,6 +1187,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       value={line.unit_price}
                       onChange={(e) => updateLine(idx, { unit_price: e.target.value })}
                       placeholder={String(fabricAutoPrice(line))}
+                      selectOnFocus
                     />
                     <Input
                       label="قيمة الخصم"
@@ -1163,6 +1197,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       value={line.discount}
                       onChange={(e) => updateLine(idx, { discount: e.target.value })}
                       placeholder=""
+                      selectOnFocus
                     />
                     <FinalAmountInput
                       subtotal={calc.subtotal}
@@ -1266,6 +1301,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         session={editingItem?.session ?? null}
         item={editingItem?.item ?? null}
         fabrics={saleFabrics}
+        branchPriceById={branchPriceByFabric}
         onClose={() => setEditingItem(null)}
         onSaved={() => {
           fetchSessions();

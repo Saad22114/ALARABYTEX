@@ -467,6 +467,18 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(r.status_code, 201, r.data)
         self.assertEqual(Decimal(str(r.data["unit_price"])), Decimal("8"))
 
+    def test_add_yard_item_uses_branch_piece_price(self):
+        # قطعة الفرع (70 ÷ 3.5 = 20 ياردة) تُحدد سعر بيع الياردة تلقائياً
+        FabricBranchPrice.objects.create(
+            branch=self.branch, fabric=self.fabric, sale_price_yard=0,
+            piece_price=70, min_sale_yard=0,
+        )
+        sid = self._open_session()["id"]
+        r = self._add_item(sid, quantity=2)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(Decimal(str(r.data["unit_price"])), Decimal("20"))
+        self.assertEqual(Decimal(str(r.data["total"])), Decimal("40"))
+
     def test_branch_min_price_enforced(self):
         FabricBranchPrice.objects.create(
             branch=self.branch, fabric=self.fabric, sale_price_yard=8, min_sale_yard=7,
@@ -474,6 +486,26 @@ class SaleSessionAPITest(TestCase):
         sid = self._open_session()["id"]
         r = self._add_item(sid, quantity=10, unit_price=6)
         self.assertEqual(r.status_code, 400)
+
+    def test_default_min_percent_applies(self):
+        # بلا حد أدنى صريح → يُطبَّق تلقائياً 15% من سعر بيع الياردة (5 × 0.15 = 0.75)
+        sid = self._open_session()["id"]
+        r = self._add_item(sid, quantity=1, unit_price=0.5)
+        self.assertEqual(r.status_code, 400, r.data)
+        r = self._add_item(sid, quantity=1, unit_price=1)
+        self.assertEqual(r.status_code, 201, r.data)
+
+    def test_default_min_percent_follows_settings(self):
+        from appsettings.models import AppSettings
+        s = AppSettings.load()
+        s.min_sale_percent = 50
+        s.save()
+        sid = self._open_session()["id"]
+        # الحد الأدنى = 5 × 0.5 = 2.5
+        r = self._add_item(sid, quantity=1, unit_price=2)
+        self.assertEqual(r.status_code, 400, r.data)
+        r = self._add_item(sid, quantity=1, unit_price=3)
+        self.assertEqual(r.status_code, 201, r.data)
 
     def test_add_item_custom_price(self):
         sid = self._open_session()["id"]

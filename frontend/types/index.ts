@@ -32,6 +32,7 @@ export interface FabricBranchPrice {
   sale_price_roll: number | null;
   min_sale_yard: number;
   min_sale_roll: number | null;
+  piece_price: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -614,6 +615,7 @@ export interface AppSettings {
   session_danger_hours: number;
   default_payment_method: SessionPaymentMethod;
   discount_max_percent: number;
+  min_sale_percent: number;
   card_credit_fee_percent: number;
   card_debit_fee_percent: number;
   receipt_show_tax: boolean;
