@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from suppliers.models import Fabric
+from core.admin_secret import require_admin_password
 from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 
 from .models import (
@@ -85,6 +86,9 @@ class WarehouseViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        error = require_admin_password(request)
+        if error is not None:
+            return error
         if instance.rolls.exists() or instance.receipts.exists() or instance.transfers_out.exists():
             return Response(
                 {"detail": "لا يمكن حذف المخزن لوجود لفات أو حركات مرتبطة به — يمكنك إيقافه بدلاً من ذلك"},

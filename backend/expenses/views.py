@@ -1,4 +1,5 @@
 from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.conf import settings
 from datetime import date
@@ -46,6 +47,27 @@ class ExpenseViewSet(viewsets.ModelViewSet):
     queryset = Expense.objects.select_related("branch", "category").all()
     search_fields = ["branch__name", "category__name", "description", "notes"]
     ordering_fields = ["date", "amount", "created_at"]
+
+    def list(self, request, *args, **kwargs):
+        # ترحيل المصاريف المتكررة المستحقة تلقائياً قبل عرض القائمة.
+        from .services import generate_due_recurring_expenses
+
+        try:
+            generate_due_recurring_expenses()
+        except Exception:
+            logger.exception("فشل الترحيل التلقائي للمصاريف المتكررة")
+        return super().list(request, *args, **kwargs)
+
+    @action(detail=False, methods=["post"], url_path="run-recurring")
+    def run_recurring(self, request):
+        """ترحيل يدوي للمصاريف المتكررة المستحقة حتى اليوم."""
+        from .services import generate_due_recurring_expenses
+
+        created = generate_due_recurring_expenses()
+        return Response(
+            {"detail": f"تم ترحيل {len(created)} مصروف متكرر", "count": len(created)},
+            status=status.HTTP_200_OK,
+        )
 
     def get_serializer_class(self):
         if self.action in ("list", "retrieve"):

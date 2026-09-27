@@ -256,7 +256,7 @@ def generate_run(month, branch=None, created_by=None, employee_ids=None, include
 
     from sale_sessions.models import Employee
 
-    run = PayrollRun.objects.create(month=start, branch=branch, created_by=created_by)
+    run = PayrollRun.objects.create(month=start, branch_id=branch, created_by=created_by)
     preview = build_preview(start, branch, employee_ids)
     commissions = commissions_by_employee(start, end, branch) if include_commission else {}
 

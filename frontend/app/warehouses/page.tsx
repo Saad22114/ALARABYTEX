@@ -130,6 +130,7 @@ export default function WarehousesPage() {
   const [editing, setEditing] = useState<Warehouse | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [deleting, setDeleting] = useState<Warehouse | null>(null);
+  const [adminPassword, setAdminPassword] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [viewing, setViewing] = useState<Warehouse | null>(null);
   const [pageTab, setPageTab] = useUrlState<'warehouses' | 'stock'>('view', 'warehouses');
@@ -205,11 +206,16 @@ export default function WarehousesPage() {
 
   const handleDelete = async () => {
     if (!deleting) return;
+    if (!adminPassword.trim()) {
+      toast('error', 'أدخل الرقم السري لمدير النظام لتأكيد الحذف');
+      return;
+    }
     setDeleteLoading(true);
     try {
-      await deleteWarehouse(deleting.id);
+      await deleteWarehouse(deleting.id, adminPassword.trim());
       toast('success', 'تم حذف المخزن بنجاح');
       setDeleting(null);
+      setAdminPassword('');
       fetchData();
     } catch (err: any) {
       toast('error', err.message);
@@ -403,8 +409,19 @@ export default function WarehousesPage() {
         confirmLabel="حذف"
         loading={deleteLoading}
         onConfirm={handleDelete}
-        onClose={() => setDeleting(null)}
-      />
+        onClose={() => { setDeleting(null); setAdminPassword(''); }}
+      >
+        <div className="mt-4">
+          <Input
+            autoFocus
+            type="password"
+            label="الرقم السري لمدير النظام"
+            placeholder="أدخل الرقم السري لتأكيد الحذف"
+            value={adminPassword}
+            onChange={(e) => setAdminPassword(e.target.value)}
+          />
+        </div>
+      </ConfirmDialog>
 
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing ? `تفاصيل: ${viewing.name}` : ''} maxWidth="max-w-3xl">
         {viewing && (

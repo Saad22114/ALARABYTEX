@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.conf import settings
 from decimal import Decimal
 from suppliers.models import Fabric
+from core.admin_secret import require_admin_password
 from core.branch_scope import scope_queryset
 from .models import Branch, FabricBranchPrice
 from .serializers import BranchSerializer, FabricBranchPriceSerializer
@@ -35,6 +36,9 @@ class BranchViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        error = require_admin_password(request)
+        if error is not None:
+            return error
         if instance.daily_sales.exists() or instance.expenses.exists():
             return Response(
                 {"detail": settings.API_MESSAGES["branch_in_use"]},

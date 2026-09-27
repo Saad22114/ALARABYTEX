@@ -24,8 +24,11 @@ export async function updateBranch(id: number, data: Partial<Branch>): Promise<B
   });
 }
 
-export async function deleteBranch(id: number): Promise<void> {
-  return apiRequest<void>(`/branches/${id}/`, { method: 'DELETE' });
+export async function deleteBranch(id: number, adminPassword?: string): Promise<void> {
+  return apiRequest<void>(`/branches/${id}/`, {
+    method: 'DELETE',
+    body: JSON.stringify({ admin_password: adminPassword ?? '' }),
+  });
 }
 
 export async function listBranchPrices(

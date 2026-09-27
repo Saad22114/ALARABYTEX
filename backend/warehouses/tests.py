@@ -29,8 +29,28 @@ class WarehouseAPITest(TestCase):
         wh = Warehouse.objects.create(name="مخزن", code="W1")
         fabric = create_fabric()
         FabricRoll.objects.create(warehouse=wh, fabric=fabric, yards=10, remaining_yards=10)
+        r = self.c.delete(f"/api/warehouses/{wh.pk}/", {"admin_password": "pass1234"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_delete_warehouse_requires_admin_password(self):
+        wh = Warehouse.objects.create(name="مخزن", code="W1")
         r = self.c.delete(f"/api/warehouses/{wh.pk}/")
         self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["detail"], "الرقم السري لمدير النظام مطلوب للتأكيد")
+        self.assertTrue(Warehouse.objects.filter(pk=wh.pk).exists())
+
+    def test_delete_warehouse_rejects_wrong_admin_password(self):
+        wh = Warehouse.objects.create(name="مخزن", code="W1")
+        r = self.c.delete(f"/api/warehouses/{wh.pk}/", {"admin_password": "wrong-pass"}, format="json")
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.data["detail"], "الرقم السري لمدير النظام غير صحيح")
+        self.assertTrue(Warehouse.objects.filter(pk=wh.pk).exists())
+
+    def test_delete_warehouse_with_correct_admin_password(self):
+        wh = Warehouse.objects.create(name="مخزن", code="W1")
+        r = self.c.delete(f"/api/warehouses/{wh.pk}/", {"admin_password": "pass1234"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(Warehouse.objects.filter(pk=wh.pk).exists())
 
     def test_warehouse_summary(self):
         wh = Warehouse.objects.create(name="مخزن", code="W2")

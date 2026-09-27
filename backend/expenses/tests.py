@@ -169,3 +169,120 @@ class SeedCategoriesCommandTest(TestCase):
         command.stdout.flush()
         text = command.stdout._out.buffer.getvalue().decode("utf-8")
         self.assertIn("تمت إضافة", text)
+
+
+class RecurringExpenseTest(TestCase):
+    """المصاريف الثابتة تترحّل تلقائياً للشهر التالي."""
+
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        call_command("seed_categories", verbosity=0)
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.cat = ExpenseCategory.objects.create(name="Test", code="TST")
+
+    def _post(self, **overrides):
+        payload = {
+            "branch": self.branch.id,
+            "category": self.cat.id,
+            "date": "2026-01-15",
+            "amount": 100,
+        }
+        payload.update(overrides)
+        return self.c.post("/api/expenses/", payload, format="json")
+
+    def test_create_monthly_recurring_computes_next_run_date(self):
+        r = self._post(is_recurring=True, recur_frequency="monthly")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertTrue(r.data["is_recurring"])
+        self.assertEqual(r.data["recur_frequency"], "monthly")
+        self.assertEqual(r.data["next_run_date"], "2026-02-15")
+
+    def test_create_weekly_recurring_computes_next_run_date(self):
+        r = self._post(is_recurring=True, recur_frequency="weekly")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["next_run_date"], "2026-01-22")
+
+    def test_recurring_requires_frequency(self):
+        r = self._post(is_recurring=True)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("recur_frequency", r.data)
+
+    def test_disable_recurring_clears_next_run_date(self):
+        r = self._post(is_recurring=True, recur_frequency="monthly")
+        eid = r.data["id"]
+        r2 = self.c.patch(f"/api/expenses/{eid}/", {
+            "branch": self.branch.id,
+            "category": self.cat.id,
+            "date": "2026-01-15",
+            "amount": 100,
+            "is_recurring": False,
+        }, format="json")
+        self.assertEqual(r2.status_code, 200, r2.data)
+        self.assertFalse(r2.data["is_recurring"])
+        self.assertIsNone(r2.data["next_run_date"])
+
+    def test_generate_due_creates_copies_and_advances(self):
+        from expenses.models import Expense
+        from expenses.services import generate_due_recurring_expenses
+
+        original = Expense.objects.create(
+            branch=self.branch, category=self.cat, date=date(2026, 1, 15),
+            amount=100,
+            is_recurring=True, recur_frequency=Expense.RecurringFrequency.MONTHLY,
+            next_run_date=date(2026, 2, 15),
+        )
+        created = generate_due_recurring_expenses(date(2026, 3, 15))
+        self.assertEqual(len(created), 2)
+        dates = sorted(c.date for c in created)
+        self.assertEqual(dates, [date(2026, 2, 15), date(2026, 3, 15)])
+        for copy in created:
+            self.assertFalse(copy.is_recurring)
+            self.assertEqual(copy.origin_id, original.id)
+        original.refresh_from_db()
+        self.assertEqual(original.next_run_date, date(2026, 4, 15))
+
+    def test_generate_due_is_idempotent(self):
+        from expenses.models import Expense
+        from expenses.services import generate_due_recurring_expenses
+
+        original = Expense.objects.create(
+            branch=self.branch, category=self.cat, date=date(2026, 1, 15),
+            amount=100,
+            is_recurring=True, recur_frequency=Expense.RecurringFrequency.MONTHLY,
+            next_run_date=date(2026, 2, 15),
+        )
+        generate_due_recurring_expenses(date(2026, 3, 15))
+        again = generate_due_recurring_expenses(date(2026, 4, 15))
+        self.assertEqual(len(again), 1)  # فقط شهر نيسان الجديد — لا تكرار للشهور السابقة
+        self.assertEqual(again[0].date, date(2026, 4, 15))
+
+    def test_list_auto_generates_due_recurring(self):
+        from expenses.models import Expense
+
+        original = Expense.objects.create(
+            branch=self.branch, category=self.cat, date=date(2026, 1, 15),
+            amount=100,
+            is_recurring=True, recur_frequency=Expense.RecurringFrequency.MONTHLY,
+            next_run_date=date(2026, 2, 15),
+        )
+        r = self.c.get("/api/expenses/")
+        self.assertEqual(r.status_code, 200)
+        copies = Expense.objects.filter(origin=original)
+        self.assertGreaterEqual(copies.count(), 1)
+        self.assertTrue(copies.filter(date=date(2026, 2, 15)).exists())
+        original.refresh_from_db()
+        self.assertGreater(original.next_run_date, date(2026, 2, 15))
+
+    def test_run_recurring_action(self):
+        from expenses.models import Expense
+
+        Expense.objects.create(
+            branch=self.branch, category=self.cat, date=date(2026, 1, 15),
+            amount=100,
+            is_recurring=True, recur_frequency=Expense.RecurringFrequency.MONTHLY,
+            next_run_date=date(2026, 2, 15),
+        )
+        r = self.c.post("/api/expenses/run-recurring/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertGreaterEqual(r.data["count"], 1)

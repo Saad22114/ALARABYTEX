@@ -62,8 +62,11 @@ export async function updateWarehouse(id: number, data: Partial<Warehouse>): Pro
   return apiRequest<Warehouse>(`/warehouses/${id}/`, { method: 'PUT', body: JSON.stringify(data) });
 }
 
-export async function deleteWarehouse(id: number): Promise<void> {
-  return apiRequest<void>(`/warehouses/${id}/`, { method: 'DELETE' });
+export async function deleteWarehouse(id: number, adminPassword?: string): Promise<void> {
+  return apiRequest<void>(`/warehouses/${id}/`, {
+    method: 'DELETE',
+    body: JSON.stringify({ admin_password: adminPassword ?? '' }),
+  });
 }
 
 export async function getWarehouseSummary(id: number): Promise<WarehouseBalance[]> {

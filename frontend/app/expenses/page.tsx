@@ -14,9 +14,9 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import ExpenseForm from '@/components/forms/ExpenseForm';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { Expense, Branch, ExpenseCategory, Paginated } from '@/types';
-import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories } from '@/services/expenses';
+import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
@@ -42,6 +42,20 @@ export default function ExpensesPage() {
   const [editing, setEditing] = useState<Expense | null>(null);
   const [deleting, setDeleting] = useState<Expense | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [recurringLoading, setRecurringLoading] = useState(false);
+
+  const handleRunRecurring = async () => {
+    setRecurringLoading(true);
+    try {
+      const res = await runRecurringExpenses();
+      toast('success', res.count > 0 ? `تم ترحيل ${res.count} مصروف متكرر` : 'لا توجد مصاريف مستحقة للترحيل');
+      fetchData();
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setRecurringLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -136,10 +150,16 @@ export default function ExpensesPage() {
     <AppShell>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <Button onClick={() => setModalOpen(true)}>
-            <Plus size={18} />
-            تسجيل مصروف
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus size={18} />
+              تسجيل مصروف
+            </Button>
+            <Button variant="secondary" onClick={handleRunRecurring} loading={recurringLoading}>
+              <RefreshCw size={18} />
+              ترحيل المتكررة
+            </Button>
+          </div>
         </div>
 
         <Card className="!p-4">
@@ -183,6 +203,7 @@ export default function ExpensesPage() {
                     <Th>المبلغ</Th>
                     <Th>طريقة الدفع</Th>
                     <Th>الوصف</Th>
+                    <Th>التكرار</Th>
                     <Th>إجراءات</Th>
                   </tr>
                 </thead>
@@ -195,6 +216,23 @@ export default function ExpensesPage() {
                       <Td className="tabular-nums font-medium">{formatCurrency(e.amount)}</Td>
                       <Td>{PAYMENT_METHODS_MAP[e.payment_method] || e.payment_method}</Td>
                       <Td className="max-w-[200px] truncate">{e.description || '-'}</Td>
+                      <Td>
+                        {e.is_recurring ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="inline-flex w-fit items-center gap-1 rounded-full bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-300 px-2 py-0.5 text-xs font-medium">
+                              <RefreshCw size={11} className="inline" />
+                              {e.recur_frequency === 'weekly' ? 'أسبوعي' : 'شهري'}
+                            </span>
+                            {e.next_run_date && (
+                              <span className="text-[11px] text-neutral-500">القادم: {formatDate(e.next_run_date)}</span>
+                            )}
+                          </div>
+                        ) : e.origin ? (
+                          <span className="text-[11px] text-neutral-400">نسخة متكررة</span>
+                        ) : (
+                          <span className="text-neutral-400">-</span>
+                        )}
+                      </Td>
                       <Td>
                         <div className="flex items-center gap-2">
                           <button onClick={() => setEditing(e)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors">

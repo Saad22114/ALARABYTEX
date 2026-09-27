@@ -663,3 +663,76 @@ class PayrollDatesView(APIView):
             "month_end": end.isoformat(),
             "previous_month": previous.isoformat(),
         })
+
+
+class MyPayrollView(APIView):
+    """راتبي: صيانة ذاتية — كل موظف يرى راتبه وسلفه وقسائمه هو فقط.
+
+    الصلاحية من «الطيف @» أي موظف مصادق عليه، والبيانات تُقصّ برمجياً على
+    الموظف الحالي من الطلب حصراً (لا معرّف خارجي).
+    """
+
+    permission_section = "@payroll"
+
+    def get(self, request):
+        from core.permissions import get_request_employee
+
+        employee = get_request_employee(request)
+        if employee is None:
+            return Response(
+                {"detail": "لا يوجد موظف مرتبط بحسابك"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        today = timezone.localdate()
+
+        structure = salary_snapshot(employee, today)
+        payslips_qs = (
+            Payslip.objects.filter(employee=employee)
+            .select_related("run", "branch")
+            .order_by("-run__month", "-id")
+        )
+        advances_qs = (
+            SalaryAdvance.objects.filter(employee=employee)
+            .select_related("branch")
+            .order_by("-date", "-id")
+        )
+
+        payslips = PayslipSerializer(payslips_qs, many=True).data
+        advances = SalaryAdvanceSerializer(advances_qs, many=True).data
+
+        active_qs = payslips_qs.exclude(run__status=PayrollRun.Status.CANCELLED)
+        paid_qs = active_qs.filter(is_paid=True)
+        approved_advances = [
+            a for a in advances_qs if a.status == SalaryAdvance.Status.APPROVED
+        ]
+        outstanding = float(
+            sum((a.remaining_amount for a in approved_advances if not a.is_settled), ZERO)
+        )
+        summary = {
+            "gross_total": float(sum((p.gross for p in active_qs), ZERO)),
+            "net_total": float(sum((p.net_pay for p in active_qs), ZERO)),
+            "paid_net": float(sum((p.net_pay for p in paid_qs), ZERO)),
+            "payslip_count": active_qs.count(),
+            "structure_exists": bool(structure["has_structure"]),
+            "outstanding_advances": outstanding,
+        }
+
+        return Response({
+            "employee": {
+                "id": employee.id,
+                "name": employee.name,
+                "avatar": employee.avatar,
+                "avatar_image": employee.avatar_image,
+                "phone": employee.phone,
+                "position": employee.position,
+                "department": employee.department,
+                "branch_id": employee.branch_id,
+                "branch_name": employee.branch.name if employee.branch_id else "",
+                "hire_date": employee.hire_date.isoformat() if employee.hire_date else None,
+            },
+            "structure": structure,
+            "payslips": payslips,
+            "advances": advances,
+            "statement": statement_rows(employee, None, None),
+            "summary": summary,
+        })

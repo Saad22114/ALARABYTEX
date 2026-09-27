@@ -261,6 +261,62 @@ class AdvancedReportsAPITest(TestCase):
         self.assertEqual(r.data["totals"]["cogs"], 0.0)
         self.assertEqual(r.data["totals"]["net_profit"], 0.0)
 
+    def test_profit_loss_includes_salaries(self):
+        """صافي الربح = مبيعات - تكلفة - رواتب - مصاريف (الرواتب تدخل في التقرير)."""
+        from datetime import datetime
+
+        from django.utils import timezone as tz
+
+        from payroll.models import PayrollRun, Payslip
+
+        emp = Employee.objects.create(name="موظف الربح", branch=self.branch)
+        run1 = PayrollRun.objects.create(
+            month=date(2026, 3, 1), branch=self.branch,
+            status=PayrollRun.Status.APPROVED,
+        )
+        Payslip.objects.create(run=run1, employee=emp, branch=self.branch, base_salary=500)
+        run2 = PayrollRun.objects.create(
+            month=date(2026, 3, 1), branch=None,
+            status=PayrollRun.Status.PAID,
+            paid_at=tz.make_aware(datetime(2026, 3, 15, 12, 0)),
+        )
+        Payslip.objects.create(run=run2, employee=emp, branch=self.branch, base_salary=300)
+
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": "2026-03-01",
+            "date_to": "2026-03-31",
+        })
+        self.assertEqual(r.status_code, 200)
+        t = r.data["totals"]
+        # كل مسيّر غير ملغى يغطي شهراً داخل الفترة يُحسب في «الرواتب» المستحقة.
+        self.assertEqual(t["salaries"], 800.0)
+        # المدفوع فعلياً فقط حسب تاريخ الصرف.
+        self.assertEqual(t["salaries_paid"], 300.0)
+        self.assertEqual(t["net_profit"], t["gross_profit"] - t["salaries"] - t["expenses"])
+
+        branch_row = next(
+            b for b in r.data["branches"] if b["branch_name"] == self.branch.name
+        )
+        self.assertEqual(branch_row["salaries"], 800.0)
+        self.assertIn("cogs", branch_row)
+
+    def test_profit_loss_excludes_out_of_range_salary_month(self):
+        """مسيّر شهر لا يتداخل مع الفترة لا يُحتسب في الرواتب."""
+        from payroll.models import PayrollRun, Payslip
+
+        emp = Employee.objects.create(name="خارج الفترة", branch=self.branch)
+        run = PayrollRun.objects.create(
+            month=date(2026, 5, 1), branch=self.branch,
+            status=PayrollRun.Status.APPROVED,
+        )
+        Payslip.objects.create(run=run, employee=emp, branch=self.branch, base_salary=999)
+
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": "2026-03-01",
+            "date_to": "2026-03-31",
+        })
+        self.assertEqual(r.data["totals"]["salaries"], 0.0)
+
     def test_profit_loss_xlsx_export(self):
         r = self.c.get("/api/reports/profit-loss/", {"export": "xlsx"})
         self.assertEqual(r.status_code, 200)

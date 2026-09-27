@@ -684,7 +684,10 @@ class CogsReportView(APIView):
 
 
 class ProfitLossReportView(APIView):
-    """الربح والخسارة: مبيعات - تكلفة البضاعة المباعة - مصاريف."""
+    """الربح والخسارة بعد كل شيء: مبيعات - تكلفة البضاعة المباعة - رواتب - مصاريف.
+
+    مع تفصيل لكل فرع (مبيعات / تكلفة / رواتب / مصاريف / صافي) للمقارنة بين الفروع.
+    """
     permission_section = "reports"
 
     def get(self, request):
@@ -709,7 +712,47 @@ class ProfitLossReportView(APIView):
         total_expenses = expense_qs.aggregate(t=Sum("amount"))["t"] or 0
         cogs = _scoped_cogs(request, date_from, date_to)
         gross_profit = total_sales - cogs
-        net_profit = gross_profit - total_expenses
+
+        # الرواتب: قسائم المسيّرات غير الملغاة التي يقع/يتداخل شهرها مع الفترة
+        # (التكلفة المستحقة). المسيّر يغطي شهراً كاملاً، لذا نطابق تداخل الفواصل.
+        from payroll.models import Payslip, PayrollRun
+
+        def _last_of_month(value):
+            if value.month == 12:
+                return date(value.year + 1, 1, 1) - timedelta(days=1)
+            return date(value.year, value.month + 1, 1) - timedelta(days=1)
+
+        run_qs = scope_queryset(
+            request,
+            PayrollRun.objects.filter(month__lte=date_to)
+            .exclude(status=PayrollRun.Status.CANCELLED),
+            "branch",
+        )
+        if branch:
+            run_qs = run_qs.filter(branch_id=branch)
+        candidates = list(run_qs)
+        run_ids = [r.id for r in candidates if _last_of_month(r.month) >= date_from]
+        payslips_qs = Payslip.objects.filter(run_id__in=run_ids) if run_ids else Payslip.objects.none()
+        if branch:
+            payslips_qs = payslips_qs.filter(branch_id=branch)
+        salaries = Decimal(
+            sum((p.net_pay for p in payslips_qs), Decimal("0"))
+        )
+
+        # الرواتب المدفوعة فعلياً داخل الفترة (حسب تاريخ الصرف) — للمقارنة.
+        paid_run_ids = [
+            r.id for r in candidates
+            if (r.status == PayrollRun.Status.PAID and r.paid_at
+                and date_from <= r.paid_at.date() <= date_to)
+        ]
+        paid_qs = Payslip.objects.filter(run_id__in=paid_run_ids) if paid_run_ids else Payslip.objects.none()
+        if branch:
+            paid_qs = paid_qs.filter(branch_id=branch)
+        salaries_paid = Decimal(
+            sum((p.net_pay for p in paid_qs), Decimal("0"))
+        )
+
+        net_profit = gross_profit - salaries - total_expenses
 
         row_branches = scope_queryset(
             self.request, Branch.objects.filter(is_active=True)
@@ -719,12 +762,22 @@ class ProfitLossReportView(APIView):
         rows = []
         for b in row_branches.order_by("name"):
             bs = DailySale.objects.filter(branch=b, date__gte=date_from, date__lte=date_to).aggregate(t=Sum("total_sales"))["t"] or 0
+            bcogs = sum(cogs_by_fabric(date_from, date_to, b.id).values(), Decimal("0"))
+            bsal = Decimal(
+                sum(
+                    (p.net_pay for p in
+                     (payslips_qs.filter(branch_id=b.id) if run_ids else Payslip.objects.none())),
+                    Decimal("0"),
+                )
+            )
             be = Expense.objects.filter(branch=b, date__gte=date_from, date__lte=date_to).aggregate(t=Sum("amount"))["t"] or 0
             rows.append({
                 "branch_name": b.name,
                 "sales": float(bs),
+                "cogs": float(bcogs),
+                "salaries": float(bsal),
                 "expenses": float(be),
-                "net": float(bs - be),
+                "net": float(bs - bcogs - bsal - be),
             })
 
         if request.query_params.get("export") == "xlsx":
@@ -733,14 +786,24 @@ class ProfitLossReportView(APIView):
                 ["إجمالي المبيعات", float(total_sales)],
                 ["تكلفة البضاعة المباعة", float(cogs)],
                 ["مجمل الربح", float(gross_profit)],
+                ["الرواتب (شهر الفترة)", float(salaries)],
+                ["الرواتب المدفوعة فعلياً", float(salaries_paid)],
                 ["المصاريف", float(total_expenses)],
-                ["صافي الربح", float(net_profit)],
+                ["صافي الربح بعد كل شيء", float(net_profit)],
             ]
-            for r in rows:
-                rows_x.append(["ربح فرع " + r["branch_name"], r["net"]])
-            wb = _export_generic_to_xlsx("الربح والخسارة", headers, rows_x)
+            headers_b = ["الفرع", "المبيعات", "التكلفة", "الرواتب", "المصاريف", "الصافي"]
+            rows_b = [
+                [r["branch_name"], r["sales"], r["cogs"], r["salaries"], r["expenses"], r["net"]]
+                for r in rows
+            ]
+            wb = _export_generic_to_xlsx("الربح والخسارة بعد كل شيء", headers, rows_x)
             if wb is None:
                 return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
+            wb.create_sheet("حسب الفرع")
+            ws2 = wb["حسب الفرع"]
+            ws2.append(headers_b)
+            for rrow in rows_b:
+                ws2.append(rrow)
             return _xlsx_response(wb, "تقرير_الربح_والخسارة")
 
         return Response({
@@ -748,6 +811,8 @@ class ProfitLossReportView(APIView):
                 "total_sales": float(total_sales),
                 "cogs": float(cogs),
                 "gross_profit": float(gross_profit),
+                "salaries": float(salaries),
+                "salaries_paid": float(salaries_paid),
                 "expenses": float(total_expenses),
                 "net_profit": float(net_profit),
             },

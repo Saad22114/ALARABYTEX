@@ -1036,7 +1036,9 @@ export default function BranchDetailPage() {
           onClose={() => setStopOpen(false)}
           onConfirm={() => handleToggle(false)}
           loading={toggleLoading}
-          message={`هل أنت متأكد من إيقاف فرع "${branch.name}"؟ لن يتمكن من تسجيل مبيعات أو مصاريف جديدة، مع بقاء السجلات السابقة.`}
+          title="تأكيد إيقاف الفرع"
+          confirmLabel="نعم، إيقاف الفرع"
+          message={`هل أنت متأكد من إيقاف فرع "${branch.name}"؟ لن يتمكن من تسجيل مبيعات أو مصاريف جديدة، مع بقاء كل السجلات السابقة محفوظة ويمكن إعادة تفعيله لاحقاً.`}
         />
       </div>
     </AppShell>

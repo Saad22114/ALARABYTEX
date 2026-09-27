@@ -19,10 +19,10 @@ export default function ConfirmDialog({
   open,
   onClose,
   onConfirm,
-  title = 'تأكيد الإيقاف',
-  message = 'هل أنت متأكد من الحذف؟ لا يمكن التراجع عن هذا الإجراء.',
+  title = 'تأكيد العملية',
+  message = 'هل أنت متأكد من تنفيذ هذا الإجراء؟ قد لا يمكن التراجع عنه.',
   loading = false,
-  confirmLabel = 'حذف او ايقاف',
+  confirmLabel = 'تأكيد',
   children,
 }: ConfirmDialogProps) {
   return (

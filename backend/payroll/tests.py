@@ -465,3 +465,86 @@ class PayrollPermissionTests(PayrollTestBase):
         self.assertEqual(r.status_code, 404)
         r = self.c.get(f"/api/payroll/export/statement/{self.emp.id}/")
         self.assertEqual(r.status_code, 200)
+
+
+class MyPayrollTest(TestCase):
+    """راتبي: كل موظف يرى بياناته هو فقط — حتى بلا صلاحية قسم الرواتب."""
+
+    def setUp(self):
+        self.c = APIClient()
+        self.user, self.admin = authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="فرع راتبي", code="MYPR")
+        self.admin.branch = self.branch
+        self.admin.base_salary = 2000
+        self.admin.save(update_fields=["branch_id", "base_salary"])
+        self.emp2 = Employee.objects.create(
+            name="زميل آخر", branch=self.branch, base_salary=1500
+        )
+
+    def test_my_payroll_returns_only_own_data(self):
+        # مسيّر يولّد قسائم للموظفين كليهما في فرع واحد.
+        r = self.c.post("/api/payroll/runs/", {
+            "month": "2026-03-01",
+            "branch": self.branch.id,
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        # سلفة لزميل آخر فقط.
+        self.c.post("/api/payroll/advances/", {
+            "employee": self.emp2.id,
+            "amount": 400,
+            "date": "2026-03-05",
+            "method": "cash",
+        }, format="json")
+
+        my = self.c.get("/api/payroll/my/")
+        self.assertEqual(my.status_code, 200, my.data)
+        self.assertEqual(my.data["employee"]["id"], self.admin.id)
+        self.assertEqual(my.data["employee"]["name"], self.admin.name)
+
+        # القسائم والسلف كلها للموظف الحالي فقط.
+        self.assertTrue(my.data["payslips"])
+        self.assertTrue(all(p["employee"] == self.admin.id for p in my.data["payslips"]))
+        self.assertEqual(len(my.data["advances"]), 0)
+
+        summary = my.data["summary"]
+        self.assertEqual(summary["net_total"], 2000.0)
+        self.assertEqual(summary["structure_exists"], False)
+        self.assertEqual(summary["outstanding_advances"], 0.0)
+
+    def test_my_payroll_includes_structure(self):
+        self.c.post("/api/payroll/salary-structures/", {
+            "employee": self.admin.id,
+            "base_salary": "2500",
+            "housing_allowance": "300",
+            "transport_allowance": "200",
+            "effective_from": "2026-01-01",
+        }, format="json")
+        my = self.c.get("/api/payroll/my/")
+        self.assertEqual(my.status_code, 200)
+        st = my.data["structure"]
+        self.assertTrue(st["has_structure"])
+        self.assertEqual(Decimal(str(st["base_salary"])), Decimal("2500.00"))
+        allowances = Decimal(str(st["housing_allowance"])) + Decimal(str(st["transport_allowance"]))
+        self.assertEqual(allowances, Decimal("500.00"))
+
+    def test_my_payroll_requires_employee_account(self):
+        from django.contrib.auth.models import User
+
+        plain = User.objects.create_user(username="no_employee", password="pass1234")
+        self.c.force_authenticate(user=plain)
+        r = self.c.get("/api/payroll/my/")
+        # مستخدم بلا موظف لا يُسمح له أصلاً بدخول نطاق «@payroll».
+        self.assertEqual(r.status_code, 403)
+
+    def test_my_payroll_accessible_without_payroll_section_permission(self):
+        """موظف مندوب (بلا صلاحيات رواتب) يرى راتبه هو."""
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="sales_my", password="pass1234")
+        emp = Employee.objects.create(name="مندوب راتبي", user=user, branch=self.branch)
+        emp.apply_role_preset(Employee.Role.SALES)
+        emp.save()
+        self.c.force_authenticate(user=user)
+        r = self.c.get("/api/payroll/my/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["employee"]["id"], emp.id)

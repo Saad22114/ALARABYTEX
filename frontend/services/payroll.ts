@@ -187,6 +187,10 @@ export function getEmployeeStatement(employeeId: number, params?: Params): Promi
   return apiRequest<PayrollStatement>(`/payroll/employees/${employeeId}/statement/${buildQuery(params || {})}`);
 }
 
+export function getMyPayroll(): Promise<import('@/types').MyPayrollResult> {
+  return apiRequest<import('@/types').MyPayrollResult>('/payroll/my/');
+}
+
 export async function exportStatement(employeeId: number, filename: string): Promise<void> {
   await downloadBlob(`${API_URL}/payroll/export/statement/${employeeId}/`, filename);
 }

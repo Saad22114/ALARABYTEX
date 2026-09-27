@@ -28,6 +28,12 @@ export async function deleteExpense(id: number): Promise<void> {
   return apiRequest<void>(`/expenses/${id}/`, { method: 'DELETE' });
 }
 
+export async function runRecurringExpenses(): Promise<{ detail: string; count: number }> {
+  return apiRequest<{ detail: string; count: number }>('/expenses/run-recurring/', {
+    method: 'POST',
+  });
+}
+
 export async function listExpenseCategories(params?: Record<string, string | number | undefined | null>): Promise<Paginated<ExpenseCategory>> {
   const q = buildQuery(params || {});
   return apiRequest<Paginated<ExpenseCategory>>(`/expense-categories/${q}`);

@@ -306,17 +306,9 @@ class ResetView(APIView):
     permission_section = "settings"
 
     def _admin_password_ok(self, password):
-        from django.contrib.auth import get_user_model
+        from core.admin_secret import admin_password_ok
 
-        from sale_sessions.models import Employee
-
-        User = get_user_model()
-        admins = User.objects.filter(
-            employee__role=Employee.Role.ADMIN,
-            employee__is_active=True,
-            is_active=True,
-        )
-        return any(u.check_password(password) for u in admins)
+        return admin_password_ok(password)
 
     def post(self, request):
         if request.data.get("confirm") is not True:

@@ -427,6 +427,10 @@ export interface Expense {
   payment_method: PaymentMethod;
   description: string;
   notes: string;
+  is_recurring: boolean;
+  recur_frequency: string | null;
+  next_run_date: string | null;
+  origin: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -1009,6 +1013,8 @@ export interface ProfitLossTotals {
   total_sales: number;
   cogs: number;
   gross_profit: number;
+  salaries: number;
+  salaries_paid: number;
   expenses: number;
   net_profit: number;
 }
@@ -1016,6 +1022,8 @@ export interface ProfitLossTotals {
 export interface ProfitLossBranchRow {
   branch_name: string;
   sales: number;
+  cogs: number;
+  salaries: number;
   expenses: number;
   net: number;
 }
@@ -1687,6 +1695,94 @@ export interface PayrollRun {
   payslips?: Payslip[];
   created_at: string;
   updated_at: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* راتبي: صيانة ذاتية لكل موظف                                         */
+/* ------------------------------------------------------------------ */
+
+export interface MySalaryStructure {
+  base_salary: number;
+  housing_allowance: number;
+  transport_allowance: number;
+  other_allowance: number;
+  overtime_hour_rate: number;
+  working_days: number;
+  daily_work_hours: number;
+  daily_rate: number;
+  has_structure: boolean;
+  structure_id: number | null;
+}
+
+export interface MyPayrollSummary {
+  gross_total: number;
+  net_total: number;
+  paid_net: number;
+  payslip_count: number;
+  structure_exists: boolean;
+  outstanding_advances: number;
+}
+
+export interface MyPayrollResult {
+  employee: {
+    id: number;
+    name: string;
+    avatar: string;
+    avatar_image: string;
+    phone: string;
+    position: string;
+    department: string;
+    branch_id: number | null;
+    branch_name: string;
+    hire_date: string | null;
+  };
+  structure: MySalaryStructure;
+  payslips: Payslip[];
+  advances: SalaryAdvance[];
+  statement: unknown;
+  summary: MyPayrollSummary;
+}
+
+/* ------------------------------------------------------------------ */
+/* حساب الماكينة                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface MachineCollection {
+  id: number;
+  branch: number | null;
+  branch_name: string;
+  date: string;
+  amount: number;
+  method: string;
+  method_label: string;
+  reference: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MachineAccountMonth {
+  month: string;
+  card_sales: number;
+  received: number;
+  balance: number;
+}
+
+export interface MachineAccountResult {
+  start_date: string;
+  end_date: string;
+  totals: {
+    card_sales: number;
+    received: number;
+    balance: number;
+  };
+  month: {
+    card_sales: number;
+    received: number;
+    balance: number;
+  };
+  months: MachineAccountMonth[];
+  recent_collections: MachineCollection[];
 }
 
 export interface PayrollPreviewRow {

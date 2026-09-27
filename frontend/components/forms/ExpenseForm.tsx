@@ -16,6 +16,11 @@ interface ExpenseFormProps {
   onCancel: () => void;
 }
 
+const RECURRING_FREQUENCIES = [
+  { value: 'monthly', label: 'شهري' },
+  { value: 'weekly', label: 'أسبوعي' },
+];
+
 export default function ExpenseForm({ initial, branches, categories, onSubmit, onCancel }: ExpenseFormProps) {
   const [form, setForm] = useState({
     date: initial?.date || new Date().toISOString().slice(0, 10),
@@ -25,6 +30,8 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
     payment_method: (initial?.payment_method || 'cash') as PaymentMethod,
     description: initial?.description || '',
     notes: initial?.notes || '',
+    is_recurring: initial?.id ? Boolean(initial.is_recurring) : false,
+    recur_frequency: (initial?.recur_frequency || 'monthly') as string,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -39,6 +46,8 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
         payment_method: (initial.payment_method || 'cash') as PaymentMethod,
         description: initial.description || '',
         notes: initial.notes || '',
+        is_recurring: Boolean(initial.is_recurring),
+        recur_frequency: (initial.recur_frequency || 'monthly') as string,
       });
     }
   }, [initial]);
@@ -65,6 +74,8 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
         payment_method: form.payment_method,
         description: form.description,
         notes: form.notes,
+        is_recurring: form.is_recurring,
+        recur_frequency: form.is_recurring ? form.recur_frequency : 'monthly',
       });
     } finally {
       setLoading(false);
@@ -72,6 +83,10 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
   };
 
   const set = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
+  const toggleRecurring = () => setForm((f) => ({ ...f, is_recurring: !f.is_recurring }));
+
+  // النسخة المتولدة من مصروف متكرر (لقطة) — لا تعرض عناصر التكرار عند تعديلها.
+  const isSnapshot = Boolean(initial?.origin);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -117,6 +132,30 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
         min="0"
         step="0.01"
       />
+      {!isSnapshot && (
+        <div className="rounded-xl border border-sand-200 dark:border-neutral-800 p-3 space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={form.is_recurring}
+              onChange={toggleRecurring}
+              className="h-4 w-4 rounded border-sand-300 text-brand-600 accent-brand-600"
+            />
+            <span className="text-sm font-medium">مصروف ثابت — يتجدد تلقائياً في الشهور التالية</span>
+          </label>
+          {form.is_recurring && (
+            <>
+              <Select
+                label="دورة التكرار"
+                value={form.recur_frequency}
+                onChange={(e) => set('recur_frequency', e.target.value)}
+                options={RECURRING_FREQUENCIES}
+              />
+              <p className="text-xs text-neutral-500">تُنشأ نسخة تلقائية في كل موعد قادم (أول نفس اليوم من الشهر/الأسبوع التالي)</p>
+            </>
+          )}
+        </div>
+      )}
       <Input
         label="الوصف"
         value={form.description}

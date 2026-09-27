@@ -21,6 +21,8 @@ import {
   MessageSquareText,
   Palette,
   Wallet,
+  CreditCard,
+  CircleDollarSign,
 } from 'lucide-react';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
@@ -36,6 +38,8 @@ const navItems = [
   { key: 'sales', href: '/sales', label: 'المبيعات', icon: Banknote },
   { key: 'employees', href: '/employees', label: 'الموظفون', icon: UserCog },
   { key: 'payroll', href: '/payroll', label: 'الرواتب', icon: Wallet },
+  { key: 'my-salary', href: '/my-salary', label: 'راتبي', icon: CircleDollarSign },
+  { key: 'machine_account', href: '/machine-account', label: 'حساب الماكينة', icon: CreditCard },
   { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Boxes },
   { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText },
   { key: 'reports', href: '/reports', label: 'التقارير', icon: BarChart3 },
@@ -70,6 +74,8 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     // قسم «الثيمات والتحكم» مفتوح لكل الموظفين بغض النظر عن صلاحياتهم —
     // يظهر ما لم يُخفَ مركزياً من «أقسام القائمة» أو لكل موظف على حدة.
     if (key === 'themes') return true;
+    // «راتبي» و «حساب الماكينة» كعنصر ذاتي الخدمة: يظهر لكل موظف ما لم يُخفَ يدوياً.
+    if (key === 'my-salary') return true;
     const permissions = session?.employee.permissions;
     const perms = permissions ? permissions[key] : null;
     // الأقسام المقيدة بالنطاق: يظهر فرعُ الموظف في القائمة فقط بعد اكتمال

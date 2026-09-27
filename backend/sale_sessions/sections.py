@@ -60,6 +60,10 @@ SECTIONS = [
         {"key": "categories", "label": "تصنيفات المصاريف"},
         {"key": "budgets", "label": "الميزانيات"},
     ]},
+    {"key": "machine_account", "label": "حساب الماكينة", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+        {"key": "summary", "label": "الملخص والرصيد"},
+        {"key": "collections", "label": "الدفعات المستلمة"},
+    ]},
     {"key": "reports", "label": "التقارير", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
         {"key": "sales", "label": "تقرير المبيعات"},
         {"key": "expenses", "label": "تقرير المصاريف"},
@@ -170,6 +174,7 @@ ROLE_PRESETS = {
             "sessions": {"view": True, "create": True, "edit": True, "delete": False},
             "employees": {"view": False, "create": False, "edit": False, "delete": False},
             "payroll": {"view": True, "create": True, "edit": True, "delete": False},
+            "machine_account": {"view": True, "create": True, "edit": True, "delete": False},
             "warehouses": {"view": True, "create": True, "edit": True, "delete": False},
             "expenses": {"view": True, "create": True, "edit": True, "delete": False},
             "reports": {"view": True, "create": False, "edit": False, "delete": False},

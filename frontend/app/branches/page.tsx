@@ -10,6 +10,7 @@ import SearchInput from '@/components/ui/SearchInput';
 import Pagination from '@/components/ui/Pagination';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import Input from '@/components/ui/Input';
 import BranchForm from '@/components/forms/BranchForm';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
@@ -39,6 +40,7 @@ export default function BranchesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Branch | null>(null);
   const [deleting, setDeleting] = useState<Branch | null>(null);
+  const [adminPassword, setAdminPassword] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [stopping, setStopping] = useState<Branch | null>(null);
   const [toggleLoading, setToggleLoading] = useState(false);
@@ -106,11 +108,16 @@ export default function BranchesPage() {
 
   const handleDelete = async () => {
     if (!deleting) return;
+    if (!adminPassword.trim()) {
+      toast('error', 'أدخل الرقم السري لمدير النظام لتأكيد الحذف');
+      return;
+    }
     setDeleteLoading(true);
     try {
-      await deleteBranch(deleting.id);
+      await deleteBranch(deleting.id, adminPassword.trim());
       toast('success', 'تم حذف الفرع بنجاح');
       setDeleting(null);
+      setAdminPassword('');
       fetchData();
       fetchSummary();
     } catch (err: any) {
@@ -298,17 +305,32 @@ export default function BranchesPage() {
           onClose={() => setStopping(null)}
           onConfirm={() => handleToggle(stopping!, false)}
           loading={toggleLoading}
-          message={`هل أنت متأكد من إيقاف فرع "${stopping?.name}"؟ لن يتمكن من تسجيل مبيعات أو مصاريف جديدة، مع بقاء السجلات السابقة.`}
+          title="تأكيد إيقاف الفرع"
+          confirmLabel="نعم، إيقاف الفرع"
+          message={`هل أنت متأكد من إيقاف فرع "${stopping?.name}"؟ لن يتمكن من تسجيل مبيعات أو مصاريف جديدة، مع بقاء كل السجلات السابقة محفوظة ويمكن إعادة تفعيله لاحقاً.`}
         />
 
         {/* Delete Confirm */}
         <ConfirmDialog
           open={!!deleting}
-          onClose={() => setDeleting(null)}
+          onClose={() => { setDeleting(null); setAdminPassword(''); }}
           onConfirm={handleDelete}
           loading={deleteLoading}
-          message={`هل أنت متأكد من حذف فرع "${deleting?.name}"؟ لا يمكن التراجع عن هذا الإجراء.`}
-        />
+          title="حذف الفرع"
+          confirmLabel="حذف نهائي"
+          message={`هل أنت متأكد من حذف فرع "${deleting?.name}" نهائياً؟ هذه عملية لا يمكن التراجع عنها.`}
+        >
+          <div className="mt-4">
+            <Input
+              autoFocus
+              type="password"
+              label="الرقم السري لمدير النظام"
+              placeholder="أدخل الرقم السري لتأكيد الحذف"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+            />
+          </div>
+        </ConfirmDialog>
       </div>
     </AppShell>
   );

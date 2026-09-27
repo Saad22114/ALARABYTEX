@@ -841,7 +841,7 @@ export default function ReportsPage() {
               {/* Profit & Loss Tab */}
               {activeTab === 'profit-loss' && plData && (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
                     <div className="rounded-xl bg-sand-50 p-4">
                       <div className="text-xs text-neutral-500 mb-1">إجمالي المبيعات</div>
                       <div className="text-xl font-bold tabular-nums text-brand-700">{formatCurrency(plData.totals.total_sales)}</div>
@@ -854,13 +854,18 @@ export default function ReportsPage() {
                       <div className="text-xs text-neutral-500 mb-1">مجمل الربح</div>
                       <div className="text-xl font-bold tabular-nums text-emerald-700">{formatCurrency(plData.totals.gross_profit)}</div>
                     </div>
+                    <div className="rounded-xl bg-red-50 dark:bg-red-950/30 p-4">
+                      <div className="text-xs text-neutral-500 mb-1">الرواتب (شهر الفترة)</div>
+                      <div className="text-xl font-bold tabular-nums text-red-700">{formatCurrency(plData.totals.salaries)}</div>
+                      <div className="text-xs text-neutral-400 mt-1">المدفوع فعلياً: {formatCurrency(plData.totals.salaries_paid)}</div>
+                    </div>
                     <div className="rounded-xl bg-sand-50 p-4">
                       <div className="text-xs text-neutral-500 mb-1">المصاريف</div>
                       <div className="text-xl font-bold tabular-nums text-red-600">{formatCurrency(plData.totals.expenses)}</div>
                     </div>
-                    <div className="rounded-xl bg-sand-50 p-4">
-                      <div className="text-xs text-neutral-500 mb-1">صافي الربح</div>
-                      <div className={`text-xl font-bold tabular-nums ${plData.totals.net_profit < 0 ? 'text-red-600' : 'text-brand-700'}`}>{formatCurrency(plData.totals.net_profit)}</div>
+                    <div className="rounded-xl bg-brand-50 dark:bg-brand-950/30 p-4 sm:col-span-2 lg:col-span-3">
+                      <div className="text-xs text-neutral-500 mb-1">صافي الربح بعد كل شيء (مبيعات - تكلفة - رواتب - مصاريف)</div>
+                      <div className={`text-2xl font-bold tabular-nums ${plData.totals.net_profit < 0 ? 'text-red-600' : 'text-brand-700'}`}>{formatCurrency(plData.totals.net_profit)}</div>
                     </div>
                   </div>
                   {plData.branches.length === 0 ? (
@@ -871,8 +876,10 @@ export default function ReportsPage() {
                         <tr>
                           <Th>الفرع</Th>
                           <Th>المبيعات</Th>
+                          <Th>التكلفة</Th>
+                          <Th>الرواتب</Th>
                           <Th>المصاريف</Th>
-                          <Th>النتيجة</Th>
+                          <Th>الصافي</Th>
                         </tr>
                       </thead>
                       <tbody>
@@ -880,6 +887,8 @@ export default function ReportsPage() {
                           <Tr key={i}>
                             <Td className="font-medium">{r.branch_name}</Td>
                             <Td className="tabular-nums">{formatCurrency(r.sales)}</Td>
+                            <Td className="tabular-nums">{formatCurrency(r.cogs)}</Td>
+                            <Td className="tabular-nums">{formatCurrency(r.salaries)}</Td>
                             <Td className="tabular-nums">{formatCurrency(r.expenses)}</Td>
                             <Td className={`tabular-nums font-medium ${r.net < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(r.net)}</Td>
                           </Tr>

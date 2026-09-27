@@ -60,9 +60,25 @@ class BranchAPITest(TestCase):
     def test_delete_branch_without_records(self):
         r = self.c.post("/api/branches/", {"name": "Del", "code": "DEL"})
         bid = r.data["id"]
-        r = self.c.delete(f"/api/branches/{bid}/")
+        r = self.c.delete(f"/api/branches/{bid}/", {"admin_password": "pass1234"}, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 0)
+
+    def test_delete_branch_requires_admin_password(self):
+        r = self.c.post("/api/branches/", {"name": "Del", "code": "DEL"})
+        bid = r.data["id"]
+        r = self.c.delete(f"/api/branches/{bid}/")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["detail"], "الرقم السري لمدير النظام مطلوب للتأكيد")
+        self.assertTrue(Branch.objects.filter(pk=bid).exists())
+
+    def test_delete_branch_rejects_wrong_admin_password(self):
+        r = self.c.post("/api/branches/", {"name": "Del", "code": "DEL"})
+        bid = r.data["id"]
+        r = self.c.delete(f"/api/branches/{bid}/", {"admin_password": "wrong-pass"}, format="json")
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.data["detail"], "الرقم السري لمدير النظام غير صحيح")
+        self.assertTrue(Branch.objects.filter(pk=bid).exists())
 
     def test_list_excludes_inactive_branches_by_default(self):
         self.c.post("/api/branches/", {"name": "A", "code": "A"})
@@ -96,7 +112,7 @@ class BranchAPITest(TestCase):
         r = self.c.post("/api/branches/", {"name": "Gone", "code": "G"})
         bid = r.data["id"]
         self.c.patch(f"/api/branches/{bid}/", {"is_active": False})
-        r = self.c.delete(f"/api/branches/{bid}/")
+        r = self.c.delete(f"/api/branches/{bid}/", {"admin_password": "pass1234"}, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertFalse(Branch.objects.filter(pk=bid).exists())
         r = self.c.get("/api/branches/?include_inactive=1")
