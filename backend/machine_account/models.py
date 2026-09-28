@@ -6,17 +6,32 @@ from core.models import TimeStampedModel
 
 
 class MachineCollection(TimeStampedModel):
-    """دفعة مستلمة من شركة الماكينة — «وصلني كذا».
+    """دفعة مستلمة من جهة تسوية — «وصلني كذا».
 
-    تُسجَّل كل دفعة تحويل/نقد تصل مقابل مبيعات البطاقة، ويُحسب الرصيد المتبقي
-    في حساب الماكينة = إجمالي مبيعات البطاقة − مجموع هذه الدفعات.
+    لكل قناة بيع بالأجل حساب يُقاس عليه: ``machine`` حساب شركة الماكينة
+    (مبيعات البطاقة)، و``bank`` حساب البنك (مبيعات التحويل). الرصيد المتبقي
+    في كل حساب = مبيعات تلك القناة − الدفعات المستلمة لها.
+
+    ``method`` يصف **كيف** وصلت الدفعة (نقداً/تحويلاً)، و``account`` يصف
+    **أي حساب** سدّدته — البُعدان مستقلان: دفعة بنكية قد تسدّد حساب الماكينة.
     """
+
+    class Account(models.TextChoices):
+        MACHINE = "machine", "حساب الماكينة"
+        BANK = "bank", "حساب البنك"
 
     class CollectionMethod(models.TextChoices):
         TRANSFER = "transfer", "تحويل بنكي"
         CASH = "cash", "نقدي"
         OTHER = "other", "أخرى"
 
+    account = models.CharField(
+        max_length=10,
+        choices=Account.choices,
+        default=Account.MACHINE,
+        verbose_name="الحساب",
+        help_text="الحساب الذي سدّدته هذه الدفعة",
+    )
     branch = models.ForeignKey(
         "branches.Branch",
         on_delete=models.SET_NULL,
@@ -50,10 +65,10 @@ class MachineCollection(TimeStampedModel):
     )
 
     class Meta:
-        verbose_name = "دفعة ماكينة بطاقة"
-        verbose_name_plural = "دفعات ماكينة البطاقة"
+        verbose_name = "دفعة تسوية"
+        verbose_name_plural = "دفعات التسويات"
         ordering = ["-date", "-id"]
-        indexes = [Index(fields=["branch", "date"])]
+        indexes = [Index(fields=["account", "branch", "date"])]
 
     def __str__(self):
-        return f"{self.date} — {self.amount}"
+        return f"{self.get_account_display()} — {self.date} — {self.amount}"

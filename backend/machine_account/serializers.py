@@ -10,13 +10,14 @@ from .models import MachineCollection
 class MachineCollectionSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True, default="")
     method_label = serializers.CharField(source="get_method_display", read_only=True)
+    account_label = serializers.CharField(source="get_account_display", read_only=True)
     amount = serializers.FloatField()
 
     class Meta:
         model = MachineCollection
         fields = [
-            "id", "branch", "branch_name", "date", "amount", "method", "method_label",
-            "reference", "notes", "created_at", "updated_at",
+            "id", "account", "account_label", "branch", "branch_name", "date", "amount",
+            "method", "method_label", "reference", "notes", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 

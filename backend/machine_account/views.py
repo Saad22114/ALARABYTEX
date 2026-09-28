@@ -15,19 +15,38 @@ from .serializers import MachineCollectionSerializer
 
 ZERO = Decimal("0")
 
+#: كل حساب تسوية وعمود المبيعات اليومية الذي يقابله.
+#:
+#: ``machine`` ← مبيعات البطاقة: شركة الماكينة تحوّلها لنا متأخرة.
+#: ``bank``    ← مبيعات التحويل: يذهبها الزبون إلى حسابنا البنكي.
+#:
+#: Cash يستلم فوراً فلا حساب له، و`other` غير متتبَّع هنا.
+ACCOUNTS = {
+    MachineCollection.Account.MACHINE: {
+        "label": MachineCollection.Account.MACHINE.label,
+        "sales_field": "card_amount",
+        "hint": "مبيعات البطاقة — تنتظر تحويل شركة الماكينة",
+    },
+    MachineCollection.Account.BANK: {
+        "label": MachineCollection.Account.BANK.label,
+        "sales_field": "transfer_amount",
+        "hint": "مبيعات التحويل — تصل إلى حسابنا البنكي",
+    },
+}
 
-def _card_sales_between(request, date_from, date_to, branch=None):
-    """مبيعات البطاقة (المبيعات اليومية للورديات المغلقة) في الفترة ضمن نطاق الفروع."""
+
+def _sales_between(request, date_from, date_to, sales_field, branch=None):
+    """مجموع عمود واحد من المبيعات اليومية للورديات المغلقة، ضمن نطاق الفروع."""
     qs = scope_queryset(
         request,
         DailySale.objects.filter(date__gte=date_from, date__lte=date_to),
     )
     if branch:
         qs = qs.filter(branch_id=branch)
-    return qs.aggregate(t=Sum("card_amount"))["t"] or ZERO
+    return qs.aggregate(t=Sum(sales_field))["t"] or ZERO
 
 
-def _received_between(request, date_from, date_to, branch=None):
+def _received_between(request, date_from, date_to, branch=None, account=None):
     qs = scope_queryset(
         request,
         MachineCollection.objects.filter(date__gte=date_from, date__lte=date_to),
@@ -35,7 +54,17 @@ def _received_between(request, date_from, date_to, branch=None):
     )
     if branch:
         qs = qs.filter(branch_id=branch)
+    if account:
+        qs = qs.filter(account=account)
     return qs.aggregate(t=Sum("amount"))["t"] or ZERO
+
+
+def _account_figures(request, start, end, branch, account):
+    """(مبيعات، مستلَم، رصيد) لحساب واحد في فترة."""
+    field = ACCOUNTS[account]["sales_field"]
+    sales = _sales_between(request, start, end, field, branch)
+    received = _received_between(request, start, end, branch, account)
+    return sales, received, sales - received
 
 
 def _month_range(year, month):
@@ -47,10 +76,20 @@ def _month_range(year, month):
     return start, end
 
 
-class MachineAccountView(APIView):
-    """حساب الماكينة: مبيعات البطاقة − الدفعات المستلمة = الرصيد المتبقي.
+def _shift_month(value, delta):
+    month = value.month - 1 + delta
+    year = value.year + month // 12
+    month = month % 12 + 1
+    return date(year, month, 1)
 
-    GET /api/machine-account/?date_from=..&date_to=..&branch=..
+
+class MachineAccountView(APIView):
+    """حسابات التسوية: مبيعات كل قناة − الدفعات المستلمة لها = الرصيد المتبقي.
+
+    قناتان تُتابَعان: حساب الماكينة (البطاقة) وحساب البنك (التحويل)،
+    مع إجمالي مجمّع يجمعهما.
+
+    GET /api/machine-account/?date_from=..&date_to=..&branch=..&account=..
     """
 
     permission_section = "machine_account"
@@ -60,6 +99,14 @@ class MachineAccountView(APIView):
         date_from = request.query_params.get("date_from")
         date_to = request.query_params.get("date_to")
         branch = request.query_params.get("branch")
+        # `account` اختياري: بلاه نعيد الحسابين، ومعاه نقصر على حساب واحد.
+        wanted = request.query_params.get("account") or ""
+        if wanted and wanted not in ACCOUNTS:
+            return Response(
+                {"detail": f"حساب غير معروف: {wanted}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        keys = [wanted] if wanted else list(ACCOUNTS)
 
         try:
             start = date.fromisoformat(date_from) if date_from else None
@@ -76,14 +123,28 @@ class MachineAccountView(APIView):
         if end < start:
             end = start
 
-        card_total = _card_sales_between(request, start, end, branch)
-        received_total = _received_between(request, start, end, branch)
-        balance = card_total - received_total
+        # الفترة المختارة
+        totals = {}
+        for key in keys:
+            sales, received, balance = _account_figures(request, start, end, branch, key)
+            totals[key] = {
+                "label": ACCOUNTS[key]["label"],
+                "hint": ACCOUNTS[key]["hint"],
+                "sales": float(sales),
+                "received": float(received),
+                "balance": float(balance),
+            }
 
         # الشهر الحالي
         m_start = today.replace(day=1)
-        month_card = _card_sales_between(request, m_start, today, branch)
-        month_received = _received_between(request, m_start, today, branch)
+        month = {}
+        for key in keys:
+            sales, received, balance = _account_figures(request, m_start, today, branch, key)
+            month[key] = {
+                "sales": float(sales),
+                "received": float(received),
+                "balance": float(balance),
+            }
 
         # الاتجاه الشهري: شهور الفترة (بحد أقصى 24 شهراً للعرض).
         months = []
@@ -93,14 +154,15 @@ class MachineAccountView(APIView):
             ms, me = _month_range(cursor.year, cursor.month)
             actual_start = max(ms, start)
             actual_end = min(me, end)
-            mc = _card_sales_between(request, actual_start, actual_end, branch)
-            mr = _received_between(request, actual_start, actual_end, branch)
-            months.append({
-                "month": f"{cursor.year:04d}-{cursor.month:02d}",
-                "card_sales": float(mc),
-                "received": float(mr),
-                "balance": float(mc - mr),
-            })
+            row = {"month": f"{cursor.year:04d}-{cursor.month:02d}", "accounts": {}}
+            for key in keys:
+                s, r, b = _account_figures(request, actual_start, actual_end, branch, key)
+                row["accounts"][key] = {
+                    "sales": float(s),
+                    "received": float(r),
+                    "balance": float(b),
+                }
+            months.append(row)
             cursor = _shift_month(cursor, 1)
             guard += 1
 
@@ -110,41 +172,36 @@ class MachineAccountView(APIView):
         )
         if branch:
             recent = recent.filter(branch_id=branch)
+        if wanted:
+            recent = recent.filter(account=wanted)
         recent = recent[:20]
+
+        # إجمالي مجمّع عبر كل الحسابات المعروضة
+        combined = {
+            "sales": sum(totals[k]["sales"] for k in keys),
+            "received": sum(totals[k]["received"] for k in keys),
+            "balance": sum(totals[k]["balance"] for k in keys),
+        }
 
         return Response({
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
-            "totals": {
-                "card_sales": float(card_total),
-                "received": float(received_total),
-                "balance": float(balance),
-            },
-            "month": {
-                "card_sales": float(month_card),
-                "received": float(month_received),
-                "balance": float(month_card - month_received),
-            },
+            "accounts": totals,
+            "combined": combined,
+            "month": month,
             "months": months,
             "recent_collections": MachineCollectionSerializer(recent, many=True).data,
         })
 
 
-def _shift_month(value, delta):
-    month = value.month - 1 + delta
-    year = value.year + month // 12
-    month = month % 12 + 1
-    return date(year, month, 1)
-
-
 class MachineCollectionViewSet(viewsets.ModelViewSet):
-    """دفعات الماكينة المستلمة — «وصلني كذا»."""
+    """دفعات التسويات المستلمة — «وصلني كذا»."""
 
     permission_section = "machine_account"
     queryset = MachineCollection.objects.select_related("branch").all()
     serializer_class = MachineCollectionSerializer
     search_fields = ["reference", "notes", "branch__name"]
-    ordering_fields = ["date", "amount", "created_at"]
+    ordering_fields = ["date", "amount", "created_at", "account"]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
@@ -153,12 +210,15 @@ class MachineCollectionViewSet(viewsets.ModelViewSet):
         branch = self.request.query_params.get("branch")
         date_from = self.request.query_params.get("date_from")
         date_to = self.request.query_params.get("date_to")
+        account = self.request.query_params.get("account")
         if branch:
             qs = qs.filter(branch_id=branch)
         if date_from:
             qs = qs.filter(date__gte=date_from)
         if date_to:
             qs = qs.filter(date__lte=date_to)
+        if account in dict(ACCOUNTS):
+            qs = qs.filter(account=account)
         return qs
 
     def perform_create(self, serializer):

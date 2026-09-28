@@ -8,6 +8,17 @@ export async function getMachineAccount(
   return apiRequest<MachineAccountResult>(`/machine-account/${q}`);
 }
 
+/** كل الدفعات، لا Paginated الأولى فقط — التصدير يحتاج سجلاً واحداً كاملاً. */
+export async function listAllCollections(
+  params?: Record<string, string | number | undefined | null>
+): Promise<MachineCollection[]> {
+  const q = buildQuery({ ...(params || {}), page_size: 100000 });
+  const res = await apiRequest<Paginated<MachineCollection>>(
+    `/machine-account/collections/${q}`
+  );
+  return res.results;
+}
+
 export async function listCollections(
   params?: Record<string, string | number | undefined | null>
 ): Promise<Paginated<MachineCollection>> {

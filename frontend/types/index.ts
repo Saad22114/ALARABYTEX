@@ -1762,8 +1762,15 @@ export interface MyPayrollResult {
 /* حساب الماكينة                                                      */
 /* ------------------------------------------------------------------ */
 
+/** قنوات التسوية المتتبَّعة: مبيعات البطاقة ومبيعات التحويل. */
+export type SettlementAccountKey = 'machine' | 'bank';
+
+export const SETTLEMENT_ACCOUNTS: SettlementAccountKey[] = ['machine', 'bank'];
+
 export interface MachineCollection {
   id: number;
+  account: SettlementAccountKey;
+  account_label: string;
   branch: number | null;
   branch_name: string;
   date: string;
@@ -1776,26 +1783,32 @@ export interface MachineCollection {
   updated_at: string;
 }
 
-export interface MachineAccountMonth {
-  month: string;
-  card_sales: number;
+/** أرقام حساب واحد في فترة: ما بيع، ما وصل، والفرق بينهما. */
+export interface SettlementFigures {
+  sales: number;
   received: number;
   balance: number;
+}
+
+/** حساب التسوية مع تسميته وشرح مصدر مبيعاته. */
+export interface SettlementAccount extends SettlementFigures {
+  label: string;
+  hint: string;
+}
+
+export interface MachineAccountMonth {
+  month: string;
+  /** مفاتيحُ الحسبين presente قد تكون ناقصة عند طلب حساب واحد فقط. */
+  accounts: Partial<Record<SettlementAccountKey, SettlementFigures>>;
 }
 
 export interface MachineAccountResult {
   start_date: string;
   end_date: string;
-  totals: {
-    card_sales: number;
-    received: number;
-    balance: number;
-  };
-  month: {
-    card_sales: number;
-    received: number;
-    balance: number;
-  };
+  /** مفاتيحُ الحسبين قد تكون ناقصة عند طلب حساب واحد عبر `?account=`. */
+  accounts: Partial<Record<SettlementAccountKey, SettlementAccount>>;
+  combined: SettlementFigures;
+  month: Partial<Record<SettlementAccountKey, SettlementFigures>>;
   months: MachineAccountMonth[];
   recent_collections: MachineCollection[];
 }

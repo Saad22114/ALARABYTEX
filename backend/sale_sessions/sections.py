@@ -60,7 +60,7 @@ SECTIONS = [
         {"key": "categories", "label": "تصنيفات المصاريف"},
         {"key": "budgets", "label": "الميزانيات"},
     ]},
-    {"key": "machine_account", "label": "حساب الماكينة", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
+    {"key": "machine_account", "label": "التسويات المالية", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
         {"key": "summary", "label": "الملخص والرصيد"},
         {"key": "collections", "label": "الدفعات المستلمة"},
     ]},
