@@ -16,7 +16,7 @@ import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import PermissionsModal from '@/components/employees/PermissionsModal';
-import { ShieldCheck, Plus, Pencil, Trash2, UserRoundPlus, Users, UserCheck, UserX, Shield, KeyRound, Wallet, CalendarDays } from 'lucide-react';
+import { ShieldCheck, Plus, Pencil, Trash2, UserRoundPlus, Users, UserCheck, UserX, Shield, KeyRound, Wallet, CalendarDays, Download } from 'lucide-react';
 import { Employee, EmployeeRole, SectionsInfo, EmployeePermissions } from '@/types';
 import {
   listEmployees,
@@ -29,6 +29,7 @@ import { getCommissionsReport } from '@/services/reports';
 import { getSectionsInfo } from '@/services/sections';
 import { listBranches } from '@/services/branches';
 import { formatCurrency } from '@/lib/format';
+import { downloadCsv, csvFilename } from '@/lib/csv';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
 
@@ -234,6 +235,26 @@ export default function EmployeesPage() {
     setModalOpen(true);
   };
 
+  /**
+   * يصدّر قائمة الموظفين المعروضة (كل ما حُمّل في `employees`).
+   *
+   * هذه الصفحة لا تُقسّم النتائج، فـ`employees` هي القائمة كاملة —
+   * بخلاف صفحة الزبائن المتقسّمة إلى صفحات.
+   */
+  const handleExport = () => {
+    downloadCsv(csvFilename('employees'), [
+      { header: 'الاسم', value: (e: Employee) => e.name },
+      { header: 'الهاتف', value: (e: Employee) => e.phone },
+      { header: 'الرقم الوظيفي', value: (e: Employee) => e.employee_code || '' },
+      { header: 'الفرع', value: (e: Employee) => e.branch_name || '' },
+      { header: 'الدور', value: (e: Employee) => e.role_label },
+      { header: 'الراتب الأساسي', value: (e: Employee) => e.base_salary ?? 0 },
+      { header: 'تاريخ التوظيف', value: (e: Employee) => e.hire_date || '' },
+      { header: 'الحالة', value: (e: Employee) => (e.is_active ? 'نشط' : 'معطل') },
+    ], employees);
+    toast('success', `تم تصدير ${employees.length} موظف`);
+  };
+
   const handleCloneChange = (id: number) => {
     const src = employees.find((e) => e.id === id);
     setForm((prev) => {
@@ -357,10 +378,16 @@ export default function EmployeesPage() {
             <h1 className="text-2xl font-bold">الموظفون</h1>
             <Badge variant="neutral">{stats.total} موظف</Badge>
           </div>
-          <Button onClick={() => openModal()}>
-            <UserRoundPlus size={18} />
-            إضافة موظف
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="subtle" onClick={handleExport}>
+              <Download size={18} />
+              تصدير CSV
+            </Button>
+            <Button onClick={() => openModal()}>
+              <UserRoundPlus size={18} />
+              إضافة موظف
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}

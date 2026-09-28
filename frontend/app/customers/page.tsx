@@ -16,12 +16,13 @@ import Badge from '@/components/ui/Badge';
 import Select from '@/components/ui/Select';
 import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
-import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle, Search as SearchIcon, Printer } from 'lucide-react';
+import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle, Search as SearchIcon, Printer, Download } from 'lucide-react';
 import { Customer, CustomersSummary, Paginated, Branch, CustomerSalesResult, SaleSession } from '@/types';
 import { listCustomers, createCustomer, updateCustomer, deleteCustomer, getCustomersSummary } from '@/services/customers';
 import { listBranches } from '@/services/branches';
 import { getCustomerSales, getSaleSession } from '@/services/sessions';
 import { formatDate, formatCurrency } from '@/lib/format';
+import { downloadCsv, csvFilename } from '@/lib/csv';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
@@ -155,6 +156,30 @@ export default function CustomersPage() {
     }
   };
 
+  /**
+   * يصدّر كل الزبائن لا الصفحة المعروضة فقط.
+   *
+   * الـ endpoint يقبل `page_size`، فنسأل عن العدد الكامل ونمرّر `res.results` —
+   * لو صدّرنا `data` الحالي لانتفقت الخطة مع ما يراه المستخدم على الشاشة.
+   */
+  const handleExport = async () => {
+    try {
+      const res = await listCustomers({ page_size: 100000 });
+      downloadCsv(csvFilename('customers'), [
+        { header: 'الاسم', value: (c: Customer) => c.name },
+        { header: 'الهاتف', value: (c: Customer) => c.phone },
+        { header: 'العنوان', value: (c: Customer) => c.address },
+        { header: 'الحالة', value: (c: Customer) => (c.is_active ? 'نشط' : 'معطل') },
+        { header: 'عدد المشتريات', value: (c: Customer) => c.purchase_count ?? 0 },
+        { header: 'إجمالي المشتريات', value: (c: Customer) => c.purchase_total ?? 0 },
+        { header: 'آخر شراء', value: (c: Customer) => c.last_purchase_date || '' },
+      ], res.results);
+      toast('success', `تم تصدير ${res.results.length} زبون`);
+    } catch (err: any) {
+      toast('error', err.message);
+    }
+  };
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -244,12 +269,18 @@ export default function CustomersPage() {
           )}
         </Card>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} />
-          <Button onClick={() => setModalOpen(true)}>
-            <Plus size={18} />
-            إضافة زبون
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="subtle" onClick={handleExport}>
+              <Download size={18} />
+              تصدير CSV
+            </Button>
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus size={18} />
+              إضافة زبون
+            </Button>
+          </div>
         </div>
 
         <Card>

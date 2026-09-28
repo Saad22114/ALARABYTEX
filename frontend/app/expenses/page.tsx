@@ -14,11 +14,12 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import ExpenseForm from '@/components/forms/ExpenseForm';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, Download } from 'lucide-react';
 import { Expense, Branch, ExpenseCategory, Paginated } from '@/types';
 import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { downloadCsv, csvFilename } from '@/lib/csv';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -146,14 +147,48 @@ export default function ExpensesPage() {
     }
   };
 
+  /**
+   * يصدّر المصاريف داخل الفترة والفرع الحاليين.
+   *
+   * نطلب `page_size` كبيراً بدل `data` المعروض، فالصفحة مقسّمة إلى صفحات
+   * والمستخدم يتوقع ملفاً بكل مصاريفه لا بما ظهر على الشاشة فقط.
+   */
+  const handleExport = async () => {
+    try {
+      const res = await listExpenses({
+        page_size: 100000,
+        branch: filterBranch || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      });
+      downloadCsv(csvFilename('expenses'), [
+        { header: 'التاريخ', value: (e: Expense) => e.date },
+        { header: 'الفرع', value: (e: Expense) => e.branch_name || '' },
+        { header: 'التصنيف', value: (e: Expense) => e.category_name || '' },
+        { header: 'البيان', value: (e: Expense) => e.description },
+        { header: 'المبلغ', value: (e: Expense) => e.amount },
+        { header: 'طريقة الدفع', value: (e: Expense) => PAYMENT_METHODS_MAP[e.payment_method] || e.payment_method },
+        { header: 'متكررة', value: (e: Expense) => (e.is_recurring ? 'نعم' : 'لا') },
+        { header: 'ملاحظات', value: (e: Expense) => e.notes || '' },
+      ], res.results);
+      toast('success', `تم تصدير ${res.results.length} مصروف`);
+    } catch (err: any) {
+      toast('error', err.message);
+    }
+  };
+
   return (
     <AppShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Button onClick={() => setModalOpen(true)}>
               <Plus size={18} />
               تسجيل مصروف
+            </Button>
+            <Button variant="subtle" onClick={handleExport}>
+              <Download size={18} />
+              تصدير CSV
             </Button>
             <Button variant="secondary" onClick={handleRunRecurring} loading={recurringLoading}>
               <RefreshCw size={18} />
