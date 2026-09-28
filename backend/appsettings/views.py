@@ -115,28 +115,40 @@ class AutoBackupView(APIView):
     permission_section = "settings"
 
     def get(self, request):
-        from .backup import list_backup_files
+        from .backup import BACKUP_KEEP, list_backup_files
 
         files = list_backup_files()
+        s = AppSettings.load()
         return Response(
             {
                 "files": files,
-                "last_auto_backup_at": AppSettings.load().last_auto_backup_at,
-                "last_auto_backup_path": AppSettings.load().last_auto_backup_path,
+                "keep": BACKUP_KEEP,
+                "kept": len(files),
+                "full": len(files) >= BACKUP_KEEP,
+                "last_auto_backup_at": s.last_auto_backup_at,
+                "last_auto_backup_path": s.last_auto_backup_path,
             }
         )
 
     def post(self, request):
         from django.utils import timezone
 
-        from .backup import write_backup_file
+        from .backup import BACKUP_KEEP, list_backup_files, write_backup_file
 
         s = AppSettings.load()
         rel = write_backup_file(s)
         s.last_auto_backup_at = timezone.now()
         s.last_auto_backup_path = rel
         s.save(update_fields=["last_auto_backup_at", "last_auto_backup_path", "updated_at"])
-        return Response({"detail": "تم إنشاء نسخة احتياطية الآن", "path": rel}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "detail": "تم إنشاء نسخة احتياطية الآن",
+                "path": rel,
+                "kept": len(list_backup_files()),
+                "keep": BACKUP_KEEP,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AutoBackupDownloadView(APIView):

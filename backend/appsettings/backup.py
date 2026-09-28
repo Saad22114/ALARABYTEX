@@ -1,4 +1,5 @@
 import base64
+import uuid
 from pathlib import Path
 
 from django.apps import apps
@@ -8,59 +9,157 @@ from django.db import transaction
 
 from core.request_state import suppress_audit
 
+#: عدد النسخ المحفوظة على القرص؛ ما قبلها يُحذف عند كل نسخة جديدة.
+#: يُضبط بمتغيّر البيئة BACKUP_KEEP دون حاجة لهجرة قاعدة بيانات.
+BACKUP_KEEP = getattr(settings, "BACKUP_KEEP", 20)
 
-def _model(app_label, name):
-    return apps.get_model(app_label, name)
+#: تطبيقات لا تُصدَّر. جداول إطار العمل تُبنى من الترحيلات وتُشتق من الكود،
+#: فنسخُها في ملف لا ينفع، ومسحُها عند الاستعادة يكسر الصلاحيات والجلسات.
+EXCLUDED_APPS = frozenset(
+    {"django", "contenttypes", "sessions", "admin", "authtoken", "rest_framework"}
+)
+
+#: جداول داخل تطبيقات مصدَّرة لكنها مشتقّة من الكود: ``auth.Permission`` مربوطة
+#: بـ``contenttypes.ContentType`` وتُعاد بناؤها من كل ترحيل، فنسخُها يجمّد
+#: الصلاحيات عند نسخة قديمة ثم يمنع إضافة صلاحية جديدة.
+EXCLUDED_MODELS = frozenset({"auth.Permission"})
+
+#: جداول لها منطق خاص: صفّ واحد يُستبدل بصفّ الإعدادات الحيّ، لا يُحذف ويُعاد.
+SPECIAL_TABLES = frozenset({"appsettings.AppSettings"})
 
 
-#: (app_label, model_name) — order follows dependency (parents before children)
-RESTORE_ORDER = [
-    ("auth", "User"),
-    ("branches", "Branch"),
-    ("suppliers", "Supplier"),
-    ("expenses", "ExpenseCategory"),
-    ("suppliers", "Fabric"),
-    ("warehouses", "Warehouse"),
-    ("warehouses", "DocumentSequence"),
-    ("sale_sessions", "Employee"),
-    ("customers", "Customer"),
-    ("suppliers", "LedgerEntry"),
-    ("suppliers", "PurchaseItem"),
-    ("warehouses", "FabricRoll"),
-    ("branches", "FabricBranchPrice"),
-    ("sales", "DailySale"),
-    ("sales", "DailySaleItem"),
-    ("expenses", "Expense"),
-    ("expenses", "ExpenseBudget"),
-    ("warehouses", "GoodsReceipt"),
-    ("warehouses", "GoodsReceiptItem"),
-    ("warehouses", "StockTransfer"),
-    ("warehouses", "StockTransferItem"),
-    ("warehouses", "StockAdjustment"),
-    ("warehouses", "StockAdjustmentItem"),
-    ("warehouses", "StockCount"),
-    ("warehouses", "StockCountItem"),
-    ("warehouses", "StockOpening"),
-    ("warehouses", "StockOpeningItem"),
-    ("warehouses", "StockMovement"),
-    ("partners", "Partner"),
-    ("partners", "PartnerOperation"),
-    ("partners", "PartnerMovement"),
-    ("sale_sessions", "SaleSession"),
-    ("sale_sessions", "SaleSessionItem"),
-    ("accounting", "Account"),
-    ("accounting", "JournalEntry"),
-    ("accounting", "JournalLine"),
-    ("accounting", "ClosedPeriod"),
-    ("messaging", "Message"),
-]
+def _model(label):
+    """النموذج من تسميته الكاملة ``app_label.ModelName``.
 
-#: self-referencing FKs that must be re-pointed after rows are created
-SELF_FIELDS = {
-    "accounting.Account": ["parent"],
-    "expenses.Expense": ["origin"],
-    "messaging.Message": ["reply_to"],
-}
+    لا نبني التسمية من ``app_label`` و``model_name``: الأخيرة صغيرة الحروف
+    بحكم Django، فتنتج مفاتيح ``branches.branch`` لا ``branches.Branch``،
+    فلا يطابقها الاستعادة ولا ملف قديم فيسقط الجدول كلّه.
+    """
+    return apps.get_model(label)
+
+
+def _is_exported(opts):
+    if opts.app_label in EXCLUDED_APPS:
+        return False
+    if opts.label in EXCLUDED_MODELS or opts.label in SPECIAL_TABLES:
+        return False
+    return not opts.proxy and opts.managed
+
+
+def _exported_labels():
+    """تسميات كل جداول المشروع التي تذهب في النسخة."""
+    return sorted(
+        m._meta.label for m in apps.get_models() if _is_exported(m._meta)
+    )
+
+
+def _self_fields(model):
+    """أسماء الحقول التي تشير إلى الجدول نفسه (مرجع ذاتي).
+
+    تُشتق من النموذج بدل قائمة مكتوبة يدوياً، فكل مرجع ذاتي جديد يُغطّى
+    تلقائياً عند الاستعادة ولا يُسقط.
+    """
+    return [
+        f.name
+        for f in model._meta.concrete_fields
+        if f.is_relation and not f.auto_created and f.related_model is model
+    ]
+
+
+def _dependency_labels(model):
+    """النماذج التي يجب إنشاؤها قبل هذا النموذج (FK عادية)."""
+    deps = set()
+    for f in model._meta.concrete_fields:
+        if not f.is_relation or f.auto_created:
+            continue
+        target = f.related_model
+        if target is None or target is model:
+            continue  # المرجع الذاتي يُرتَّب داخل الجدول لا بين الجداول
+        if _is_exported(target._meta):
+            deps.add(target._meta.label)
+    return deps
+
+
+def _m2m_through_labels(exported_labels):
+    """جداول الربط ``ManyToMany`` التي طرفاها مُصدَّران معاً.
+
+    تصدير طرفٍ دون الآخر يبقى صفوفاً تشير إلى غائب: لو صدّرنا
+    ``Group_permissions`` دون ``auth.Permission`` لأشارت الصفوف إلى
+    صلاحيات غير موجودة. أما الربط داخل النطاق المصدَّر — الربط بين
+    الموظفين والفروع، والمستخدمين والمجموعات — فيشمله الشرط.
+    """
+    out = []
+    for model in apps.get_models():
+        if not _is_exported(model._meta):
+            continue
+        for f in model._meta.many_to_many:
+            through = f.remote_field.through
+            if not through._meta.auto_created:
+                continue  # جدول ربط مُعرَّف يدوياً — يُصدَّر كنموذج إن كان مُداراً
+            if {f.model._meta.label, f.related_model._meta.label} <= exported_labels:
+                out.append(through._meta.label)
+    return sorted(set(out))
+
+
+def _topological_order(labels):
+    """ترتيب الجداول بحيث يسبق كلُّ أصلٍ كلَّ فرعٍ يعتمد عليه."""
+    remaining = list(labels)
+    deps = {label: _dependency_labels(_model(label)) for label in remaining}
+    ordered = []
+    placed = set()
+    while remaining:
+        ready = [label for label in remaining if deps[label] <= placed]
+        if not ready:
+            # دورة حقيقية في المخطّط: نضع البقية بترتيبها بدل الدوران بلا نهاية
+            ordered.extend(sorted(remaining))
+            break
+        for label in sorted(ready):
+            ordered.append(label)
+            placed.add(label)
+        remaining = [label for label in remaining if label not in placed]
+    return ordered
+
+
+def _model_labels():
+    """جداول النماذج وحدها، مرتّبة بحيث يسبق الأصلُ الفرعَ."""
+    return _topological_order(_exported_labels())
+
+
+def _through_labels():
+    """جداول الربط المستقلة (تُمسح قبل أصلها وتُعاد بعد إنشائه)."""
+    return _m2m_through_labels(set(_exported_labels()))
+
+
+def _order():
+    """ترتيب الاستعادة الكامل: النماذج ثم جداول الربط في النهاية.
+
+    يُشتق من مخطّط المفاتيح الأجنبية في كل استدعاء بدل قائمة مكتوبة يدوياً.
+    القائمة القديمة أسقطت 11 جدولاً بأكملها — منها كل جداول الرواتب ودفعات
+    التسويات — لأن أحداً لم يذكرها، فكانت تُمسح عند الاستعادة ولا تعود.
+    """
+    return _model_labels() + _through_labels()
+
+
+def self_fields_for(label):
+    """حقول المرجع الذاتي لنموذج معيّن."""
+    return _self_fields(_model(label))
+
+
+def _auto_stamp_fields(model):
+    """الحقول التي يفرض Django قيمتها عند الحفظ ولا يقبل المُرمِّز تمريرها.
+
+    ``auto_now_add`` / ``auto_now`` تتجاوز أي قيمة ترد من النموذج، فلا بدّ من
+    كتابة القيمة الأصلية بعد الحفظ عبر ``.update()`` الذي يتجاوز ``pre_save``.
+
+    تُشتق من النموذج لا من قائمة ``("created_at", "updated_at")``: الحقلان
+    ليسا الوحيدين — ``SaleSession.opened_at`` و``AuditLog.timestamp`` كذلك
+    أي حقل تلقائي خارجها كان يعيد تاريخ كل وردية وسجل تدقيق إلى لحظة الاستعادة.
+    """
+    return [
+        f.name
+        for f in model._meta.fields
+        if getattr(f, "auto_now_add", False) or getattr(f, "auto_now", False)
+    ]
 
 
 def _self_sorted(rows, self_fields):
@@ -85,9 +184,9 @@ def _self_sorted(rows, self_fields):
     return ordered
 
 
-def _dump_rows(app_label, name):
-    rows = list(_model(app_label, name).objects.all().values())
-    if app_label == "auth" and name == "User":
+def _dump_rows(label):
+    rows = list(_model(label).objects.all().values())
+    if label == "auth.User":
         # لا نصدّر هاش كلمات المرور أبداً: الحسابات المستعادة تُنشأ بدون كلمة
         # مرور (غير قابلة للدخول) فتُصفَّر من المدير بعد الاستعادة.
         for row in rows:
@@ -96,9 +195,9 @@ def _dump_rows(app_label, name):
 
 
 def export_backup(settings_obj):
-    data = {"version": 2, "tables": {}}
-    for app_label, name in RESTORE_ORDER:
-        data["tables"][f"{app_label}.{name}"] = _dump_rows(app_label, name)
+    data = {"version": 2, "tables": {}, "m2m": {}}
+    for label in _model_labels():
+        data["tables"][label] = _dump_rows(label)
     data["tables"]["appsettings.AppSettings"] = [
         {
             f: getattr(settings_obj, f)
@@ -107,10 +206,13 @@ def export_backup(settings_obj):
             if f != "backup_password"
         }
     ]
-    employee = _model("sale_sessions", "Employee")
-    data["m2m_employee_allowed_branches"] = list(
-        employee.allowed_branches.through.objects.values("id", "employee_id", "branch_id")
-    )
+    # جداول الربط في خانة مستقلّة: تُمسح وتُعاد بعد طرفَيها، لا مع الجداول
+    for label in _through_labels():
+        data["m2m"][label] = list(_model(label).objects.all().values())
+    # مفتاح قديم محفوظ لتوافق النسخ السابقة مع القارئات القديمة
+    legacy = data["m2m"].get("sale_sessions.Employee_allowed_branches")
+    if legacy is not None:
+        data["m2m_employee_allowed_branches"] = legacy
     logo_meta = None
     if settings_obj.logo:
         p = Path(settings.MEDIA_ROOT) / settings_obj.logo
@@ -181,9 +283,29 @@ def run_auto_backup_if_due(now=None):
         return rel
 
 
+def _unique_backup_path(backdir, stem):
+    """مسار نسخة باسم لا وجود له، فلا تبتلع نسخةٌ أختها في الثانية نفسها.
+
+    التسمية بدقة الثانية: نسختان في الثانية نفسها تأخذان الاسم نفسه، فتكتب
+    الثانية فوق الأولى وضيّعتها بصمت — وتكرارُ الضغط على «إنشاء نسخة الآن»
+    يجعل ذلك مألوفاً لا نادراً.
+    """
+    candidate = backdir / f"{stem}.json"
+    if not candidate.exists():
+        return candidate
+    for n in range(2, 1000):
+        candidate = backdir / f"{stem}-{n}.json"
+        if not candidate.exists():
+            return candidate
+    return backdir / f"{stem}-{uuid.uuid4().hex[:8]}.json"
+
+
 def write_backup_file(settings_obj, prefix="backup"):
     """Export all data to a timestamped file under MEDIA_ROOT/backups.
     Returns the relative path (e.g. backups/backup_20260922_101530.json).
+
+    يُقصى ما تجاوز ``BACKUP_KEEP`` نسخةً فوراً بعد الكتابة، فلا تتراكم
+    النسخ على القرص بلا سقف.
     """
     from datetime import datetime
 
@@ -193,10 +315,53 @@ def write_backup_file(settings_obj, prefix="backup"):
     rel_dir = Path("backups")
     backdir = Path(settings.MEDIA_ROOT) / rel_dir
     backdir.mkdir(parents=True, exist_ok=True)
-    filename = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    rel = (rel_dir / filename).as_posix()
-    (backdir / filename).write_bytes(content.encode("utf-8"))
-    return rel
+    stem = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    path = _unique_backup_path(backdir, stem)
+    path.write_bytes(content.encode("utf-8"))
+    _keep_last_n(keep_current=path)
+    return (rel_dir / path.name).as_posix()
+
+
+def _sorted_backup_paths():
+    """ملفات النسخ مرتّبة من الأحدث إلى الأقدم.
+
+    الترتيب بمعدّل التعديل لا بالاسم: ملفان بنفس الثانية (نسخة تلقائية
+    ونسخة يدوية) لا يصلح بينهما الحسم بالاسم، فيبقى أحدهما معرّضاً للحذف
+    لمجرّد اعتباط التسمية. ويُتخطّى الملف الذي يختفي بين ``glob`` و``stat``،
+    وإلا سقطت القائمة كلها بسبب ملف يحذفه المجدول في اللحظة نفسها.
+    """
+    paths = []
+    for p in _backup_dir().glob("*.json"):
+        try:
+            paths.append((p.stat().st_mtime, p.name, p))
+        except OSError:
+            continue
+    paths.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [item[2] for item in paths]
+
+
+def _keep_last_n(keep=BACKUP_KEEP, keep_current=None):
+    """يحتفظ بآخر ``keep`` نسخة ويحذف ما قبلها. يعيد أسماء ما حُذف.
+
+    ``keep_current`` اسم ملف يجب ألا يُحذف حتى لو كان خارج العشرين — نسخة
+    ``last_auto_backup_path`` تُكتب قبل القصّ، وقد يقع ترتيبها خارجه في
+    نظام ملفات تقريبي.
+    """
+    paths = _sorted_backup_paths()
+    protected = keep_current.name if keep_current is not None else None
+    removed = []
+    for index, path in enumerate(paths):
+        if index < keep:
+            continue
+        if protected is not None and path.name == protected:
+            continue
+        try:
+            path.unlink()
+            removed.append(path.name)
+        except OSError:
+            # نسخة مفتوحة على جهاز آخر أو مقفلة: نتخطاها ولا نُفشل العملية
+            continue
+    return removed
 
 
 def json_dumps(data):
@@ -218,17 +383,25 @@ def _backup_dir():
 
 
 def list_backup_files():
-    """Return metadata rows for stored backup files (newest first)."""
+    """Return metadata rows for stored backup files (newest first).
+
+    نفس ترتيب ``_sorted_backup_paths`` الذي يقصّ به النظام: فما تراه الواجهة
+    هو ما سيُحذف فعلاً، لا ترتيباً آخر بالاسم.
+    """
     from django.utils import timezone
 
     rows = []
-    for p in sorted(_backup_dir().glob("*.json"), reverse=True):
+    for p in _sorted_backup_paths():
+        try:
+            stat = p.stat()
+        except OSError:
+            continue
         rows.append(
             {
                 "name": p.name,
-                "size": p.stat().st_size,
+                "size": stat.st_size,
                 "modified": timezone.make_aware(
-                    timezone.datetime.fromtimestamp(p.stat().st_mtime)
+                    timezone.datetime.fromtimestamp(stat.st_mtime)
                 ).isoformat(),
             }
         )
@@ -254,10 +427,11 @@ def delete_backup_file(name):
     return True
 
 
-def _create_rows(app_label, name, rows):
+def _create_rows(label, rows):
     """Re-create rows with explicit PKs to preserve relationships."""
-    model = _model(app_label, name)
-    self_fields = SELF_FIELDS.get(f"{app_label}.{name}", [])
+    model = _model(label)
+    self_fields = self_fields_for(label)
+    stamp_fields = _auto_stamp_fields(model)
     ordered = _self_sorted(rows, self_fields)
     created = []
 
@@ -268,7 +442,7 @@ def _create_rows(app_label, name, rows):
             key = f + "_id"
             self_ids[f] = data.pop(key, None)
         auto_stamps = {}
-        for stamp in ("created_at", "updated_at"):
+        for stamp in stamp_fields:
             if stamp in data:
                 auto_stamps[stamp] = data.pop(stamp)
         obj = model(pk=row["id"], **data)
@@ -284,12 +458,22 @@ def _create_rows(app_label, name, rows):
 
 
 def _delete_all():
-    """Delete child-first, skipping auth.User (kept for login continuity)."""
-    for app_label, name in reversed(RESTORE_ORDER):
-        if app_label == "auth" and name == "User":
+    """مسح كل شيء عدا ``auth.User`` (يُبقي جلسة الدخول حيّة).
+
+    جداول الربط تُمسح **أولاً**: صفُّ ``Employee_allowed_branches`` يمنع حذف
+    الموظف الذي يشير إليه بـ``PROTECT``، وكان ``except: pass`` يبتلع الخطأ
+    فيبقى الموظف وتُحاول الاستعادة إنشاء نفس المعرّف فتفشل.
+    """
+    for label in _through_labels():
+        try:
+            _model(label).objects.all().delete()
+        except Exception:
+            pass
+    for label in reversed(_order()):
+        if label == "auth.User":
             continue
         try:
-            _model(app_label, name).objects.all().delete()
+            _model(label).objects.all().delete()
         except Exception:
             pass
 
@@ -333,16 +517,24 @@ def restore_backup(payload):
                 real.save()
 
             # 4) all other models in dependency order
-            for app_label, name in RESTORE_ORDER:
-                if (app_label, name) == ("auth", "User"):
+            for label in _model_labels():
+                if label == "auth.User":
                     continue
-                _create_rows(app_label, name, tables.get(f"{app_label}.{name}", []))
+                _create_rows(label, tables.get(label, []))
 
-            # 5) restore employee.branches M2M
-            through = _model("sale_sessions", "Employee").allowed_branches.through
-            through.objects.all().delete()
-            for row in payload.get("m2m_employee_allowed_branches", []):
-                through.objects.create(**row)
+            # 5) جداول الربط، بعد إنشاء طرفَيها. المفتاح القديم مقروء أيضاً
+            #    حتى تُستعاد نسخٌ أُنشئت قبل تعميم الصيغة.
+            m2m = dict(payload.get("m2m") or {})
+            legacy_rows = payload.get("m2m_employee_allowed_branches")
+            if legacy_rows is not None:
+                m2m.setdefault("sale_sessions.Employee_allowed_branches", legacy_rows)
+            for label in _through_labels():
+                through = _model(label)
+                rows = m2m.get(label, [])
+                through.objects.all().delete()
+                for row in rows:
+                    data = {k: v for k, v in row.items() if k != "id"}
+                    through.objects.create(**data)
 
             # 6) restore logo file
             logo_meta = payload.get("logo_file")

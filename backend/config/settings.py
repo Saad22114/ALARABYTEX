@@ -135,6 +135,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# عدد النسخ الاحتياطية المحفوظة على القرص؛ ما تجاوزه يُحذف عند كل نسخة جديدة.
+# كلّما زاد العدد زاد استهلاك القرص، والنسخة الواحدة تضمّ الموقع كلّه.
+BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "20"))
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS

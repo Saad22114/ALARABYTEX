@@ -286,8 +286,14 @@ export default function SettingsPage() {
   const handleRunAutoBackupNow = async () => {
     setRunningNow(true);
     try {
-      await runAutoBackup();
-      toast('success', 'تم إنشاء نسخة احتياطية الآن');
+      const res = await runAutoBackup();
+      // نبّه عند بلوغ السقف: النسخة التالية تحذف الأقدم بلا تراجع
+      toast(
+        'success',
+        res.kept >= res.keep
+          ? `تم إنشاء النسخة — ${res.kept}/${res.keep}، والنسخة القادمة تحذف الأقدم`
+          : 'تم إنشاء نسخة احتياطية الآن',
+      );
       fetchAutoBackups();
     } catch (err: any) {
       toast('error', err.message);
@@ -1044,49 +1050,63 @@ export default function SettingsPage() {
               </div>
 
               {autoBackupInfo?.files?.length ? (
-                <div className="mt-4 overflow-x-auto">
-                  <Table>
-                    <thead>
-                      <tr>
-                        <Th>الملف</Th>
-                        <Th>الحجم</Th>
-                        <Th>التاريخ</Th>
-                        <Th>تنزيل</Th>
-                        <Th>حذف</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {autoBackupInfo.files.slice(0, 10).map((f) => (
-                        <Tr key={f.name}>
-                          <Td>
-                            <span className="font-mono text-xs" dir="ltr">{f.name}</span>
-                          </Td>
-                          <Td>{(f.size / 1024).toFixed(1)} KB</Td>
-                          <Td>{new Date(f.modified).toLocaleString('ar')}</Td>
-                          <Td className="text-left">
-                            <button
-                              onClick={() => handleDownloadAuto(f.name)}
-                              disabled={downloadingAuto === f.name}
-                              className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-sm font-medium disabled:opacity-60"
-                            >
-                              <Download size={14} />
-                              {downloadingAuto === f.name ? 'يتم التحميل...' : 'تحميل'}
-                            </button>
-                          </Td>
-                          <Td className="text-left">
-                            <button
-                              onClick={() => setDeleteTarget(f.name)}
-                              disabled={deletingAuto === f.name}
-                              className="inline-flex items-center gap-1 text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-60"
-                            >
-                              <Trash2 size={14} />
-                              {deletingAuto === f.name ? 'يتم الحذف...' : 'حذف'}
-                            </button>
-                          </Td>
-                        </Tr>
-                      ))}
-                    </tbody>
-                  </Table>
+                <div className="mt-4">
+                  <p className="text-xs text-neutral-500 mb-2">
+                    المحفوظ على القرص:{' '}
+                    <span className="font-semibold text-neutral-700">
+                      {autoBackupInfo.kept} من {autoBackupInfo.keep}
+                    </span>
+                    {autoBackupInfo.full && (
+                      <span className="text-neutral-400">
+                        {' '}
+                        — بلغت الحدّ الأقصى، فالنسخة القادمة تحذف الأقدم.
+                      </span>
+                    )}
+                  </p>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <thead>
+                        <tr>
+                          <Th>الملف</Th>
+                          <Th>الحجم</Th>
+                          <Th>التاريخ</Th>
+                          <Th>تنزيل</Th>
+                          <Th>حذف</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {autoBackupInfo.files.map((f) => (
+                          <Tr key={f.name}>
+                            <Td>
+                              <span className="font-mono text-xs" dir="ltr">{f.name}</span>
+                            </Td>
+                            <Td>{(f.size / 1024).toFixed(1)} KB</Td>
+                            <Td>{new Date(f.modified).toLocaleString('ar')}</Td>
+                            <Td className="text-left">
+                              <button
+                                onClick={() => handleDownloadAuto(f.name)}
+                                disabled={downloadingAuto === f.name}
+                                className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 text-sm font-medium disabled:opacity-60"
+                              >
+                                <Download size={14} />
+                                {downloadingAuto === f.name ? 'يتم التحميل...' : 'تحميل'}
+                              </button>
+                            </Td>
+                            <Td className="text-left">
+                              <button
+                                onClick={() => setDeleteTarget(f.name)}
+                                disabled={deletingAuto === f.name}
+                                className="inline-flex items-center gap-1 text-red-500 hover:text-red-700 text-sm font-medium disabled:opacity-60"
+                              >
+                                <Trash2 size={14} />
+                                {deletingAuto === f.name ? 'يتم الحذف...' : 'حذف'}
+                              </button>
+                            </Td>
+                          </Tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs text-neutral-400 mt-3">لا توجد نسخ تلقائية بعد.</p>

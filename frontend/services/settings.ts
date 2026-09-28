@@ -58,6 +58,12 @@ export interface AutoBackupFile {
 
 export interface AutoBackupInfo {
   files: AutoBackupFile[];
+  /** السقف: كم نسخةً يحتفظ بها النظام قبل حذف الأقدم */
+  keep: number;
+  /** الموجود حالياً على القرص */
+  kept: number;
+  /** بلغ السقف، فالنسخة القادمة تحذف الأقدم */
+  full: boolean;
   last_auto_backup_at: string | null;
   last_auto_backup_path: string;
 }
@@ -66,8 +72,10 @@ export function getAutoBackups(): Promise<AutoBackupInfo> {
   return apiRequest<AutoBackupInfo>('/settings/auto-backup/');
 }
 
-export function runAutoBackup(): Promise<{ detail: string; path: string }> {
-  return apiRequest<{ detail: string; path: string }>('/settings/auto-backup/', { method: 'POST' });
+export function runAutoBackup(): Promise<{ detail: string; path: string; keep: number; kept: number }> {
+  return apiRequest<{ detail: string; path: string; keep: number; kept: number }>('/settings/auto-backup/', {
+    method: 'POST',
+  });
 }
 
 export function autoBackupDownloadUrl(name: string): string {
