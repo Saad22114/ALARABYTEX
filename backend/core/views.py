@@ -47,6 +47,7 @@ def employee_payload(emp):
         "hire_date": emp.hire_date,
         "base_salary": str(emp.base_salary),
         "theme": emp.theme or "",
+        "last_seen_at": emp.last_seen_at.isoformat() if emp.last_seen_at else None,
     }
 
 
@@ -100,6 +101,12 @@ class LoginView(APIView):
                 "sections": SECTIONS,
                 "roles": ROLE_PRESETS,
                 "last_login": last_login.timestamp.isoformat() if last_login else None,
+                # «آخر ظهور» قبل هذا الدخول. نقطة الدخول بلا مصادقة توكن،
+                # فلا يمرّ عبر PresenceTokenAuthentication ولم يُحدَّث الحقل بعد —
+                # فالقيمة هنا هي آخر نشاط سابق لا اللحظة الحالية.
+                "last_seen_at": (
+                    employee.last_seen_at.isoformat() if employee.last_seen_at else None
+                ),
             }
         )
 

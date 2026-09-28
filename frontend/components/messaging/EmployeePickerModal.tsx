@@ -17,6 +17,7 @@ interface Props {
 
 export default function EmployeePickerModal({ open, title, description, onClose, onSelect }: Props) {
   const [employees, setEmployees] = useState<MessagingContact[]>([]);
+  const [onlineCount, setOnlineCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState('');
 
@@ -25,7 +26,10 @@ export default function EmployeePickerModal({ open, title, description, onClose,
     setQ('');
     setLoading(true);
     getMessageContacts()
-      .then((res) => setEmployees(res.employees))
+      .then((res) => {
+        setEmployees(res.employees);
+        setOnlineCount(res.online_count ?? 0);
+      })
       .catch(() => setEmployees([]))
       .finally(() => setLoading(false));
   }, [open]);
@@ -42,6 +46,13 @@ export default function EmployeePickerModal({ open, title, description, onClose,
     <Modal open={open} onClose={onClose} title={title} maxWidth="max-w-lg">
       <div className="space-y-3">
         {description && <p className="text-sm text-neutral-500">{description}</p>}
+
+        {onlineCount > 0 && (
+          <p className="flex items-center gap-1.5 text-xs text-emerald-700">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden />
+            {onlineCount} من الزملاء متصلون الآن
+          </p>
+        )}
 
         <div className="relative">
           <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400" />

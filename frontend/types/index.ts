@@ -1190,6 +1190,7 @@ export interface SessionEmployee {
   commission_active: boolean;
   must_change_password: boolean;
   theme: string;
+  last_seen_at: string | null;
 }
 
 export interface AuthSession {
@@ -1198,6 +1199,7 @@ export interface AuthSession {
   sections: AppSection[];
   roles: Record<string, RolePreset>;
   last_login?: string | null;
+  last_seen_at?: string | null;
 }
 
 export type SessionSaleType = 'yard' | 'roll';
@@ -1494,6 +1496,7 @@ export interface ConversationsResult {
   me: { id: number; name: string; avatar: string; avatar_image: string; role_label: string };
   conversations: ChatContactSummary[];
   unread_total: number;
+  online_count: number;
 }
 
 export interface MessageThreadResult {
@@ -1523,6 +1526,7 @@ export interface MessagingContact {
 export interface MessageContactListResult {
   me: { id: number; name: string; avatar: string; avatar_image: string; role_label: string };
   employees: MessagingContact[];
+  online_count: number;
 }
 
 export interface MessageSearchMatch {

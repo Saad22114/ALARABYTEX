@@ -46,6 +46,20 @@ def _is_online(emp):
     return timezone.now() - emp.last_seen_at <= timezone.timedelta(minutes=ONLINE_MINUTES)
 
 
+def _online_qs(now=None):
+    """الموظفون المتصلون فعلاً — آخر ظهور داخل النافذة الزمنية.
+
+    الاستعلام على قاعدة البيانات لا في بايثون: `_is_online` يُستدعى لكل موظف
+    في القائمة، وحساب الفرق الزمني داخل بايثون يجبرنا على جلب كل الصفوف.
+    """
+    now = now or timezone.now()
+    return Employee.objects.filter(
+        is_active=True,
+        last_seen_at__isnull=False,
+        last_seen_at__gte=now - timezone.timedelta(minutes=ONLINE_MINUTES),
+    )
+
+
 class EmployeeContactListView(APIView):
     """كل الموظفين النشطين لبدء محادثة جديدة (بدون صلاحية الموظفين)."""
 
@@ -67,6 +81,7 @@ class EmployeeContactListView(APIView):
                 "role_label": me.get_role_display(),
             },
             "employees": [_employee_contact(e) for e in employees],
+            "online_count": _online_qs().exclude(pk=me.pk).count(),
         })
 
 
@@ -88,6 +103,9 @@ class ConversationListView(APIView):
             unread[msg.sender_id] += 1
 
         employees = Employee.objects.filter(is_active=True).exclude(pk=me.pk).order_by("name")
+        # العدد محسوب قبل فلترة البحث `q`: Presence يقيس من في النظام الآن،
+        # فلو حسبناه بعد الفلترة لكان صفراً كلما ضيّق المستخدم البحث.
+        online_count = _online_qs().exclude(pk=me.pk).count()
         q = (request.query_params.get("q") or "").strip()
         if q:
             employees = employees.filter(name__icontains=q)
@@ -122,6 +140,7 @@ class ConversationListView(APIView):
             },
             "conversations": contacts,
             "unread_total": sum(unread.values()),
+            "online_count": online_count,
         })
 
 

@@ -5,6 +5,13 @@ const TOKEN_KEY = 'qomash_token';
 const SESSION_KEY = 'qomash_session';
 export const LOGIN_PENDING_KEY = 'qomash_login_pending';
 export const MUST_CHANGE_KEY = 'qomash_must_change';
+/**
+ * «آخر ظهور» كما كان لحظة تسجيل الدخول (أي آخر نشاط *قبل* هذا الدخول).
+ *
+ * نخزّنه في sessionStorage لأن `/auth/me/` يُحدّث `last_seen_at` إلى اللحظة
+ * الحالية في كل طلب، فالقراءة منه لاحقاً تعطي دائماً «الآن».
+ */
+export const LAST_SEEN_KEY = 'qomash_last_seen';
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -45,6 +52,7 @@ export function clearAuthStorage(): void {
     localStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(MUST_CHANGE_KEY);
     sessionStorage.removeItem(LOGIN_PENDING_KEY);
+    sessionStorage.removeItem(LAST_SEEN_KEY);
   } catch {}
 }
 

@@ -8,7 +8,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useToast } from '@/components/ui/Toast';
 import { apiRequest } from '@/services/api';
 import { logoUrl } from '@/services/settings';
-import { LOGIN_PENDING_KEY } from '@/services/auth';
+import { LOGIN_PENDING_KEY, LAST_SEEN_KEY } from '@/services/auth';
 
 interface PublicSettings {
   business_name: string;
@@ -45,6 +45,7 @@ export default function LoginPage() {
       try {
         sessionStorage.setItem(LOGIN_PENDING_KEY, '1');
         sessionStorage.setItem('qomash_last_login', session.last_login || '');
+        sessionStorage.setItem(LAST_SEEN_KEY, session.last_seen_at || '');
       } catch {}
     } catch (err) {
       const message = err instanceof Error ? err.message : 'تعذر تسجيل الدخول';

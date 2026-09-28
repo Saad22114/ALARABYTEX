@@ -24,7 +24,7 @@ export default function WelcomeScreen({
   avatarImage,
   businessName,
   logo,
-  lastLogin,
+  lastSeen,
   onDone,
 }: {
   name: string;
@@ -32,7 +32,7 @@ export default function WelcomeScreen({
   avatarImage?: string | null;
   businessName: string;
   logo: string;
-  lastLogin?: string | null;
+  lastSeen?: string | null;
   onDone: () => void;
 }) {
   useEffect(() => {
@@ -63,22 +63,24 @@ export default function WelcomeScreen({
           <img
             src={avatarImage}
             alt=""
-            className="w-28 h-28 rounded-full object-cover ring-4 ring-white/20"
+            // `mx-auto` ضروري: عنصر inline داخل حاوية `text-center` في RTL
+            // يُحاذى لليمين لا للوسط، فبدونه ظهرت الصورة مائلة يميناً.
+            className="mx-auto block w-28 h-28 rounded-full object-cover ring-4 ring-white/20"
           />
         ) : avatar ? (
-          <div className="text-6xl leading-none" aria-hidden>
+          <div className="mx-auto w-fit text-6xl leading-none" aria-hidden>
             {avatar}
           </div>
         ) : null}
 
         <div className="mx-auto w-fit rounded-2xl bg-white/10 border border-white/10 backdrop-blur px-5 py-3">
-          {lastLogin ? (
+          {lastSeen ? (
             <p className="text-sm text-[#f3f1ec]">
-              آخر تسجيل دخول: <span className="font-semibold tabular-nums">{currentArabicTime(new Date(lastLogin))}</span>{' '}
-              — <span className="font-semibold">{formatArabicDate(new Date(lastLogin))}</span>
+              آخر ظهور: <span className="font-semibold tabular-nums">{currentArabicTime(new Date(lastSeen))}</span>{' '}
+              — <span className="font-semibold">{formatArabicDate(new Date(lastSeen))}</span>
             </p>
           ) : (
-            <p className="text-sm text-[#f3f1ec]">أهلاً بك في أول تسجيل دخول</p>
+            <p className="text-sm text-[#f3f1ec]">أهلاً بك في أول ظهور لك على النظام</p>
           )}
         </div>
       </div>

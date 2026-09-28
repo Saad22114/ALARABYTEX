@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import WelcomeScreen from '@/components/auth/WelcomeScreen';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { LAST_SEEN_KEY } from '@/services/auth';
 
 export default function WelcomePage() {
   const router = useRouter();
@@ -11,12 +12,15 @@ export default function WelcomePage() {
   const { settings } = useSettings();
   const me = session?.employee;
 
-  let lastLogin: string | null = session?.last_login ?? null;
-  if (!lastLogin && typeof window !== 'undefined') {
+  // نفضّل القيمة المخزّنة عند الدخول على `session.last_seen_at`:
+  // الأخيرة تتجدّد مع كل طلب `/auth/me/` فتعطي «الآن» بلا معنى.
+  let lastSeen: string | null = null;
+  if (typeof window !== 'undefined') {
     try {
-      lastLogin = sessionStorage.getItem('qomash_last_login') || null;
+      lastSeen = sessionStorage.getItem(LAST_SEEN_KEY) || null;
     } catch {}
   }
+  if (!lastSeen) lastSeen = session?.last_seen_at ?? null;
 
   if (!me) return null;
 
@@ -27,7 +31,7 @@ export default function WelcomePage() {
       avatarImage={me.avatar_image}
       businessName={settings?.business_name || ''}
       logo={settings?.logo || ''}
-      lastLogin={lastLogin}
+      lastSeen={lastSeen}
       onDone={() => router.replace('/')}
     />
   );

@@ -98,6 +98,9 @@ export default function MessagesPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
   const [newChatOpen, setNewChatOpen] = useState(false);
+  // كم زميلاً متصل الآن. الخادم يحسبه من «آخر ظهور» لكل موظف بغضّ النظر
+  // عن الصفحة المفتوحة، فالموظف الذي يبيع في صفحة المبيعات يظهر متصلاً.
+  const [onlineCount, setOnlineCount] = useState(0);
   const [forwardTarget, setForwardTarget] = useState<ChatMessage | null>(null);
   const [infoTarget, setInfoTarget] = useState<{ id: number; name: string; avatar?: string | null; avatar_image?: string | null } | null>(null);
   const [infoIsMe, setInfoIsMe] = useState(false);
@@ -122,6 +125,7 @@ export default function MessagesPage() {
         return new Date(b.last_at).getTime() - new Date(a.last_at).getTime();
       });
       setContacts(sorted);
+      setOnlineCount(res.online_count ?? 0);
       setPartnerOverride((prev) => (prev && sorted.some((c) => c.employee.id === prev.id) ? null : prev));
     } catch {}
   }, [me, contactSearch]);
@@ -324,6 +328,22 @@ export default function MessagesPage() {
           {totalUnread > 0 && (
             <Badge variant="danger">{totalUnread > 99 ? '+99' : totalUnread}</Badge>
           )}
+          {/* العدّاد معنى «حاضر في النظام» لا «يفتح صفحة التواصل»؛ لذا نوضّح
+              ذلك في التلميح حتى لا يتساءل المستخدم لماذا يظهر زميل يبيع. */}
+          <span
+            className="inline-flex items-center gap-1.5 shrink-0 cursor-help"
+            title="الزملاء الذين استخدموا النظام خلال آخر دقيقتين، أياً كانت الصفحة التي يعملون عليها"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-emerald-500' : 'bg-neutral-300'}`}
+              aria-hidden
+            />
+            <span
+              className={`text-xs font-medium tabular-nums ${onlineCount > 0 ? 'text-emerald-700' : 'text-neutral-400'}`}
+            >
+              {onlineCount} متصل
+            </span>
+          </span>
           <button
             onClick={() => setNewChatOpen(true)}
             title="رسالة جديدة"
