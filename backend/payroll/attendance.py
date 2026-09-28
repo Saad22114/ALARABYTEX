@@ -3,8 +3,8 @@
 الوردية هي المصدر الوحيد للحقيقة في هذا النظام، فدقّة أرقام الرواتب تتوقّف على
 مدى دقّة قراءتها. القواعد:
 
-- **يوم حضور**: كل يوم فيه وردية واحدة على الأقل خلال الشهر. أكثر من وردية في
-  اليوم نفسه لا تُحتسب أكثر من يوم حضور.
+- **يوم حضور**: كل يوم فيه وردية واحدة على الأقل خلال الشهر، مفتوحةً كانت أو
+  مغلقة. أكثر من وردية في اليوم نفسه لا تُحتسب أكثر من يوم حضور.
 - **غياب**: ``أيام العمل الشهرية − أيام الحضور``، ولا ينزل تحت الصفر أبداً.
 - **عمل إضافي**: لكل وردية *مغلقة*، ما زاد مدتها على ``ساعات العمل اليومية``
   في الهيكل. الوردية المفتوحة أو بلا وقت إغلاق لا تُحتسب — لا يمكن الجزم بمدتها،
@@ -115,9 +115,13 @@ def attendance_for(employees, start, end, terms_for):
         return {}
 
     by_employee = {employee_id: [] for employee_id in tracked_ids}
-    sessions = (
-        SaleSession.objects.filter(employee_id__in=tracked_ids, status=SaleSession.Status.CLOSED)
-        .only("employee_id", "opened_at", "closed_at", "session_date")
+    # نجلب الورديات المفتوحة والمغلقة معاً: يوم الحضور يُعدّ من «كل يوم فيه
+    # وردية واحدة على الأقل» دون شرط الإغلاق. كان الاستعلام يقتصر على
+    # المغلقة، فيُخصم من الموظف يومُه وهو في وردية مفتوحة الآن — عقوبة على
+    # الحضور لا على الغياب. الإغلاق شرطُ العمل الإضافي وحده، لأن مدّة
+    # الوردية المفتوحة غير معلومة.
+    sessions = SaleSession.objects.filter(employee_id__in=tracked_ids).only(
+        "employee_id", "opened_at", "closed_at", "session_date", "status"
     )
     for session in sessions:
         business = session_business_date(session)
@@ -133,6 +137,8 @@ def attendance_for(employees, start, end, terms_for):
         attended = _quantize_half_day(Decimal(len({session_business_date(s) for s in own})))
         overtime = ZERO
         for session in own:
+            if session.status != SaleSession.Status.CLOSED:
+                continue
             hours = session_hours(session)
             if daily_hours > 0 and hours > daily_hours:
                 overtime += hours - daily_hours

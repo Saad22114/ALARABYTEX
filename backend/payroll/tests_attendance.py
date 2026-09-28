@@ -21,6 +21,20 @@ from payroll.models import SalaryStructure
 from sale_sessions.models import Employee, SaleSession
 
 
+def _backdate(session, opened_at):
+    """يكتب ``opened_at`` على وردية بعد إنشائها.
+
+    ``SaleSession.opened_at`` حقل ``auto_now_add``، فأي قيمة نمرّرها في
+    ``create()`` يُتجاهلها Django وتُستبدل بلحظة «الآن» — وهذا ما كان يُفشل
+    اختبارات المدة: كل المدد كانت تُحسب صفراً. المشروع يتعامل مع ذلك بنفس
+    الطريقة في ``stamp_session_creation`` عبر ``update`` لتجاوز ``pre_save``.
+    """
+    SaleSession.objects.filter(pk=session.pk).update(opened_at=opened_at, created_at=opened_at)
+    session.opened_at = opened_at
+    session.created_at = opened_at
+    return session
+
+
 def _session(employee, day, branch, opened=time(9, 0), closed=None, status=SaleSession.Status.CLOSED):
     day_value = date(2026, 3, day)
     opened_at = timezone.make_aware(datetime.combine(day_value, opened))
@@ -29,14 +43,14 @@ def _session(employee, day, branch, opened=time(9, 0), closed=None, status=SaleS
         if closed is not None
         else None
     )
-    return SaleSession.objects.create(
+    session = SaleSession.objects.create(
         employee=employee,
         branch=branch,
         status=status,
-        opened_at=opened_at,
         closed_at=closed_at,
         session_date=day_value,
     )
+    return _backdate(session, opened_at)
 
 
 class SessionHoursTests(TestCase):
@@ -70,10 +84,10 @@ class SessionHoursTests(TestCase):
             employee=employee,
             branch=self.branch,
             status=SaleSession.Status.CLOSED,
-            opened_at=timezone.make_aware(datetime(2026, 3, 5, 20, 0)),
             closed_at=timezone.make_aware(datetime(2026, 3, 6, 4, 0)),
             session_date=date(2026, 3, 5),
         )
+        _backdate(session, timezone.make_aware(datetime(2026, 3, 5, 20, 0)))
         self.assertEqual(session_hours(session), Decimal("8.00"))
 
 
@@ -159,6 +173,27 @@ class AttendanceComputationTests(TestCase):
         self.assertEqual(summary.overtime_hours, Decimal("0.00"))
         self.assertEqual(summary.attended_days, Decimal("1.0"))
 
+    def test_open_session_counts_as_attendance_not_absence(self):
+        """الوردية المفتوحة دليل حضور، فلا يُخصم اليوم غياباً.
+
+        الموظف في وردية مفتوحة الآن يجب ألّا يُحتسب غائباً لمجرد أنه لم
+        يُغلقها بعد — وهذا ما كان يحدث حين كان الاستعلام يقتصر على
+        الورديات المغلقة.
+        """
+        _session(self.employee, 9, self.branch, opened=time(8, 0), status=SaleSession.Status.OPEN)
+        summary = self._summarize(working_days="26")
+        self.assertEqual(summary.absence_days, Decimal("25.0"))
+        self.assertEqual(summary.sessions_count, 1)
+
+    def test_open_and_closed_sessions_on_same_day_count_once(self):
+        _session(self.employee, 9, self.branch, opened=time(8, 0), status=SaleSession.Status.OPEN)
+        _session(self.employee, 9, self.branch, opened=time(16, 0), closed=time(20, 0))
+        summary = self._summarize()
+        self.assertEqual(summary.attended_days, Decimal("1.0"))
+        self.assertEqual(summary.sessions_count, 1)
+        # الإضافي من المغلقة وحدها: 4 ساعات أقل من 9 = لا إضافي
+        self.assertEqual(summary.overtime_hours, Decimal("0.00"))
+
     def test_sessions_outside_month_are_ignored(self):
         _session(self.employee, 1, self.branch, opened=time(8, 0), closed=time(20, 0))
         summary = attendance_for(
@@ -170,10 +205,11 @@ class AttendanceComputationTests(TestCase):
     def test_legacy_session_without_date_uses_opened_at(self):
         session = SaleSession.objects.create(
             employee=self.employee,
+            branch=self.branch,
             status=SaleSession.Status.CLOSED,
-            opened_at=timezone.make_aware(datetime(2026, 3, 11, 9, 0)),
             closed_at=timezone.make_aware(datetime(2026, 3, 11, 19, 0)),
         )
+        _backdate(session, timezone.make_aware(datetime(2026, 3, 11, 9, 0)))
         self.assertIsNone(session.session_date)
         summary = self._summarize()
         self.assertEqual(summary.attended_days, Decimal("1.0"))
