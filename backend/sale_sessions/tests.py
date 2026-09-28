@@ -1579,6 +1579,113 @@ class AvatarAndProfileAPITest(TestCase):
         self.assertEqual(emp["avatar"], "🐸")
 
 
+class AvatarImageUploadTest(TestCase):
+    """الصورة الشخصية — تُرفع من الجهاز كـ data URL عبر /api/account/avatar/."""
+
+    # PNG صالح 1×1 (أصغر صورة حقيقية يمكن إنشاؤها)
+    PNG_1PX = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+
+    def setUp(self):
+        self.c = APIClient()
+        self.user, self.emp = authenticate_admin(self.c)
+
+    def test_user_can_upload_own_avatar_image(self):
+        r = self.c.patch(
+            "/api/account/avatar/", {"avatar_image": self.PNG_1PX}, format="json"
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["employee"]["avatar_image"], self.PNG_1PX)
+        self.emp.refresh_from_db()
+        self.assertEqual(self.emp.avatar_image, self.PNG_1PX)
+
+    def test_avatar_image_keeps_emoji_avatar(self):
+        self.emp.avatar = "🦁"
+        self.emp.save(update_fields=["avatar"])
+        r = self.c.patch(
+            "/api/account/avatar/", {"avatar_image": self.PNG_1PX}, format="json"
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["employee"]["avatar"], "🦁")
+
+    def test_can_set_avatar_and_clear_image_together(self):
+        Employee.objects.filter(pk=self.emp.pk).update(avatar_image=self.PNG_1PX)
+        r = self.c.patch(
+            "/api/account/avatar/",
+            {"avatar": "🐼", "clear_avatar_image": True},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["employee"]["avatar"], "🐼")
+        self.assertEqual(r.data["employee"]["avatar_image"], "")
+
+    def test_can_remove_avatar_image(self):
+        Employee.objects.filter(pk=self.emp.pk).update(avatar_image=self.PNG_1PX)
+        r = self.c.patch(
+            "/api/account/avatar/", {"clear_avatar_image": True}, format="json"
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["employee"]["avatar_image"], "")
+
+    def test_rejects_non_image_data_url(self):
+        r = self.c.patch(
+            "/api/account/avatar/",
+            {"avatar_image": "data:text/html;base64,PHNjcmlwdD4="},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_rejects_magic_mismatch(self):
+        # نوع معلن image/png لكن المحتوى HTML
+        payload = "data:image/png;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="
+        r = self.c.patch("/api/account/avatar/", {"avatar_image": payload}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_rejects_corrupt_base64(self):
+        r = self.c.patch(
+            "/api/account/avatar/",
+            {"avatar_image": "data:image/png;base64,!!!not-base64!!!"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_rejects_oversized_image(self):
+        from sale_sessions.avatars import MAX_AVATAR_IMAGE_CHARS
+        payload = "data:image/png;base64," + "A" * (MAX_AVATAR_IMAGE_CHARS + 10)
+        r = self.c.patch("/api/account/avatar/", {"avatar_image": payload}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_rejects_empty_payload(self):
+        r = self.c.patch("/api/account/avatar/", {}, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_cannot_write_arbitrary_emoji_even_with_image_key(self):
+        r = self.c.patch(
+            "/api/account/avatar/",
+            {"avatar": "😀", "avatar_image": self.PNG_1PX},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.data)
+
+    def test_avatar_image_is_read_only_for_admins(self):
+        r = self.c.post(
+            "/api/employees/",
+            {"name": "سارة", "avatar_image": self.PNG_1PX},
+            format="json",
+        )
+        self.assertIn(r.status_code, (201, 400))
+
+    def test_avatar_image_exposed_in_profile_and_contacts(self):
+        self.emp.avatar_image = self.PNG_1PX
+        self.emp.save(update_fields=["avatar_image"])
+        r = self.c.get(f"/api/account/profile/?employee_id={self.emp.id}")
+        self.assertEqual(r.data["avatar_image"], self.PNG_1PX)
+        r = self.c.get("/api/messaging/contacts/")
+        self.assertEqual(r.data["me"]["avatar_image"], self.PNG_1PX)
+
+
 class ReturnAndRollOverrideTest(TestCase):
     def setUp(self):
         self.c = APIClient()
@@ -1883,3 +1990,204 @@ class CardMachineFeeTest(TestCase):
         self.assertEqual(r.status_code, 201, r.data)
         self.assertEqual(Decimal(str(r.data["card_fee_amount"])), Decimal("0.00"))
         self.assertEqual(Decimal(str(r.data["net_total"])), Decimal("100.00"))
+
+
+class SaleGroupNumberingTest(TestCase):
+    """ترقيم البيّعات داخل الوردية: الأقدم = 1، والحذف لا يعيد الترقيم."""
+
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(name="علي", branch=self.branch)
+        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        self.roll = FabricRoll.objects.create(
+            warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500
+        )
+
+    def _open(self, emp=None):
+        r = self.c.post("/api/sale-sessions/", {"employee": (emp or self.emp).id}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        return r.data["id"]
+
+    def _add(self, sid, quantity=10):
+        r = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": quantity,
+             "payment_method": "cash"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        return r.data
+
+    def _bulk(self, sid, count):
+        items = [
+            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 3, "payment_method": "cash"}
+            for _ in range(count)
+        ]
+        r = self.c.post(f"/api/sale-sessions/{sid}/items/bulk/", {"items": items}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        return r.data
+
+    def _numbers(self, sid):
+        """أرقام البيّعات مرتبة تصاعدياً كما تُعرض للمستخدم."""
+        return sorted(
+            SaleSessionItem.objects.filter(session_id=sid)
+            .values_list("group_no", flat=True)
+        )
+
+    def test_sales_number_from_one_oldest_first(self):
+        sid = self._open()
+        first = self._add(sid)
+        second = self._add(sid)
+        third = self._add(sid)
+        self.assertEqual(first["group_no"], 1)
+        self.assertEqual(second["group_no"], 2)
+        self.assertEqual(third["group_no"], 3)
+        self.assertEqual(self._numbers(sid), [1, 2, 3])
+
+    def test_bulk_batch_shares_one_number(self):
+        sid = self._open()
+        rows = self._bulk(sid, 3)
+        # بنود الدفعة الواحدة = بيعة واحدة، فكلها تشارك رقماً واحداً
+        self.assertEqual({row["group_no"] for row in rows}, {1})
+        other = self._bulk(sid, 1)
+        self.assertEqual(other[0]["group_no"], 2)
+
+    def test_delete_middle_sale_leaves_gap_without_renumbering(self):
+        sid = self._open()
+        self._add(sid)
+        middle = self._add(sid)
+        self._add(sid)
+        r = self.c.delete(f"/api/sale-sessions/{sid}/items/{middle['id']}/")
+        self.assertEqual(r.status_code, 200, r.data)
+        # الباقية لا تُعاد ترقيمها: بيعة 1 وبيعة 3
+        self.assertEqual(self._numbers(sid), [1, 3])
+        # والبيعة الجديدة تأخذ الرقم التالي لا الرقم المحرَّر
+        self.assertEqual(self._add(sid)["group_no"], 4)
+
+    def test_delete_newest_sale_does_not_reuse_its_number(self):
+        """حذف آخر بيعة لا يُرجع رقمها للبيعات التالية."""
+        sid = self._open()
+        self._add(sid)
+        newest = self._add(sid)
+        r = self.c.delete(f"/api/sale-sessions/{sid}/items/{newest['id']}/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(self._numbers(sid), [1])
+        self.assertEqual(self._add(sid)["group_no"], 3)
+
+    def test_sessions_number_independently(self):
+        first = self._open()
+        second = self._open(Employee.objects.create(name="محمود", branch=self.branch))
+        self._add(first)
+        self._add(first)
+        # كل وردية ترقّ نفسها من 1
+        self.assertEqual(self._add(second)["group_no"], 1)
+        self.assertEqual(self._numbers(first), [1, 2])
+        self.assertEqual(self._numbers(second), [1])
+
+    def test_editing_item_keeps_its_number(self):
+        sid = self._open()
+        self._add(sid)
+        item = self._add(sid)
+        r = self.c.patch(
+            f"/api/sale-sessions/{sid}/items/{item['id']}/", {"quantity": 25}, format="json"
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["group_no"], 2)
+
+    def test_moved_item_gets_number_in_target_session(self):
+        source = self._open()
+        target = self._open(Employee.objects.create(name="محمود", branch=self.branch))
+        self._add(target)
+        self._add(source)
+        moving = self._add(source)
+        r = self.c.post(
+            f"/api/sale-sessions/{source}/move-item/{moving['id']}/",
+            {"target_session": target},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        # رقم 2 محجوز في الوردية المصدر، فلا يتكرر داخل الهدف
+        self.assertEqual(self._numbers(target), [1, 2])
+        self.assertEqual(self._numbers(source), [1])
+
+    def test_client_cannot_set_group_no(self):
+        sid = self._open()
+        self._add(sid)
+        r = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
+             "payment_method": "cash", "group_no": 99, "sale_group": "hijacked"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        # لا يُقبل من العميل: الرقم يُدار من الخادم ويستمر من العدّاد
+        self.assertEqual(r.data["group_no"], 2)
+        self.assertNotEqual(r.data["sale_group"], "hijacked")
+
+    def test_session_payload_newest_first_but_oldest_numbered_one(self):
+        """شارة «بيعة N» تقرأ من حمولة الوردية: الأحدث في الأعلى ورقمه الأكبر."""
+        sid = self._open()
+        self._add(sid)
+        self._add(sid)
+        self._add(sid)
+        r = self.c.get(f"/api/sale-sessions/{sid}/")
+        self.assertEqual(r.status_code, 200, r.data)
+        # البنود مرتّبة من الأحدث إلى الأقدم، والأقدم يحمل الرقم 1
+        self.assertEqual([it["group_no"] for it in r.data["items"]], [3, 2, 1])
+
+    def test_reopen_keeps_existing_numbers(self):
+        sid = self._open()
+        self._add(sid)
+        self._add(sid)
+        self.c.post(f"/api/sale-sessions/{sid}/close/")
+        r = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        self.assertEqual(r.data["id"], sid)
+        self.assertEqual(self._numbers(sid), [1, 2])
+        self.assertEqual(self._add(sid)["group_no"], 3)
+
+    def test_backfill_numbers_existing_rows_oldest_first(self):
+        """ترحيل البيانات المرقّمة: الأقدم = 1 وكل بنود البيعة تأخذ رقمها."""
+        import importlib
+
+        from django.apps import apps as django_apps
+        from django.db import connection
+
+        migration = importlib.import_module(
+            "sale_sessions.migrations.0028_salesessionitem_group_no"
+        )
+
+        class _SchemaEditor:
+            pass
+
+        editor = _SchemaEditor()
+        editor.connection = connection
+
+        first = self._open()
+        second = self._open(Employee.objects.create(name="محمود", branch=self.branch))
+        # بيعة 1 من بندين، بيعة 2 مفردة، بيعة 3 مفردة
+        self._bulk(first, 2)
+        self._add(first)
+        self._add(first)
+        self._add(second)
+        # محاكاة بيانات قبل إضافة عمود الترقيم
+        SaleSessionItem.objects.update(group_no=None)
+
+        migration.backfill_group_no(django_apps, editor)
+        migration.set_session_counters(django_apps, editor)
+
+        rows = list(
+            SaleSessionItem.objects.filter(session_id=first)
+            .order_by("id")
+            .values_list("id", "group_no")
+        )
+        self.assertEqual([no for _, no in rows], [1, 1, 2, 3])
+        # العدّاد صار 4 (بعد أكبر رقم) لا 1 الافتراضي، فلا تُعاد أرقام
+        # بيعات محذوفة لاحقاً
+        self.assertEqual(SaleSession.objects.get(pk=first).next_group_no, 4)
+        self.assertEqual(self._add(first)["group_no"], 4)
+        self.assertEqual(self._numbers(second), [1])
+        # لا يبقى أي بند بلا رقم
+        self.assertFalse(SaleSessionItem.objects.filter(group_no=None).exists())

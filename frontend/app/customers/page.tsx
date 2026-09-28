@@ -16,14 +16,16 @@ import Badge from '@/components/ui/Badge';
 import Select from '@/components/ui/Select';
 import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
-import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle } from 'lucide-react';
-import { Customer, CustomersSummary, Paginated, Branch } from '@/types';
+import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle, Search as SearchIcon, Printer } from 'lucide-react';
+import { Customer, CustomersSummary, Paginated, Branch, CustomerSalesResult, SaleSession } from '@/types';
 import { listCustomers, createCustomer, updateCustomer, deleteCustomer, getCustomersSummary } from '@/services/customers';
 import { listBranches } from '@/services/branches';
+import { getCustomerSales, getSaleSession } from '@/services/sessions';
 import { formatDate, formatCurrency } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
+import SessionCustomerInvoiceModal from '@/components/sessions/SessionCustomerInvoiceModal';
 
 export default function CustomersPage() {
   const { toast } = useToast();
@@ -43,6 +45,12 @@ export default function CustomersPage() {
   const [deleting, setDeleting] = useState<Customer | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [phoneSearch, setPhoneSearch] = useState('');
+  const [phoneLoading, setPhoneLoading] = useState(false);
+  const [customerSales, setCustomerSales] = useState<CustomerSalesResult | null>(null);
+  const [invoiceSession, setInvoiceSession] = useState<SaleSession | null>(null);
+  const [invoiceItemIds, setInvoiceItemIds] = useState<number[]>([]);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
 
   const fetchData = useCallback(() => {
     let cancelled = false;
@@ -121,6 +129,32 @@ export default function CustomersPage() {
     }
   };
 
+  const handlePhoneSearch = async () => {
+    const phone = phoneSearch.trim();
+    if (!phone) return;
+    setPhoneLoading(true);
+    setCustomerSales(null);
+    try {
+      const res = await getCustomerSales(phone);
+      setCustomerSales(res);
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const handleInvoice = async (sessionId: number, itemIds: number[]) => {
+    try {
+      const session = await getSaleSession(sessionId);
+      setInvoiceSession(session);
+      setInvoiceItemIds(itemIds);
+      setInvoiceOpen(true);
+    } catch (err: any) {
+      toast('error', err.message);
+    }
+  };
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -146,6 +180,69 @@ export default function CustomersPage() {
             <StatCard icon={<Phone size={22} />} iconBg="bg-indigo-50 text-indigo-600" label="لديهم رقم هاتف" value={summary.with_phone_count} />
           </div>
         )}
+
+        <Card title="بحث الزبون بالهاتف" subtitle="ابحث برقم الهاتف لعرض كل مبيعاته وإمكانية عمل فاتورة">
+          <div className="flex gap-2 flex-wrap items-end">
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-sm font-medium text-neutral-700 mb-1">رقم الهاتف</label>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={phoneSearch}
+                  onChange={(e) => setPhoneSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handlePhoneSearch()}
+                  placeholder="أدخل رقم الهاتف"
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+                <Button onClick={handlePhoneSearch} loading={phoneLoading} disabled={!phoneSearch.trim()}>
+                  <SearchIcon size={16} />
+                  بحث
+                </Button>
+              </div>
+            </div>
+          </div>
+          {customerSales && (
+            <div className="mt-4 space-y-4">
+              <div className="flex flex-wrap gap-4 text-sm">
+                <span>الهاتف: <b>{customerSales.phone}</b></span>
+                <span>العدد: <b>{customerSales.totals.count}</b> بيعة</span>
+                <span>المبلغ: <b>{formatCurrency(customerSales.totals.total)}</b></span>
+                <span>الياردات: <b>{customerSales.totals.yards}</b></span>
+              </div>
+              {(() => {
+                const sessions = new Map<number, typeof customerSales.items>();
+                for (const item of customerSales.items) {
+                  const list = sessions.get(item.session_id);
+                  if (list) list.push(item); else sessions.set(item.session_id, [item]);
+                }
+                return Array.from(sessions.entries()).map(([sid, items]) => {
+                  const first = items[0];
+                  const openItems = items.filter((i) => !i.is_returned);
+                  return (
+                    <div key={sid} className="border rounded-lg p-3 bg-surface">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm mb-2">
+                        <span>
+                          الوردية #{sid} — <b>{first.session_status_label}</b>
+                        </span>
+                        <Button size="sm" variant="subtle" onClick={() => handleInvoice(sid, items.map((i) => i.id))}>
+                          <Printer size={14} /> فاتورة
+                        </Button>
+                      </div>
+                      <div className="text-xs text-neutral-500 space-y-1">
+                        {openItems.slice(0, 5).map((i) => (
+                          <div key={i.id}>
+                            {i.fabric_name} — {i.yards_effective ?? i.quantity} يارد — {formatCurrency(i.total)}
+                          </div>
+                        ))}
+                        {openItems.length > 5 && <div>...و{openItems.length - 5} بنود أخرى</div>}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+        </Card>
 
         <div className="flex items-center justify-between">
           <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} />
@@ -250,6 +347,13 @@ export default function CustomersPage() {
           onConfirm={handleDelete}
           loading={deleteLoading}
           message={`هل أنت متأكد من حذف الزبون "${deleting?.name}"؟ لا يمكن التراجع عن هذا الإجراء.`}
+        />
+        <SessionCustomerInvoiceModal
+          open={invoiceOpen}
+          onClose={() => setInvoiceOpen(false)}
+          session={invoiceSession}
+          itemIds={invoiceItemIds}
+          settings={settings}
         />
       </div>
     </AppShell>

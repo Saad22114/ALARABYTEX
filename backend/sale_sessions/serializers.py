@@ -20,6 +20,7 @@ from .services import (
     create_manual_session,
     deduct_item_stock,
     elapsed_reference,
+    next_sale_group_no,
     reopen_session,
     session_sale_date,
     stamp_session_creation,
@@ -50,11 +51,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
     allowed_branches_names = serializers.SerializerMethodField()
     username = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    # الصورة الشخصية تُدار من حساب صاحبها فقط عبر /api/account/avatar/
+    avatar_image = serializers.CharField(read_only=True)
 
     class Meta:
         model = Employee
         fields = [
-            "id", "name", "avatar", "phone", "branch", "branch_name",
+            "id", "name", "avatar", "avatar_image", "phone", "branch", "branch_name",
             "allowed_branches", "allowed_branches_names",
             "notes", "is_active", "role", "role_label",
             "permissions", "hidden_sections",
@@ -62,7 +65,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "department", "position", "email", "employee_code",
             "multi_branch_access", "must_change_password",
             "birth_date", "civil_id", "address", "hire_date", "base_salary",
-            "username", "password",
+            "username", "password", "theme",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -213,7 +216,7 @@ class SaleSessionItemSerializer(serializers.ModelSerializer):
             "quantity", "unit_price", "discount_amount", "payment_method", "payment_method_label",
             "card_type", "card_type_label", "card_fee_amount", "net_total",
             "total", "sale_date", "yards_effective",
-            "customer_name", "customer_phone", "sale_group",
+            "customer_name", "customer_phone", "sale_group", "group_no",
             "is_returned", "returned_at", "return_reason",
         ]
 
@@ -671,8 +674,13 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        validated_data["session"] = self.context["session"]
-        validated_data["sale_group"] = self.context.get("sale_group") or str(uuid.uuid4())
+        session = self.context["session"]
+        sale_group = self.context.get("sale_group") or str(uuid.uuid4())
+        validated_data["session"] = session
+        validated_data["sale_group"] = sale_group
+        # بنود الدفعة الواحدة تشترك في sale_group، فتأخذ كلها رقما واحدا
+        # يُحسب مرة واحدة ثم يُعاد استخدامه لبقية بنود الدفعة.
+        validated_data["group_no"] = next_sale_group_no(session, sale_group)
         item = SaleSessionItem.objects.create(**validated_data)
         deduct_item_stock(item)
         return item

@@ -86,6 +86,9 @@ class Employee(TimeStampedModel, ActiveModel):
     )
     multi_branch_access = models.BooleanField(default=False, verbose_name="دخول متعدد الفروع")
     must_change_password = models.BooleanField(default=False, verbose_name="تغيير كلمة المرور عند أول دخول")
+    theme = models.CharField(
+        max_length=20, blank=True, default="", verbose_name="الثيم المفضل"
+    )
 
     class Meta:
         verbose_name = "موظف"
@@ -164,6 +167,11 @@ class SaleSession(TimeStampedModel):
         max_digits=15, decimal_places=2, default=Decimal("0"), verbose_name="الماكينة (يدوي)"
     )
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
+    next_group_no = models.PositiveIntegerField(
+        default=1,
+        verbose_name="رقم البيعة التالي",
+        help_text="عدّاد ترقيم البيّعات داخل الوردية؛ يزيد فقط فلا تُعاد أرقام بيعات محذوفة",
+    )
 
     class Meta:
         verbose_name = "وردية بيع"
@@ -238,6 +246,12 @@ class SaleSessionItem(TimeStampedModel):
     customer_name = models.CharField(max_length=150, blank=True, verbose_name="اسم الزبون")
     customer_phone = models.CharField(max_length=30, blank=True, verbose_name="رقم هاتف الزبون")
     sale_group = models.CharField(max_length=36, blank=True, verbose_name="معرّف البيعة")
+    group_no = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="رقم البيعة",
+        help_text="ترتيب البيعة داخل الوردية (الأقدم = 1). يُثبَّت عند الحفظ فلا يعيد الحذف ترقيم ما بعده",
+    )
     is_returned = models.BooleanField(default=False, verbose_name="مسترجع")
     returned_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الاسترجاع")
     return_reason = models.CharField(max_length=255, blank=True, verbose_name="سبب الاسترجاع")

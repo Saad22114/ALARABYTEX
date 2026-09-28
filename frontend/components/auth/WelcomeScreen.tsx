@@ -21,6 +21,7 @@ function currentArabicTime(date: Date): string {
 export default function WelcomeScreen({
   name,
   avatar,
+  avatarImage,
   businessName,
   logo,
   lastLogin,
@@ -28,6 +29,7 @@ export default function WelcomeScreen({
 }: {
   name: string;
   avatar: string;
+  avatarImage?: string | null;
   businessName: string;
   logo: string;
   lastLogin?: string | null;
@@ -56,11 +58,18 @@ export default function WelcomeScreen({
           <h1 className="text-3xl font-bold text-white">{greeting}، {name}</h1>
         </div>
 
-        {avatar && (
+        {avatarImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarImage}
+            alt=""
+            className="w-28 h-28 rounded-full object-cover ring-4 ring-white/20"
+          />
+        ) : avatar ? (
           <div className="text-6xl leading-none" aria-hidden>
             {avatar}
           </div>
-        )}
+        ) : null}
 
         <div className="mx-auto w-fit rounded-2xl bg-white/10 border border-white/10 backdrop-blur px-5 py-3">
           {lastLogin ? (

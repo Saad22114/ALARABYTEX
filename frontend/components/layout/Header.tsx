@@ -93,6 +93,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
             <Avatar
               name={me?.name || ''}
               avatar={me?.avatar}
+              avatarImage={me?.avatar_image}
               size="md"
               onClick={() => setInfoOpen(true)}
               title="معلوماتي وتغيير الأفاتار"
@@ -126,6 +127,10 @@ export default function Header({ onMenuClick }: HeaderProps) {
           onClose={() => setInfoOpen(false)}
           onAvatarChanged={(avatar) => {
             updateEmployee({ avatar });
+            setInfoOpen(false);
+          }}
+          onAvatarImageChanged={(avatarImage) => {
+            updateEmployee({ avatar_image: avatarImage || '' });
             setInfoOpen(false);
           }}
         />

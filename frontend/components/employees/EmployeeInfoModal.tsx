@@ -1,31 +1,61 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Avatar from '@/components/ui/Avatar';
 import Badge from '@/components/ui/Badge';
 import Spinner from '@/components/ui/Spinner';
+import ImageCropper from '@/components/ui/ImageCropper';
 import { AVATARS, avatarOf } from '@/lib/avatars';
-import { getEmployeeProfile, updateAvatar } from '@/services/account';
+import { AvatarCropRegion } from '@/lib/avatarCrop';
+import { AvatarSource, loadAvatarSource, renderCrop } from '@/lib/avatarImage';
+import {
+  clearAvatarImage,
+  getEmployeeProfile,
+  updateAvatar,
+  updateAvatarImage,
+} from '@/services/account';
 import { EmployeeProfile } from '@/types';
 import { useToast } from '@/components/ui/Toast';
-import { Building2, Phone, Mail, User, Briefcase, Hash, CalendarDays, Check } from 'lucide-react';
+import {
+  Building2,
+  Phone,
+  Mail,
+  User,
+  Briefcase,
+  Hash,
+  CalendarDays,
+  Check,
+  ImageUp,
+  Trash2,
+} from 'lucide-react';
 
 interface EmployeeInfoModalProps {
   open: boolean;
   /** الموظف المعروض — إما شريك محادثة أو الذات */
-  employee: { id: number; name: string; avatar?: string | null } | null;
+  employee: { id: number; name: string; avatar?: string | null; avatar_image?: string | null } | null;
   /** هل هذا الموظف هو الحساب الحالي؟ عندها يُتاح تغيير الأفاتار */
   isMe: boolean;
   onClose: () => void;
   onAvatarChanged?: (avatar: string) => void;
+  onAvatarImageChanged?: (avatarImage: string | null) => void;
 }
 
-export default function EmployeeInfoModal({ open, employee, isMe, onClose, onAvatarChanged }: EmployeeInfoModalProps) {
+export default function EmployeeInfoModal({
+  open,
+  employee,
+  isMe,
+  onClose,
+  onAvatarChanged,
+  onAvatarImageChanged,
+}: EmployeeInfoModalProps) {
   const { toast } = useToast();
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  /** الصورة المختارة من الجهاز — بانتظار تحديد المستخدم لمنطقة القصّ. */
+  const [cropSource, setCropSource] = useState<AvatarSource | null>(null);
 
   const load = useCallback(async () => {
     if (!open || !employee) return;
@@ -59,6 +89,56 @@ export default function EmployeeInfoModal({ open, employee, isMe, onClose, onAva
     }
   };
 
+  // الخطوة 1: تحميل الملف فقط — لا حفظ حتى يختار المستخدم منطقة القصّ
+  const handlePickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // نفرّغ قيمة الـ input حتى يختار نفس الملف مرة أخرى بعد فشل
+    e.target.value = '';
+    if (!file || saving) return;
+    try {
+      setCropSource(await loadAvatarSource(file));
+    } catch (err: any) {
+      toast('error', err?.message || 'تعذر قراءة الصورة');
+    }
+  };
+
+  const handleCancelCrop = useCallback(() => setCropSource(null), []);
+
+  // الخطوة 2: قصّ المنطقة التي اختارها المستخدم ثم الحفظ
+  const handleConfirmCrop = async (region: AvatarCropRegion) => {
+    if (!cropSource) return;
+    setSaving(true);
+    try {
+      const { dataUrl, sizeKb } = renderCrop(cropSource, region);
+      const res = await updateAvatarImage(dataUrl);
+      setProfile((prev) =>
+        prev ? { ...prev, avatar_image: res.employee.avatar_image } : prev,
+      );
+      setCropSource(null);
+      onAvatarImageChanged?.(res.employee.avatar_image || null);
+      toast('success', `تم تعيين الصورة الشخصية (${sizeKb} كيلوبايت)`);
+    } catch (err: any) {
+      toast('error', err?.message || 'تعذر حفظ الصورة');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveImage = async () => {
+    if (saving || !profile?.avatar_image) return;
+    setSaving(true);
+    try {
+      const res = await clearAvatarImage();
+      setProfile((prev) => (prev ? { ...prev, avatar_image: '' } : prev));
+      onAvatarImageChanged?.(null);
+      toast('success', 'تم حذف الصورة الشخصية والعودة للأفاتار');
+    } catch (e: any) {
+      toast('error', e?.message || 'تعذر حذف الصورة');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const rows: Array<{ icon: React.ReactNode; label: string; value: string; ltr?: boolean }> = [];
   if (profile?.branch_name) rows.push({ icon: <Building2 size={15} />, label: 'الفرع', value: profile.branch_name });
   if (profile?.position) rows.push({ icon: <Briefcase size={15} />, label: 'المسمى الوظيفي', value: profile.position });
@@ -77,7 +157,13 @@ export default function EmployeeInfoModal({ open, employee, isMe, onClose, onAva
       ) : (
         <div className="space-y-5">
           <div className="flex items-center gap-4">
-            <Avatar name={profile.name} avatar={profile.avatar} size="lg" className="ring-2 ring-sand-200" />
+            <Avatar
+              name={profile.name}
+              avatar={profile.avatar}
+              avatarImage={profile.avatar_image}
+              size="lg"
+              className="ring-2 ring-sand-200"
+            />
             <div className="min-w-0">
               <p className="text-base font-semibold truncate">{profile.name}</p>
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -105,7 +191,62 @@ export default function EmployeeInfoModal({ open, employee, isMe, onClose, onAva
           </div>
 
           {isMe && (
-            <div>
+            <div className="space-y-4">
+              {/* ——— الصورة الشخصية من الجهاز ——— */}
+              <div>
+                <p className="text-xs font-medium text-neutral-500 mb-2">صورتك الشخصية</p>
+                <div className="flex items-center gap-3 rounded-xl border border-sand-200 p-3">
+                  <Avatar
+                    name={profile.name}
+                    avatar={profile.avatar}
+                    avatarImage={profile.avatar_image}
+                    size="lg"
+                  />
+                  <div className="min-w-0 flex-1">
+                    {profile.avatar_image ? (
+                      <p className="text-xs text-neutral-500">
+                        لديك صورة شخصية — تُعرض بدل الأفاتار في كل الشاشات.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-neutral-500">
+                        اختر صورة من جهازك لتظهر بدل الأفاتار.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={saving}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 transition-colors"
+                      >
+                        <ImageUp size={14} />
+                        {profile.avatar_image ? 'تغيير الصورة' : 'اختر صورة من جهازي'}
+                      </button>
+                      {profile.avatar_image && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveImage}
+                          disabled={saving}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-sand-200 text-neutral-600 hover:bg-sand-100 disabled:opacity-60 text-xs font-medium px-3 py-1.5 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                          حذف الصورة
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={handlePickImage}
+                />
+              </div>
+
+              {/* ——— الأفاتارات الجاهزة ——— */}
+              <div>
               <p className="text-xs font-medium text-neutral-500 mb-2">اختر أفاتارك</p>
               <div className="grid grid-cols-8 gap-2">
                 {AVATARS.map((a) => {
@@ -135,11 +276,20 @@ export default function EmployeeInfoModal({ open, employee, isMe, onClose, onAva
                 {profile.avatar
                   ? `أفاتارك الحالي: ${avatarOf(profile.avatar)?.emoji ?? ''} — اضغط أي رمز للتغيير`
                   : 'لم تختر أفاتاراً بعد — اضغط أي رمز لتفعيله'}
+                {profile.avatar_image && ' — لن يظهر هذا الرمز ما دامت صورتك الشخصية مفعّلة'}
               </p>
+              </div>
             </div>
           )}
         </div>
       )}
+      <ImageCropper
+        open={!!cropSource}
+        source={cropSource}
+        saving={saving}
+        onConfirm={handleConfirmCrop}
+        onCancel={handleCancelCrop}
+      />
     </Modal>
   );
 }

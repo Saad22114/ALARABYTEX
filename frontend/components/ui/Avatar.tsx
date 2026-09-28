@@ -6,6 +6,8 @@ type AvatarSize = 'xs' | 'sm' | 'md' | 'lg';
 interface AvatarProps {
   name: string;
   avatar?: string | null;
+  /** صورة شخصية مرفوعة من جهاز المستخدم (data URL) — تُقدَّم على الأفاتار الرمزي. */
+  avatarImage?: string | null;
   size?: AvatarSize;
   className?: string;
   title?: string;
@@ -26,8 +28,16 @@ const emojiFontSize: Record<AvatarSize, number> = {
   lg: 20,
 };
 
-export default function Avatar({ name, avatar, size = 'md', className = '', title, onClick }: AvatarProps) {
-  const def = avatar ? avatarOf(avatar) : null;
+export default function Avatar({
+  name,
+  avatar,
+  avatarImage,
+  size = 'md',
+  className = '',
+  title,
+  onClick,
+}: AvatarProps) {
+  const def = !avatarImage && avatar ? avatarOf(avatar) : null;
   return (
     <span
       role={onClick ? 'button' : undefined}
@@ -38,11 +48,20 @@ export default function Avatar({ name, avatar, size = 'md', className = '', titl
           onClick();
         }
       }}
-      className={`${sizeClasses[size]} rounded-full inline-flex items-center justify-center shrink-0 font-bold select-none ${
+      className={`${sizeClasses[size]} rounded-full inline-flex items-center justify-center shrink-0 font-bold select-none overflow-hidden ${
         def ? def.bg : 'bg-sand-200 dark:bg-sand-700 text-neutral-700 dark:text-neutral-200'
       } ${onClick ? 'cursor-pointer hover:ring-2 hover:ring-brand-500/50' : ''} ${className}`}
     >
-      {def ? (
+      {avatarImage ? (
+        // الصورة تُخزَّن كـ data URL، لذا <img> العادي هو الأنسب هنا
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={avatarImage}
+          alt={name}
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
+      ) : def ? (
         <span style={{ fontSize: emojiFontSize[size], lineHeight: 1 }}>{def.emoji}</span>
       ) : (
         name.trim()[0] || '؟'

@@ -49,6 +49,7 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { saleGroupBadges, saleGroupKey } from '@/lib/saleGroups';
 import { todayISO } from '@/lib/date';
 import { printSessionReceipt } from '@/lib/receipt';
 import { useToast } from '@/components/ui/Toast';
@@ -87,28 +88,6 @@ const SORT_OPTIONS: { value: SessionSortKey; label: string }[] = [
   { value: 'total', label: 'الأعلى مبيعات' },
   { value: 'employee', label: 'باسم الموظف' },
 ];
-
-const SALE_GROUP_COLORS = [
-  'bg-brand-50 text-brand-700 border-brand-200',
-  'bg-emerald-50 text-emerald-700 border-emerald-200',
-  'bg-amber-50 text-amber-700 border-amber-200',
-  'bg-sky-50 text-sky-700 border-sky-200',
-  'bg-violet-50 text-violet-700 border-violet-200',
-  'bg-rose-50 text-rose-700 border-rose-200',
-];
-
-function saleGroupBadges(items: SessionSaleItem[]): Map<string, { num: number; cls: string }> {
-  const map = new Map<string, { num: number; cls: string }>();
-  let i = 1;
-  for (const it of items) {
-    const g = it.sale_group || `single-${it.id}`;
-    if (!map.has(g)) {
-      map.set(g, { num: i, cls: SALE_GROUP_COLORS[(i - 1) % SALE_GROUP_COLORS.length] });
-      i += 1;
-    }
-  }
-  return map;
-}
 
 function elapsedText(minutes: number | null): string {
   if (minutes == null) return '';
@@ -231,6 +210,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   }, [fetchSessions, fetchSummary]);
 
   const selected = useMemo(() => sessions.find((s) => s.id === selectedId) || null, [sessions, selectedId]);
+
+  const groupBadges = useMemo(() => saleGroupBadges(selected?.items ?? []), [selected]);
 
   const saleFabrics = useMemo(
     () =>
@@ -935,8 +916,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         <Td>
                           <span
                             onClick={() => {
-                              const g = item.sale_group || `single-${item.id}`;
-                              const ids = selected.items.filter((i) => (i.sale_group || `single-${i.id}`) === g).map((i) => i.id);
+                              const g = saleGroupKey(item);
+                              const ids = selected.items.filter((i) => saleGroupKey(i) === g).map((i) => i.id);
                               setChecked((prev) => {
                                 const next = new Set(prev);
                                 ids.forEach((id) => next.add(id));
@@ -945,10 +926,10 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                             }}
                             title="تحديد كل بنود هذه البيعة للفاتورة"
                             className={`inline-flex cursor-pointer items-center rounded-full border px-2 py-0.5 text-[11px] font-bold select-none transition-transform hover:scale-105 ${
-                              saleGroupBadges(selected.items).get(item.sale_group || `single-${item.id}`)?.cls ?? 'bg-neutral-100 text-neutral-400 border-neutral-200'
+                              groupBadges.get(saleGroupKey(item))?.cls ?? 'bg-neutral-100 text-neutral-400 border-neutral-200'
                             }`}
                           >
-                            بيعة {saleGroupBadges(selected.items).get(item.sale_group || `single-${item.id}`)?.num ?? ''}
+                            بيعة {groupBadges.get(saleGroupKey(item))?.num ?? ''}
                           </span>
                         </Td>
                         <Td className="tabular-nums text-neutral-500">

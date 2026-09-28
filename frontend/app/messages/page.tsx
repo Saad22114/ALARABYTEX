@@ -54,6 +54,7 @@ function dayLabel(dateStr: string, now: Date): string {
 function PresenceAvatar({
   name,
   avatar,
+  avatarImage,
   online,
   size = 'md',
   onClick,
@@ -61,6 +62,7 @@ function PresenceAvatar({
 }: {
   name: string;
   avatar?: string | null;
+  avatarImage?: string | null;
   online?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   onClick?: () => void;
@@ -69,7 +71,7 @@ function PresenceAvatar({
   const dotSize = size === 'lg' ? 'w-3 h-3' : size === 'xs' ? 'w-2 h-2' : 'w-2.5 h-2.5';
   return (
     <span className="relative inline-flex shrink-0">
-      <Avatar name={name} avatar={avatar} size={size} onClick={onClick} title={title} />
+      <Avatar name={name} avatar={avatar} avatarImage={avatarImage} size={size} onClick={onClick} title={title} />
       {online && (
         <span className={`absolute bottom-0 end-0 ${dotSize} rounded-full bg-emerald-500 ring-2 ring-surface`} title="متصل الآن" />
       )}
@@ -97,7 +99,7 @@ export default function MessagesPage() {
   const [editText, setEditText] = useState('');
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [forwardTarget, setForwardTarget] = useState<ChatMessage | null>(null);
-  const [infoTarget, setInfoTarget] = useState<{ id: number; name: string; avatar?: string | null } | null>(null);
+  const [infoTarget, setInfoTarget] = useState<{ id: number; name: string; avatar?: string | null; avatar_image?: string | null } | null>(null);
   const [infoIsMe, setInfoIsMe] = useState(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -219,7 +221,7 @@ export default function MessagesPage() {
     if (activePartnerId !== null) loadThread();
   };
 
-  const openInfo = (emp: { id: number; name: string; avatar?: string | null }, isMe = false) => {
+  const openInfo = (emp: { id: number; name: string; avatar?: string | null; avatar_image?: string | null }, isMe = false) => {
     setInfoIsMe(isMe);
     setInfoTarget(emp);
   };
@@ -315,7 +317,7 @@ export default function MessagesPage() {
       >
         {/* identity bar */}
         <div className="px-4 py-3 border-b border-sand-200 flex items-center gap-3 bg-sand-50">
-          <Avatar name={me.name} avatar={me.avatar} size="sm" onClick={() => openInfo(me, true)} title="معلوماتي وتغيير الأفاتار" />
+          <Avatar name={me.name} avatar={me.avatar} avatarImage={me.avatar_image} size="sm" onClick={() => openInfo(me, true)} title="معلوماتي وتغيير الأفاتار" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold truncate">{me.name}</p>
           </div>
@@ -385,7 +387,7 @@ export default function MessagesPage() {
                   activePartnerId === c.employee.id ? 'bg-brand-50 border-r-2 border-brand-600' : ''
                 }`}
               >
-                <PresenceAvatar name={c.employee.name} avatar={c.employee.avatar} online={c.employee.is_online} size="lg" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
+                <PresenceAvatar name={c.employee.name} avatar={c.employee.avatar} avatarImage={c.employee.avatar_image} online={c.employee.is_online} size="lg" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-sm truncate">
@@ -428,7 +430,7 @@ export default function MessagesPage() {
                       onClick={() => selectPartner(c.employee.id)}
                       className={`w-full text-right px-4 py-2.5 flex items-center gap-3 hover:bg-sand-50 transition-colors`}
                     >
-                      <PresenceAvatar name={c.employee.name} avatar={c.employee.avatar} online={c.employee.is_online} size="md" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
+                      <PresenceAvatar name={c.employee.name} avatar={c.employee.avatar} avatarImage={c.employee.avatar_image} online={c.employee.is_online} size="md" onClick={() => openInfo(c.employee)} title="معلومات الموظف" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">
                           <Highlight text={c.employee.name} query={contactSearch} />
@@ -453,7 +455,7 @@ export default function MessagesPage() {
                       onClick={() => selectPartner(g.employee.id, g.employee, contactSearch.trim())}
                       className="w-full text-right px-4 py-2.5 flex items-center gap-3 hover:bg-sand-50 transition-colors"
                     >
-                      <PresenceAvatar name={g.employee.name} avatar={g.employee.avatar} online={g.employee.is_online} size="md" onClick={() => openInfo(g.employee)} title="معلومات الموظف" />
+                      <PresenceAvatar name={g.employee.name} avatar={g.employee.avatar} avatarImage={g.employee.avatar_image} online={g.employee.is_online} size="md" onClick={() => openInfo(g.employee)} title="معلومات الموظف" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">{g.employee.name}</p>
                         <p className="text-xs text-neutral-600 truncate">
@@ -501,7 +503,7 @@ export default function MessagesPage() {
               >
                 <ArrowLeft size={18} />
               </button>
-<PresenceAvatar name={activePartner?.name || ''} avatar={activePartner?.avatar} online={activePartner?.is_online} size="md" onClick={() => activePartner && openInfo(activePartner)} title="معلومات الموظف" />
+<PresenceAvatar name={activePartner?.name || ''} avatar={activePartner?.avatar} avatarImage={activePartner?.avatar_image} online={activePartner?.is_online} size="md" onClick={() => activePartner && openInfo(activePartner)} title="معلومات الموظف" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold truncate">{activePartner?.name}</p>
                 {activePartner?.branch_name && (
@@ -806,6 +808,7 @@ export default function MessagesPage() {
         isMe={infoIsMe}
         onClose={() => setInfoTarget(null)}
         onAvatarChanged={(avatar) => updateEmployee({ avatar })}
+        onAvatarImageChanged={(avatarImage) => updateEmployee({ avatar_image: avatarImage || '' })}
       />
       </div>
     </div>

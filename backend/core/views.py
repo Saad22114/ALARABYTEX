@@ -7,7 +7,13 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from sale_sessions.avatars import AVATAR_EMOJI
+from appsettings.models import AppSettings
+from core.permissions import get_request_employee
+from sale_sessions.avatars import (
+    AVATAR_EMOJI,
+    MAX_AVATAR_REQUEST_BYTES,
+    validate_avatar_image,
+)
 from sale_sessions.models import Employee
 from sale_sessions.sections import ROLE_PRESETS, SECTIONS
 
@@ -17,6 +23,7 @@ def employee_payload(emp):
         "id": emp.id,
         "name": emp.name,
         "avatar": emp.avatar,
+        "avatar_image": emp.avatar_image,
         "phone": emp.phone,
         "branch": emp.branch_id,
         "branch_name": emp.branch.name if emp.branch_id else None,
@@ -39,6 +46,7 @@ def employee_payload(emp):
         "address": emp.address,
         "hire_date": emp.hire_date,
         "base_salary": str(emp.base_salary),
+        "theme": emp.theme or "",
     }
 
 
@@ -188,20 +196,57 @@ class ChangePasswordView(APIView):
 
 
 class AccountAvatarView(APIView):
-    """تحديث أفاتار الموظف الحالي — من الرموز الجاهزة فقط."""
+    """تحديث صورة الموظف الشخصية.
+
+    يقبل أحدين (أو كليهما معاً):
+    - ``avatar``: رمز من الرموز الجاهزة في `AVATAR_EMOJI`. أي رمز خارجها يُرفض.
+    - ``avatar_image``: صورة شخصية كـ data URL من جهاز المستخدم (JPEG/PNG/WebP).
+    - ``clear_avatar_image: true``: حذف الصورة الشخصية والعودة للأفاتار.
+    """
 
     permission_section = "@identity"
 
     def patch(self, request):
         employee = request.user.employee
-        avatar = (request.data.get("avatar") or "").strip()
-        if avatar not in AVATAR_EMOJI:
+
+        # حدّ حجم الطلب: data URL صغيرة فقط — يمنع استنزاف الذاكرة بطلب ضخم
+        if len(request.body or b"") > MAX_AVATAR_REQUEST_BYTES:
             return Response(
-                {"detail": "أفاتار غير صالح — اختر من المجموعة الجاهزة"},
+                {"detail": "حجم الطلب كبير جداً"},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        updates = {}
+
+        if "avatar_image" in request.data:
+            value, error = validate_avatar_image(request.data.get("avatar_image"))
+            if error:
+                return Response(
+                    {"detail": error},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            updates["avatar_image"] = value
+        elif request.data.get("clear_avatar_image"):
+            updates["avatar_image"] = ""
+
+        if "avatar" in request.data:
+            avatar = (request.data.get("avatar") or "").strip()
+            if avatar not in AVATAR_EMOJI:
+                return Response(
+                    {"detail": "أفاتار غير صالح — اختر من المجموعة الجاهزة"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            updates["avatar"] = avatar
+
+        if not updates:
+            return Response(
+                {"detail": "لا يوجد تغيير — أرسل avatar أو avatar_image"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        Employee.objects.filter(pk=employee.pk).update(avatar=avatar)
-        employee.avatar = avatar
+
+        Employee.objects.filter(pk=employee.pk).update(**updates)
+        for field, value in updates.items():
+            setattr(employee, field, value)
         return Response({"employee": employee_payload(employee)})
 
 
@@ -222,6 +267,7 @@ class EmployeeProfileView(APIView):
             "id": emp.pk,
             "name": emp.name,
             "avatar": emp.avatar,
+            "avatar_image": emp.avatar_image,
             "role": emp.role,
             "role_label": emp.get_role_display(),
             "branch": emp.branch_id,
@@ -233,4 +279,27 @@ class EmployeeProfileView(APIView):
             "employee_code": emp.employee_code or "",
             "hire_date": emp.hire_date,
             "is_active": emp.is_active,
+            "theme": emp.theme or "",
         })
+
+    def patch(self, request):
+        emp_id = request.query_params.get("employee_id")
+        if emp_id and emp_id != "me":
+            try:
+                emp = Employee.objects.select_related("branch", "user").get(pk=emp_id)
+            except Employee.DoesNotExist:
+                return Response({"detail": "الموظف غير موجود"}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            emp = get_request_employee(request)
+            if emp is None:
+                return Response({"detail": "تعذّر تحديد الموظف"}, status=status.HTTP_400_BAD_REQUEST)
+        requester = get_request_employee(request)
+        if requester is not None and requester.pk != emp.pk and requester.role not in ("admin", "supervisor"):
+            return Response({"detail": "لا يمكنك تعديل بيانات موظف آخر"}, status=status.HTTP_403_FORBIDDEN)
+        valid_themes = {c[0] for c in AppSettings._meta.get_field("default_theme").choices}
+        theme = request.data.get("theme", "").strip()
+        if theme and theme not in valid_themes:
+            return Response({"theme": "ثيم غير صالح"}, status=status.HTTP_400_BAD_REQUEST)
+        emp.theme = theme
+        emp.save(update_fields=["theme"])
+        return Response({"theme": emp.theme or ""})

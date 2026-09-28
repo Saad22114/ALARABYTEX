@@ -24,6 +24,7 @@ export default function WelcomePage() {
     <WelcomeScreen
       name={me.name}
       avatar={me.avatar}
+      avatarImage={me.avatar_image}
       businessName={settings?.business_name || ''}
       logo={settings?.logo || ''}
       lastLogin={lastLogin}

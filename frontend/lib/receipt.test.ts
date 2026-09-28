@@ -42,6 +42,7 @@ function makeSession(): SaleSession {
         customer_name: '',
         customer_phone: '',
         sale_group: 'group-1',
+        group_no: 1,
         is_returned: false,
         returned_at: null,
         return_reason: '',

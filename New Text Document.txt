@@ -1,0 +1,32 @@
+$backend = "D:\QOMASH\site working\site 3 open code\backend"
+$frontend = "D:\QOMASH\site working\site 3 open code\frontend"
+
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$backend'; .\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8001 --noreload"
+
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$frontend'; npm run dev -- -p 9012"
+
+
+
+foreach ($port in 8001,9012) {
+    $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    foreach ($connection in $connections) {
+        Stop-Process -Id $connection.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
+}
+
+
+
+امكانية تعديل وحذف حركات الشريك في قسم الشركاء
+في قسم الاقمشة والمبيعات لا  اريد وحدة المتر اريد وحدة الياردة واللفة فقط
+وبدل اسم اللفة في المشروع كامل من اللفة ل الطاقة 
+و لفة الى طاقة 
+زر تصدير اكسيل في قسم الاقمشة لا يعمل
+عند اضافة اقمشة جديدة ضيف امكانيات اكثر 
+في قسم المخازن اريد عند اضافة مخزن اريد تضيف بيانات اكثر
+واريد عند فتح قسم المخازن لا يظهر غير بيانات المخزن على حسب صلاحيات الموظف فقط ولا يكون عنده امكانية يشوف باقي المخازن ولا باقي الفروع 
+في قسم المصاريف طوره اكثر
+ويكون سهل في نفس الوقت
+قسم التقارير طوره اكثر بحيث يكون عنده امكانية لعمل تقرير عن اي شئ في المشروع وباي وقت 
+
+واريد ازيد في الصلاحيات كل قسم والنوافذ التي داخله بحيث يكون في مرونة اكثر اثناء اختيار الصلاحيات
+واريد ايضا الفروع في الصلاحيات لاتمكن كم فرع اقدر افتح لكل موظف

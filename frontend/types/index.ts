@@ -1174,6 +1174,8 @@ export interface SessionEmployee {
   id: number;
   name: string;
   avatar: string;
+  /** صورة شخصية كـ data URL (فارغة = لا صورة) */
+  avatar_image: string;
   phone: string;
   branch: number | null;
   branch_name: string | null;
@@ -1187,6 +1189,7 @@ export interface SessionEmployee {
   username: string | null;
   commission_active: boolean;
   must_change_password: boolean;
+  theme: string;
 }
 
 export interface AuthSession {
@@ -1224,6 +1227,8 @@ export interface SessionSaleItem {
   customer_name: string;
   customer_phone: string;
   sale_group: string;
+  /** رقم البيعة داخل الوردية (الأقدم = 1)؛ ثابت لا يعيد الحذف ترقيمه. */
+  group_no: number | null;
   is_returned: boolean;
   returned_at: string | null;
   return_reason: string;
@@ -1473,6 +1478,7 @@ export interface ChatContactSummary {
     id: number;
     name: string;
     avatar: string;
+    avatar_image: string;
     phone: string;
     role_label: string;
     branch_name: string;
@@ -1485,7 +1491,7 @@ export interface ChatContactSummary {
 }
 
 export interface ConversationsResult {
-  me: { id: number; name: string; avatar: string; role_label: string };
+  me: { id: number; name: string; avatar: string; avatar_image: string; role_label: string };
   conversations: ChatContactSummary[];
   unread_total: number;
 }
@@ -1495,6 +1501,7 @@ export interface MessageThreadResult {
     id: number;
     name: string;
     avatar: string;
+    avatar_image: string;
     branch_name: string;
     role_label: string;
     is_online: boolean;
@@ -1506,6 +1513,7 @@ export interface MessagingContact {
   id: number;
   name: string;
   avatar: string;
+  avatar_image: string;
   phone: string;
   role_label: string;
   branch_name: string;
@@ -1513,7 +1521,7 @@ export interface MessagingContact {
 }
 
 export interface MessageContactListResult {
-  me: { id: number; name: string; avatar: string; role_label: string };
+  me: { id: number; name: string; avatar: string; avatar_image: string; role_label: string };
   employees: MessagingContact[];
 }
 
@@ -1549,6 +1557,8 @@ export interface EmployeeProfile {
   id: number;
   name: string;
   avatar: string;
+  /** صورة شخصية كـ data URL (فارغة = لا صورة) */
+  avatar_image: string;
   role: EmployeeRole;
   role_label: string;
   branch: number | null;
@@ -1560,6 +1570,7 @@ export interface EmployeeProfile {
   employee_code: string;
   hire_date: string | null;
   is_active: boolean;
+  theme: string;
 }
 
 export interface AccountAvatarResult {

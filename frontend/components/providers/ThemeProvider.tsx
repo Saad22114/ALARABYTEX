@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { STORAGE_KEYS } from '@/lib/themes';
+import { useAuth } from '@/components/providers/AuthProvider';
+import { updateEmployeeTheme } from '@/services/account';
 
 interface ThemeContextValue {
   theme: string;
@@ -24,16 +26,19 @@ export function useTheme() {
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState('green');
   const [dark, setDark] = useState(false);
+  const { session } = useAuth();
+  const employeeTheme = session?.employee?.theme;
 
   useEffect(() => {
+    const preferred = employeeTheme || '';
     try {
-      const t = localStorage.getItem(STORAGE_KEYS.theme);
+      const t = preferred || localStorage.getItem(STORAGE_KEYS.theme);
       if (t) {
         setThemeState(t);
         document.documentElement.dataset.theme = t;
       }
     } catch {}
-  }, []);
+  }, [employeeTheme]);
 
   useEffect(() => {
     try {
@@ -50,6 +55,7 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       localStorage.setItem(STORAGE_KEYS.theme, id);
     } catch {}
     document.documentElement.dataset.theme = id;
+    updateEmployeeTheme(id).catch(() => {});
   }, []);
 
   const toggleDark = useCallback(() => {

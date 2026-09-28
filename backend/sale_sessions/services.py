@@ -100,6 +100,33 @@ def _item_yards(item):
     return item.quantity
 
 
+def next_sale_group_no(session, sale_group=""):
+    """يأخذ رقم البيعة التالي داخل وردية، بدءا من 1 للبيعة الأقدم.
+
+    الرقم محفوظ على بنود البيعة نفسها (`group_no`) فيثبت عند الحفظ، ويقرأ
+    من عدّاد الوردية `next_group_no` الذي يزيد فقط ولا ينقص. لذلك حذف
+    بيعة — حتى لو كانت الأحدث — يترك فجوة ولا يُعاد استخدام رقمها.
+
+    إن كانت `sale_group` مرفقة ببنود محفوظة في هذه الوردية، يُعاد الرقم
+    نفسه، فتتشترك كل بنود الدفعة الواحدة في رقم واحد.
+    """
+    if sale_group:
+        existing = (
+            SaleSessionItem.objects.filter(session=session, sale_group=sale_group)
+            .exclude(group_no=None)
+            .values_list("group_no", flat=True)
+            .first()
+        )
+        if existing is not None:
+            return existing
+    # يُقفل صف الوردية أثناء القراءة والزيادة، فلا تأخذ دفعةان متزامنتان
+    # الرقم نفسه.
+    locked = SaleSession.objects.select_for_update().get(pk=session.pk)
+    number = locked.next_group_no or 1
+    SaleSession.objects.filter(pk=locked.pk).update(next_group_no=number + 1)
+    return number
+
+
 def deduct_item_stock(item):
     """يخصم كمية البند فورياً من مخزن فرع الوردية عند حفظ البيعة."""
     if item is None or item.is_returned:
@@ -400,7 +427,11 @@ def move_session_item(source_session, item, target_session):
     restock_item(item)  # إرجاع الخصم الفوري لمخزن الفرع المصدر
     item.session = target_session
     item.sale_date = session_sale_date(target_session)
-    item.save(update_fields=["session", "sale_date"])
+    # الترقيم يتبع الوردية لا البند: البيعة الواردة لوردية لم تكن فيها
+    # تأخذ رقمها التالي هناك، أما إن كانت مجموعة بيعة قائمة فيها فيبقى
+    # رقمها كما هو.
+    item.group_no = next_sale_group_no(target_session, item.sale_group)
+    item.save(update_fields=["session", "sale_date", "group_no"])
     deduct_item_stock(item)  # خصم فوري من مخزن الفرع الهدف
     return item
 

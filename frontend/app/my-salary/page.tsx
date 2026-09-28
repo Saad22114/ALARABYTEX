@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
+import Avatar from '@/components/ui/Avatar';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import EmptyState from '@/components/ui/EmptyState';
 import { BadgeDollarSign, Wallet, Clock3, Landmark } from 'lucide-react';
@@ -74,16 +75,12 @@ export default function MySalaryPage() {
               <Card title="بياناتي وهيكل راتبي">
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-xl font-bold text-brand-700">
-                      {data.employee.avatar_image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={data.employee.avatar_image} alt={data.employee.name} className="h-full w-full rounded-full object-cover" />
-                      ) : data.employee.avatar ? (
-                        <span className="text-2xl" aria-hidden>{data.employee.avatar}</span>
-                      ) : (
-                        data.employee.name.charAt(0)
-                      )}
-                    </div>
+                    <Avatar
+                      name={data.employee.name}
+                      avatar={data.employee.avatar}
+                      avatarImage={data.employee.avatar_image}
+                      className="!h-12 !w-12 !text-xl"
+                    />
                     <div>
                       <div className="font-semibold text-lg">{data.employee.name}</div>
                       <div className="text-sm text-neutral-500">

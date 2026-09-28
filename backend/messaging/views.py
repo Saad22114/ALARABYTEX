@@ -29,6 +29,7 @@ def _employee_contact(emp):
         "id": emp.pk,
         "name": emp.name,
         "avatar": emp.avatar,
+        "avatar_image": emp.avatar_image,
         "phone": emp.phone,
         "role_label": emp.get_role_display(),
         "branch_name": emp.branch.name if emp.branch_id else "",
@@ -58,7 +59,13 @@ class EmployeeContactListView(APIView):
             .order_by("name")
         )
         return Response({
-            "me": {"id": me.pk, "name": me.name, "avatar": me.avatar, "role_label": me.get_role_display()},
+            "me": {
+                "id": me.pk,
+                "name": me.name,
+                "avatar": me.avatar,
+                "avatar_image": me.avatar_image,
+                "role_label": me.get_role_display(),
+            },
             "employees": [_employee_contact(e) for e in employees],
         })
 
@@ -106,7 +113,13 @@ class ConversationListView(APIView):
 
         contacts.sort(key=lambda c: c["last_at"], reverse=True)
         return Response({
-            "me": {"id": me.pk, "name": me.name, "avatar": me.avatar, "role_label": me.get_role_display()},
+            "me": {
+                "id": me.pk,
+                "name": me.name,
+                "avatar": me.avatar,
+                "avatar_image": me.avatar_image,
+                "role_label": me.get_role_display(),
+            },
             "conversations": contacts,
             "unread_total": sum(unread.values()),
         })

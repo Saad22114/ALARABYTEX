@@ -92,7 +92,6 @@ export default function ThemesPage() {
 
   const handleThemeSelect = (id: string) => {
     setTheme(id);
-    updateThemesControl({ default_theme: id }).catch((err) => toast('error', err.message));
     toast('success', 'تم تغيير المظهر بنجاح');
   };
 
@@ -304,7 +303,7 @@ export default function ThemesPage() {
                   );
                 })}
               </div>
-              <p className="text-xs text-neutral-400 mt-3">اختيارك يُحفظ الآن في إعدادات النظام (لجميع الأجهزة) وفي المتصفح الحالي.</p>
+              <p className="text-xs text-neutral-400 mt-3">اختيارك يُحفظ لملفك الشخصي ويظهر فوراً.</p>
             </Card>
 
             <Card title="نوع الخط" subtitle="اختر خط النظام — يُحفظ كإعداد عام وللمتصفح">
