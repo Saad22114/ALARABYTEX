@@ -27,6 +27,10 @@ if not _secret_key or _secret_key == "change-me-in-production-please":
 SECRET_KEY = _secret_key
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "*").split(",") if h.strip()]
+# Render يضبط RENDER_EXTERNAL_HOSTNAME تلقائياً — نستبدل '*' به بدلاً من رفض الإقلاع
+_render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if _render_host:
+    ALLOWED_HOSTS = [h for h in ALLOWED_HOSTS if h != "*"] + [_render_host]
 if not DEBUG and ALLOWED_HOSTS == ["*"]:
     raise ImproperlyConfigured(
         "ALLOWED_HOSTS لا يمكن أن يكون '*' في الإنتاج. حدّد النطاقات مثل: example.com,www.example.com"
