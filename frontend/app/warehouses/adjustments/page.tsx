@@ -31,6 +31,9 @@ const REASON_LABEL: Record<AdjustmentReason, string> = {
   '': 'بدون سبب',
 };
 
+/** مسودة الصنف: الأرقام نصوص كما يكتبها المستخدم، حتى لا يظهر «0» في خانة فارغة. */
+type AdjustmentDraft = Omit<AdjustmentItem, 'yards' | 'rolls_count'> & { yards: string; rolls_count: string };
+
 function AdjustmentForm({
   warehouses,
   fabrics,
@@ -47,9 +50,9 @@ function AdjustmentForm({
   const [direction, setDirection] = useState<AdjustmentDirection>('in');
   const [reason, setReason] = useState<AdjustmentReason>('');
   const [notes, setNotes] = useState('');
-  const [items, setItems] = useState<AdjustmentItem[]>([{ fabric: fabrics[0]?.id ?? 0, yards: 0, rolls_count: 0 }]);
+  const [items, setItems] = useState<AdjustmentDraft[]>([{ fabric: fabrics[0]?.id ?? 0, yards: '', rolls_count: '' }]);
 
-  const updateItem = (i: number, patch: Partial<AdjustmentItem>) => {
+  const updateItem = (i: number, patch: Partial<AdjustmentDraft>) => {
     setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
 
@@ -62,7 +65,7 @@ function AdjustmentForm({
       direction,
       reason,
       notes,
-      items: items.map((it) => ({ fabric: it.fabric, yards: it.yards, rolls_count: it.rolls_count })),
+      items: items.map((it) => ({ fabric: it.fabric, yards: Number(it.yards) || 0, rolls_count: Number(it.rolls_count) || 0 })),
     });
   };
 
@@ -109,7 +112,7 @@ function AdjustmentForm({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="block text-sm font-medium text-neutral-700">الأصناف *</label>
-          <Button type="button" variant="subtle" size="sm" onClick={() => setItems((r) => [...r, { fabric: fabrics[0]?.id ?? 0, yards: 0, rolls_count: 0 }])}>
+          <Button type="button" variant="subtle" size="sm" onClick={() => setItems((r) => [...r, { fabric: fabrics[0]?.id ?? 0, yards: '', rolls_count: '' }])}>
             <Plus size={16} />
             إضافة صنف
           </Button>
@@ -117,8 +120,8 @@ function AdjustmentForm({
         {items.map((it, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center bg-sand-50 p-2 rounded-xl">
             <Select value={it.fabric} onChange={(e) => updateItem(i, { fabric: Number(e.target.value) })} options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))} />
-            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: Number(e.target.value) })} placeholder="الياردات" required />
-            <Input type="number" min={0} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="طاقات" />
+            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: e.target.value })} placeholder="الياردات" required />
+            <Input type="number" min={0} value={it.rolls_count} numeric="int" onChange={(e) => updateItem(i, { rolls_count: e.target.value })} placeholder="طاقات" />
             <button type="button" onClick={() => setItems((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r))} className="p-2 rounded-lg text-neutral-400 hover:text-red-500">
               <X size={16} />
             </button>

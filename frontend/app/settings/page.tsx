@@ -201,7 +201,7 @@ export default function SettingsPage() {
   const [autoBackupInfo, setAutoBackupInfo] = useState<AutoBackupInfo | null>(null);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
   const [autoBackupTime, setAutoBackupTime] = useState('');
-  const [autoBackupEveryHours, setAutoBackupEveryHours] = useState(0);
+  const [autoBackupEveryHours, setAutoBackupEveryHours] = useState('');
   const [autoBackupLoading, setAutoBackupLoading] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
 
@@ -262,7 +262,7 @@ export default function SettingsPage() {
     if (settings) {
       setAutoBackupEnabled(!!settings.auto_backup_enabled);
       setAutoBackupTime(settings.auto_backup_time || '');
-      setAutoBackupEveryHours(Number(settings.auto_backup_every_hours || 0));
+      setAutoBackupEveryHours(String(settings.auto_backup_every_hours ?? ''));
     }
   }, [settings]);
 
@@ -272,7 +272,7 @@ export default function SettingsPage() {
       const patch: any = {
         auto_backup_enabled: autoBackupEnabled,
         auto_backup_time: autoBackupTime || null,
-        auto_backup_every_hours: autoBackupEveryHours,
+        auto_backup_every_hours: Number(autoBackupEveryHours) || 0,
       };
       await updateSettings(patch);
       toast('success', 'تم حفظ إعدادات النسخ التلقائي بنجاح');
@@ -735,6 +735,7 @@ export default function SettingsPage() {
                 <Input
                   label="تنبيه مدة الوردية (ساعات)"
                   type="number"
+                  numeric="int"
                   min="1"
                   max="24"
                   step="1"
@@ -744,6 +745,7 @@ export default function SettingsPage() {
                 <Input
                   label="تحذير الوردية الطويلة (ساعات)"
                   type="number"
+                  numeric="int"
                   min="1"
                   max="72"
                   step="1"
@@ -1017,13 +1019,14 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <label className="text-xs font-medium text-neutral-500 block mb-1">كل (ساعة)</label>
-                  <input
+                  <Input
                     type="number"
+                    numeric="int"
                     min="0"
                     max="720"
                     value={autoBackupEveryHours}
-                    onChange={(e) => setAutoBackupEveryHours(Math.max(0, Number(e.target.value)))}
-                    className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                    onChange={(e) => setAutoBackupEveryHours(e.target.value)}
+                    className="focus:ring-brand-500/40"
                   />
                   <p className="text-[11px] text-neutral-400 mt-1">0 = إيقاف الفاصل الزمني</p>
                 </div>

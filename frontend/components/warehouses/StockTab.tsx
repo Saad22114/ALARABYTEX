@@ -491,6 +491,7 @@ export default function StockTab() {
                     <Input
                       label="الطاقات"
                       type="number"
+                      numeric="int"
                       min="1"
                       step="1"
                       value={line.rolls}

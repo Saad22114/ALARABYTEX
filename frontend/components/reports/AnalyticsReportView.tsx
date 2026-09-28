@@ -190,6 +190,7 @@ export default function AnalyticsReportView({
           {report.supportsIdleDays && (
             <Input
               type="number"
+              numeric="int"
               min="0"
               value={idleDays}
               onChange={(e) => onIdleDays(e.target.value)}

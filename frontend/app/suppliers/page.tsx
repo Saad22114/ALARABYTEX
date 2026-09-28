@@ -353,13 +353,13 @@ export default function SuppliersPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-medium text-neutral-500 block mb-1">المبلغ</label>
-                <input
+                <Input
                   type="number"
                   min="0"
                   step="0.001"
                   value={payAmount}
                   onChange={(e) => setPayAmount(e.target.value)}
-                  className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  className="focus:ring-brand-500/40"
                   placeholder="0.000"
                 />
               </div>

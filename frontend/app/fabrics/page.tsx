@@ -7,6 +7,7 @@ import Button from '@/components/ui/Button';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
+import Input from '@/components/ui/Input';
 import Pagination from '@/components/ui/Pagination';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -538,13 +539,13 @@ export default function FabricsPage() {
                 <label className="text-xs font-medium text-neutral-500 block mb-1">
                   {bulkForm.mode === 'percent' ? 'النسبة %' : 'المبلغ'}
                 </label>
-                <input
+                <Input
                   type="number"
                   min="0"
                   step={bulkForm.mode === 'percent' ? '0.1' : '0.001'}
                   value={bulkForm.value}
                   onChange={(e) => setBulkForm({ ...bulkForm, value: e.target.value })}
-                  className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  className="focus:ring-brand-500/40"
                   placeholder={bulkForm.mode === 'percent' ? 'مثال: 10' : 'مثال: 0.500'}
                 />
               </div>

@@ -37,6 +37,9 @@ const STATUS_VARIANT: Record<TransferStatus, 'success' | 'warning' | 'danger' | 
 
 type TransferActionType = 'request' | 'approve' | 'reject' | 'complete' | 'cancel' | 'delete';
 
+/** مسودة الصنف: الأرقام نصوص كما يكتبها المستخدم، حتى لا يظهر «0» في خانة فارغة. */
+type TransferDraft = Omit<TransferItem, 'yards' | 'rolls_count'> & { yards: string; rolls_count: string };
+
 function TransferForm({
   warehouses,
   branches,
@@ -57,14 +60,14 @@ function TransferForm({
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [requestedBy, setRequestedBy] = useState('');
   const [notes, setNotes] = useState('');
-  const [items, setItems] = useState<TransferItem[]>([{ fabric: fabrics[0]?.id ?? 0, yards: 0, rolls_count: 0, quantity_mode: 'yard' }]);
+  const [items, setItems] = useState<TransferDraft[]>([{ fabric: fabrics[0]?.id ?? 0, yards: '', rolls_count: '', quantity_mode: 'yard' }]);
 
-  const updateItem = (i: number, patch: Partial<TransferItem>) => {
+  const updateItem = (i: number, patch: Partial<TransferDraft>) => {
     setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
 
   const addItem = () =>
-    setItems((r) => [...r, { fabric: fabrics[0]?.id ?? 0, yards: 0, rolls_count: 1, quantity_mode: 'yard' }]);
+    setItems((r) => [...r, { fabric: fabrics[0]?.id ?? 0, yards: '', rolls_count: '', quantity_mode: 'yard' }]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,8 +79,8 @@ function TransferForm({
       notes,
       items: items.map((it) =>
         it.quantity_mode === 'roll'
-          ? { fabric: it.fabric, rolls_count: it.rolls_count, quantity_mode: 'roll' }
-          : { fabric: it.fabric, yards: it.yards, rolls_count: it.rolls_count || 0, quantity_mode: 'yard' }
+          ? { fabric: it.fabric, rolls_count: Number(it.rolls_count) || 0, quantity_mode: 'roll' }
+          : { fabric: it.fabric, yards: Number(it.yards) || 0, rolls_count: Number(it.rolls_count) || 0, quantity_mode: 'yard' }
       ),
     };
     if (destType === 'branch') {
@@ -163,9 +166,10 @@ function TransferForm({
             {it.quantity_mode === 'roll' ? (
               <Input
                 type="number"
+                numeric="int"
                 min={1}
                 value={it.rolls_count}
-                onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })}
+                onChange={(e) => updateItem(i, { rolls_count: e.target.value })}
                 placeholder="عدد الطاقات"
                 required
               />
@@ -176,15 +180,16 @@ function TransferForm({
                   min={0}
                   step="0.01"
                   value={it.yards}
-                  onChange={(e) => updateItem(i, { yards: Number(e.target.value) })}
+                  onChange={(e) => updateItem(i, { yards: e.target.value })}
                   placeholder="الياردات"
                   required
                 />
                 <Input
                   type="number"
+                  numeric="int"
                   min={0}
                   value={it.rolls_count}
-                  onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })}
+                  onChange={(e) => updateItem(i, { rolls_count: e.target.value })}
                   placeholder="طاقات"
                   className="w-20"
                 />

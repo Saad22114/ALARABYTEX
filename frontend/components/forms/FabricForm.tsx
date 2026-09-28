@@ -421,7 +421,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         <Input label="اللون" value={form.color} onChange={(e) => set('color', e.target.value)} placeholder="مثال: أزرق" />
         <Input label="التركيبة" value={form.composition} onChange={(e) => set('composition', e.target.value)} placeholder="مثال: قطن 100%" />
         <Input label="العرض (سم)" type="number" step="0.1" min="0" value={form.width_cm} onChange={(e) => set('width_cm', e.target.value)} placeholder="مثال: 150" />
-        <Input label="الوزن (جم/م²)" type="number" step="1" min="0" value={form.weight_gsm} onChange={(e) => set('weight_gsm', e.target.value)} placeholder="مثال: 240" />
+        <Input label="الوزن (جم/م²)" type="number" step="1" min="0" value={form.weight_gsm} numeric="int" onChange={(e) => set('weight_gsm', e.target.value)} placeholder="مثال: 240" />
         <Input label="الشركة المصنعة" value={form.manufacturer} onChange={(e) => set('manufacturer', e.target.value)} placeholder="اسم الشركة المصنعة" />
         <Select label="المورد الأساسي" value={form.supplier} onChange={(e) => set('supplier', e.target.value)} options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="اختر المورد..." />
       </div>

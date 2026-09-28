@@ -15,6 +15,9 @@ import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import { Plus, CheckCircle2, Trash2, X } from 'lucide-react';
 import { GoodsReceipt, Paginated, Warehouse, Fabric, Supplier, ReceiptItem, Branch } from '@/types';
+
+/** مسودة الصنف: الأرقام نصوص كما يكتبها المستخدم، حتى لا يظهر «0» في خانة فارغة. */
+type ReceiptDraft = Omit<ReceiptItem, 'yards' | 'rolls_count' | 'unit_price'> & { yards: string; rolls_count: string; unit_price: string };
 import { listReceipts, createReceipt, postReceipt, deleteReceipt, ReceiptWrite } from '@/services/warehouses';
 import { listWarehouses } from '@/services/warehouses';
 import { listBranches } from '@/services/branches';
@@ -46,9 +49,9 @@ function ReceiptForm({
   const [supplier, setSupplier] = useState<string>('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplierReceiptNo, setSupplierReceiptNo] = useState('');
-  const [items, setItems] = useState<ReceiptItem[]>([{ fabric: fabrics[0]?.id ?? 0, rolls_count: 1, yards: 0, unit_price: 0 }]);
+  const [items, setItems] = useState<ReceiptDraft[]>([{ fabric: fabrics[0]?.id ?? 0, rolls_count: '', yards: '', unit_price: '' }]);
 
-  const updateItem = (i: number, patch: Partial<ReceiptItem>) => {
+  const updateItem = (i: number, patch: Partial<ReceiptDraft>) => {
     setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
 
@@ -58,7 +61,7 @@ function ReceiptForm({
       supplier: supplier ? Number(supplier) : null,
       date,
       supplier_receipt_no: supplierReceiptNo,
-      items: items.map((it) => ({ fabric: it.fabric, rolls_count: it.rolls_count, yards: it.yards, unit_price: it.unit_price })),
+      items: items.map((it) => ({ fabric: it.fabric, rolls_count: Number(it.rolls_count) || 0, yards: Number(it.yards) || 0, unit_price: Number(it.unit_price) || 0 })),
     };
     if (destType === 'branch') {
       if (!branch) return;
@@ -114,7 +117,7 @@ function ReceiptForm({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="block text-sm font-medium text-neutral-700">الأصناف *</label>
-          <Button type="button" variant="subtle" size="sm" onClick={() => setItems((r) => [...r, { fabric: fabrics[0]?.id ?? 0, rolls_count: 1, yards: 0, unit_price: 0 }])}>
+          <Button type="button" variant="subtle" size="sm" onClick={() => setItems((r) => [...r, { fabric: fabrics[0]?.id ?? 0, rolls_count: '', yards: '', unit_price: '' }])}>
             <Plus size={16} />
             إضافة صنف
           </Button>
@@ -129,9 +132,9 @@ function ReceiptForm({
         {items.map((it, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center bg-sand-50 p-2 rounded-xl">
             <Select value={it.fabric} onChange={(e) => updateItem(i, { fabric: Number(e.target.value) })} options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))} />
-            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: Number(e.target.value) })} placeholder="الياردات" required />
-            <Input type="number" min={1} value={it.rolls_count} onChange={(e) => updateItem(i, { rolls_count: Number(e.target.value) })} placeholder="الطاقات" />
-            <Input type="number" min={0} step="0.001" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })} placeholder="السعر / ياردة" />
+            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: e.target.value })} placeholder="الياردات" required />
+            <Input type="number" min={1} value={it.rolls_count} numeric="int" onChange={(e) => updateItem(i, { rolls_count: e.target.value })} placeholder="الطاقات" />
+            <Input type="number" min={0} step="0.001" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: e.target.value })} placeholder="السعر / ياردة" />
             <button type="button" onClick={() => setItems((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r))} className="p-2 rounded-lg text-neutral-400 hover:text-red-500">
               <X size={16} />
             </button>
@@ -141,7 +144,7 @@ function ReceiptForm({
 
       <div className="flex justify-between items-center pt-2">
         <div className="text-sm text-neutral-500">
-          الإجمالي: <b className="tabular-nums">{formatNumber(items.reduce((s, it) => s + it.yards * it.unit_price, 0))}</b>
+          الإجمالي: <b className="tabular-nums">{formatNumber(items.reduce((s, it) => s + (Number(it.yards) || 0) * (Number(it.unit_price) || 0), 0))}</b>
         </div>
         <Button type="submit" loading={loading}>حفظ سند الاستلام</Button>
       </div>
