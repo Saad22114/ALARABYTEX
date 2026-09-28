@@ -1,17 +1,36 @@
 import os
+import secrets
 import sys
 from pathlib import Path
 
 import dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 dotenv.load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-dev-change-me-0987fabric")
-
 DEBUG = os.getenv("DEBUG", "True").lower() in ("1", "true", "yes")
 
+# مفتاح سرّي حقيقي. كانت هنا قيمة افتراضية ثابتة في الكود، أي أن من يقرأ
+# المستودع يستطيع تزوير توقيعات الجلسة والكوكيز على أي خادم لم يغيّرها.
+# في التطوير نولّد مفتاحاً عشوائياً لكل تشغيل (فتُلغى الجلسات عند إعادة
+# التشغيل، وهو أمر غير مؤذٍ)، وفي الإنتاج نرفض الإقلاع حتى يُضبط في البيئة.
+_secret_key = os.getenv("SECRET_KEY", "").strip()
+if not _secret_key or _secret_key == "change-me-in-production-please":
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            "SECRET_KEY مطلوب في الإنتاج. ولّده بالأمر: "
+            'python -c "import secrets; print(secrets.token_urlsafe(50))" '
+            "ثم ضعه في متغيّر البيئة أو في backend/.env"
+        )
+    _secret_key = "django-insecure-dev-" + secrets.token_urlsafe(32)
+SECRET_KEY = _secret_key
+
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "*").split(",") if h.strip()]
+if not DEBUG and ALLOWED_HOSTS == ["*"]:
+    raise ImproperlyConfigured(
+        "ALLOWED_HOSTS لا يمكن أن يكون '*' في الإنتاج. حدّد النطاقات مثل: example.com,www.example.com"
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",

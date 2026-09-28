@@ -71,14 +71,28 @@ python manage.py runserver 127.0.0.1:8000
 
 | المتغير | الافتراضي | الوصف |
 |---|---|---|
-| DJANGO_DEBUG | True | وضع التطوير |
-| SECRET_KEY | — | مفتاح سرّي (استبدله في الإنتاج) |
+| DEBUG | True | وضع التطوير. **يجب** أن يكون False في الإنتاج |
+| SECRET_KEY | — | مفتاح سرّي. **مطلوب في الإنتاج**: Django يرفض الإقلاع بدونه. ولّده بـ `python -c "import secrets; print(secrets.token_urlsafe(50))"` |
+| ALLOWED_HOSTS | * | نطاقات مسموحة. `*` مرفوض في الإنتاج |
 | DB_NAME | fabric_arabi | اسم القاعدة |
-| DB_USER / DB_PASSWORD | postgres / postgres | بيانات الاتصال |
+| DB_USER / DB_PASSWORD | postgres / change-me | بيانات الاتصال (غيّر كلمة المرور) |
 | DB_HOST / DB_PORT | 127.0.0.1 / 5432 | عنوان القاعدة |
 | FRONTEND_URL | http://localhost:3000 | أصل المسموح به لـ CORS |
+| ADMIN_USERNAME | — | مطلوب لـ `start.sh`. **لا قيمة افتراضية** عمداً |
+| ADMIN_PASSWORD | — | اتركه فارغاً ليولّد `start.sh` كلمة عشوائية ويطبعها مرة واحدة |
 
 > ملاحظة: `manage.py` يقرأ `.env` من مجلد `backend/` تلقائياً.
+
+### حساب المدير
+
+```bash
+python manage.py create_admin --username اسم_المستخدم
+```
+
+كلمة المرور **لا لها قيمة افتراضية**: إن لم تُمرَّر يُولّد الأمر كلمة عشوائية
+قوية ويطبعها مرة واحدة في الطرفية — احفظها عندها. هذا مقصود: أي كلمة مرور
+مثبّتة في الكود تصبح كلمة مرور معروفة لكل من يقرأ المستودع، وتُنشئ باباً
+مفتوحاً على كل خادم جديد لم يغيّرها.
 
 ## 3) تشغيل Frontend (Next.js)
 
