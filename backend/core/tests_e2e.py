@@ -98,8 +98,12 @@ class SectionsAndBasicsE2ETest(E2EBase):
         r = self.c.patch("/api/settings/", {"low_stock_threshold": 12}, format="json")
         self.assertEqual(r.status_code, 200, r.data)
         self.assertEqual(r.data["low_stock_threshold"], "12.00")
+        # التشفير إلزامي: لا ملف بلا مفتاح.
+        r = self.c.patch("/api/settings/", {"backup_password": "e2e-backup-pass"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
         r = self.c.get("/api/settings/backup/")
         self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["encrypted"])
 
 
 class PurchaseAndSessionE2ETest(E2EBase):

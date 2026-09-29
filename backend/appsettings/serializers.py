@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .crypto import password_problem
 from .models import AppSettings
 
 
@@ -38,3 +39,18 @@ class AppSettingsSerializer(serializers.ModelSerializer):
 
     def get_has_backup_password(self, obj):
         return bool(obj.backup_password)
+
+    def validate_backup_password(self, value):
+        """لا مجال لإلغاء التشفير.
+
+        الحقل الفارغ كان يعني «امسح المفتاح» فتصبح النسخ بعدها نصاً مقروءاً —
+        خيار بقي في الواجهة بعد أن صار التسريب محسوساً. صار الفراغ يعني
+        «لم تُغيّر الكلمة»: نُبقي الحالية، وبلا كلمة أصلاً يبقى فارغاً
+        فيرفض التصدير حتى تُضبط.
+        """
+        if value == "":
+            return getattr(self.instance, "backup_password", "") or ""
+        problem = password_problem(value)
+        if problem:
+            raise serializers.ValidationError(problem)
+        return value

@@ -100,6 +100,50 @@ class GoodsReceiptAPITest(TestCase):
         r2 = self.c.post(f"/api/warehouses/receipts/{rid}/post/")
         self.assertGreaterEqual(r2.status_code, 400)
 
+    def test_posted_rolls_never_lose_yards_to_rounding(self):
+        """مجموع لفات السند = ياردات السند بالضبط مهما كان عدد اللفات.
+
+        كان نصّ اللفة يُقرَّب لكل لفة على حدة، فيضيع نصف قرش عن كل لفة: سند
+        133.41 ياردة على لفتين كان يُسجَّل 66.70 + 66.70 = 133.40. الفارق
+        يبدو تافهاً، لكنه يجعل رصيد المخزن أقل من المستلم، فيرفض مُسلسل البيع
+        بيعةً بعد أن قبل السند كله.
+        """
+        for yards, rolls in (
+            (Decimal("133.41"), 2),   # 66.705 لكل لفة: الحالة التي كانت تضيع
+            (Decimal("10.10"), 3),    # 3.3666 لكل لفة: زائد 0.01
+            (Decimal("7.11"), 2),     # 3.555 لكل لفة: زائد 0.01
+            (Decimal("1.02"), 4),     # 0.255 لكل لفة: زائد 0.02
+        ):
+            with self.subTest(yards=yards, rolls=rolls):
+                # تنظيف في أول الدورة لا آخرها: لو فشل أحد التأكيدات لتبقّى أثر
+                # الدورة الفاشلة فانهار ما بعدها بأرقام لا علاقة لها.
+                FabricRoll.objects.filter(warehouse=self.wh, fabric=self.fabric).delete()
+                StockMovement.objects.filter(warehouse=self.wh, fabric=self.fabric).delete()
+
+                r = self.c.post("/api/warehouses/receipts/", {
+                    "warehouse": self.wh.pk, "date": date.today().isoformat(),
+                    "items": [{
+                        "fabric": self.fabric.pk, "rolls_count": rolls,
+                        "yards": yards, "unit_price": 1,
+                    }],
+                }, format="json")
+                self.assertEqual(r.status_code, 201, r.data)
+                self.c.post(f"/api/warehouses/receipts/{r.data['id']}/post/")
+
+                made = FabricRoll.objects.filter(
+                    warehouse=self.wh, fabric=self.fabric
+                )
+                self.assertEqual(made.count(), rolls)
+                self.assertEqual(sum(x.remaining_yards for x in made), yards)
+                # وحركة المخزن تعكس السند لا الهامش المفقود.
+                received = StockMovement.objects.filter(
+                    warehouse=self.wh, fabric=self.fabric,
+                    movement_type=StockMovement.Type.RECEIPT,
+                )
+                self.assertEqual(sum(x.quantity for x in received), yards)
+                # كل لفة لا تقل عن سنتيم واحد، فلا تنتج لفة صفرية.
+                self.assertTrue(all(x.yards > 0 for x in made))
+
     def test_delete_posted_receipt_rejected(self):
         r = self.c.post("/api/warehouses/receipts/", {
             "warehouse": self.wh.pk, "date": date.today().isoformat(),

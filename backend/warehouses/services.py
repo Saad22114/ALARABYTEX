@@ -62,10 +62,13 @@ def add_rolls(warehouse, fabric, yards, unit_cost=Decimal("0"),
         raise serializers.ValidationError("الكمية يجب أن تكون أكبر من صفر")
     if rolls_count < 1:
         raise serializers.ValidationError("عدد اللفات يجب أن يكون 1 على الأقل")
-    per_roll = yards / Decimal(str(rolls_count))
+    # نقرّب نصّ اللفة مرّة واحدة ثم نعطي فائض التقريب لآخر لفة، وإلا ضاع نصف
+    # قرش لكل لفة: 133.41 ياردة على لفتين كانتا تُسجَّلان 66.70 + 66.70 = 133.40
+    # فينقص الاستلام عن السند، ويصير رصيد المخزن أقل من المستلم بدل أن يساويه.
+    per_roll = (yards / Decimal(str(rolls_count))).quantize(Decimal("0.01"))
     created = []
     for i in range(rolls_count):
-        y = (per_roll if i < rolls_count - 1 else yards - per_roll * (rolls_count - 1)).quantize(Decimal("0.01"))
+        y = per_roll if i < rolls_count - 1 else yards - per_roll * (rolls_count - 1)
         roll = FabricRoll.objects.create(
             warehouse=warehouse, fabric=fabric, yards=y, remaining_yards=y,
             unit_cost=unit_cost, received_date=date, notes=notes,

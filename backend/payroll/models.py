@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Index
+from django.db.models import F, Index
 
 from core.models import TimeStampedModel, ActiveModel
 from sale_sessions.models import Employee
@@ -379,3 +379,25 @@ class Payslip(TimeStampedModel):
     @property
     def net_pay(self):
         return self.gross - self.total_deductions
+
+    @staticmethod
+    def net_pay_expression():
+        """تعبير SQL مكافئ للخاصية ``net_pay``.
+
+        ``net_pay`` خاصية محسوبة في بايثون، فلا يمكن تجميعها بـ ``Sum`` في
+        قاعدة البيانات. من يحتاج تجميعاً (مثل تقرير الربح والخسارة لكل فرع)
+        يستخدم هذا التعبير بدل تكرار الحقول يدوياً.
+        """
+        return (
+            F("base_salary")
+            + F("housing_allowance")
+            + F("transport_allowance")
+            + F("other_allowance")
+            + F("overtime_amount")
+            + F("bonus")
+            + F("commission_amount")
+            - F("absence_deduction")
+            - F("late_deduction")
+            - F("other_deduction")
+            - F("advance_deduction")
+        )

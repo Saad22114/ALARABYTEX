@@ -86,10 +86,32 @@ export async function apiRequest<T>(
         throw new Error(`${firstKey}: ${msg}`);
       }
     }
-    throw new Error('حدث خطأ غير متوقع');
+    // ردّ بلا JSON: Django يرفض أجسام الطلبات الضخمة قبل أن تصل إلى العرض،
+    // فيردّ 400 فارغاً. بلا هذا التمييز يظهر للمستخدم «خطأ غير متوقع» فيتومه
+    // أن كلمة مروره هي السبب.
+    if (!data && res.status === 400) {
+      throw new Error('الملف أو البيانات أكبر من الحدّ الذي يقبله الخادم');
+    }
+    throw new Error(`تعذّرت العملية (رمز ${res.status})`);
   }
 
   return data as T;
+}
+
+/** اسم الملف من ترويسة الخادم، فإن غاب فاسم احتياطي. */
+function filenameFromDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  // filename*=UTF-8''... (RFC 5987) يتقدّم على filenamePlain لأنه يحمل العربية.
+  const star = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim()) || fallback;
+    } catch {
+      /* ترويسة مشوّهة: نكمل بالاسم الاحتياطي */
+    }
+  }
+  const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(header);
+  return plain ? plain[1].trim() || fallback : fallback;
 }
 
 export async function downloadBlob(url: string, fallbackFilename: string): Promise<void> {
@@ -106,9 +128,14 @@ export async function downloadBlob(url: string, fallbackFilename: string): Promi
   const link = document.createElement('a');
   const objectUrl = URL.createObjectURL(blob);
   link.href = objectUrl;
-  link.download = fallbackFilename;
+  // اسم الخادم يحمل التاريخ والوقت، فيُعرف أي نسخة هذا الملف. وتجاهله كان
+  // يجعل كل تنزيلات النسخة باسم واحد فيصطدم بعضها ببعض في مجلد التنزيلات.
+  link.download = filenameFromDisposition(res.headers.get('Content-Disposition'), fallbackFilename);
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(objectUrl);
+  // لا يُبطَل الرابط قبل أن يبدأ المتصفح قراءته: الإبطال الفوري يقطع
+  // التنزيل في أوله فيخرج ملف نسخة احتياطية ناقصاً لا يُفتح ولا يُستعاد —
+  // والسبب لا يظهر إلا عند الاستعادة بعد شهور.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
 }

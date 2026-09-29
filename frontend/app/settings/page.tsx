@@ -20,7 +20,7 @@ import {
 import { ExpenseCategory, ExpenseBudget, Branch, AppSection } from '@/types';
 import { listExpenseCategories, listExpenseBudgets, createExpenseBudget, updateExpenseBudget, deleteExpenseBudget } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
-import { restoreSettings, resetData, getAutoBackups, runAutoBackup, downloadBackup, downloadAutoBackup, deleteAutoBackup, AutoBackupInfo } from '@/services/settings';
+import { restoreSettings, resetData, getAutoBackups, downloadBackup, downloadAutoBackup, deleteAutoBackup, AutoBackupInfo } from '@/services/settings';
 import { getSectionsInfo } from '@/services/sections';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
@@ -197,13 +197,15 @@ export default function SettingsPage() {
   const [backupPassword, setBackupPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // النسخة المختارة تنتظر كلمة المرور قبل إرسالها؛ لا تُرسل أبداً بلا مفتاح.
+  const [pendingRestore, setPendingRestore] = useState<{ text: string } | null>(null);
+  const [restorePassword, setRestorePassword] = useState('');
 
   const [autoBackupInfo, setAutoBackupInfo] = useState<AutoBackupInfo | null>(null);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
   const [autoBackupTime, setAutoBackupTime] = useState('');
   const [autoBackupEveryHours, setAutoBackupEveryHours] = useState('');
   const [autoBackupLoading, setAutoBackupLoading] = useState(false);
-  const [runningNow, setRunningNow] = useState(false);
 
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -283,24 +285,9 @@ export default function SettingsPage() {
     }
   };
 
-  const handleRunAutoBackupNow = async () => {
-    setRunningNow(true);
-    try {
-      const res = await runAutoBackup();
-      // نبّه عند بلوغ السقف: النسخة التالية تحذف الأقدم بلا تراجع
-      toast(
-        'success',
-        res.kept >= res.keep
-          ? `تم إنشاء النسخة — ${res.kept}/${res.keep}، والنسخة القادمة تحذف الأقدم`
-          : 'تم إنشاء نسخة احتياطية الآن',
-      );
-      fetchAutoBackups();
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setRunningNow(false);
-    }
-  };
+  // ملاحظة: لا زرّ «نسخة الآن» هنا عمداً — النسخ الاحتياطي بزرّ واحد
+  // (تصدير أعلى الصفحة)، والنسخ التلقائي يجري بمجدول الخادم لا بضغط المستخدم.
+  //_scheduler_ يحتفظ بإعداده ويُشغّل النسخ بنفس التشفير في موعده.
 
   const handleSaveBusiness = async () => {
     setSavingBusiness(true);
@@ -402,29 +389,55 @@ export default function SettingsPage() {
     }
   };
 
+  const runRestore = async (text: string, password: string) => {
+    setRestoring(true);
+    try {
+      await restoreSettings({ content: text, backup_password: password });
+      setPendingRestore(null);
+      setRestorePassword('');
+      toast('success', 'تم استيراد النسخة الاحتياطية بنجاح');
+      refreshSettings();
+    } catch (err: any) {
+      // الخطأ مرتبط بالمفتاح تحديداً: نُبقي النافذة مفتوحة ليعيد المحاولة
+      // بدل أن يضطر لاختيار الملف من جديد.
+      if (pendingRestore) toast('error', err.message || 'كلمة المرور غير صحيحة');
+      else toast('error', err.message || 'فشل استيراد النسخة الاحتياطية');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const handleRestoreFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    setRestoring(true);
+    let text: string;
+    let parsed: unknown;
     try {
-      const text = await file.text();
-      JSON.parse(text);
-      await restoreSettings({ content: text });
-      toast('success', 'تم استيراد النسخة الاحتياطية بنجاح');
-      refreshSettings();
-    } catch (err: any) {
-      toast('error', err.message || 'فشل استيراد النسخة الاحتياطية');
-    } finally {
-      setRestoring(false);
+      text = await file.text();
+      parsed = JSON.parse(text);
+    } catch {
+      toast('error', 'ملف النسخة الاحتياطية غير صالح');
+      return;
     }
+    // النسخة مُشفَّرة، فالمفتاح جزء من الاسترجاع لا تفصيل بعده. ولا يُرسَل
+    // الملف بلا مفتاح ثم يُكتشف الخطأ لاحقاً: كلمة المرور تُطلب هنا.
+    const encrypted =
+      !!parsed && typeof parsed === 'object' &&
+      (parsed as any).format === 'qomash-backup' && (parsed as any).encrypted === true;
+    if (encrypted) {
+      setPendingRestore({ text });
+      setRestorePassword('');
+      return;
+    }
+    await runRestore(text, '');
   };
 
   const handleSavePassword = async () => {
     setSavingPassword(true);
     try {
       await updateSettings({ backup_password: backupPassword });
-      toast('success', backupPassword ? 'تم حفظ كلمة مرور النسخة الاحتياطية' : 'تم إلغاء تشفير النسخة الاحتياطية');
+      toast('success', 'تم حفظ كلمة مرور النسخة الاحتياطية');
       setBackupPassword('');
       refreshSettings();
     } catch (err: any) {
@@ -937,17 +950,27 @@ export default function SettingsPage() {
         {tab === 'data' && (
           <Card title="إدارة البيانات" subtitle="النسخ الاحتياطي والاستعادة وإعادة الضبط">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-sand-50 rounded-xl flex flex-col items-start gap-3">
-                <p className="text-sm font-medium text-neutral-700">تصدير نسخة احتياطية</p>
-                <p className="text-xs text-neutral-500">تنزيل جميع بيانات النظام كملف JSON (الفرع، الموظفون، الزبائن، الأقمشة والمخزون، المبيعات، المصاريف، المحاسبة، الرسائل، الشعار والإعدادات).</p>
-                <Button variant="secondary" onClick={handleBackup} loading={backupDownloading}>
+              <div className="p-4 bg-sand-50 rounded-xl flex flex-col items-start gap-3 md:col-span-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-neutral-700">نسخة احتياطية مشفّرة</p>
+                  <Badge variant="success">AES-256-GCM</Badge>
+                </div>
+                <p className="text-xs text-neutral-500">
+                  زرّ واحد لكل شيء: تنزيل نسخة كاملة من بيانات النظام — الفروع، الموظفون، الزبائن،
+                  الأقمشة والمخزون، المبيعات، المصاريف، المحاسبة، الرسائل، الشعار والإعدادات — في ملف
+                  واحد مشفّر لا يُقرأ إلا بكلمة المرور، وباسم يحمل تاريخه ووقتـه.
+                </p>
+                {!settings?.has_backup_password && (
+                  <p className="text-xs text-red-600">اضبط كلمة مرور التشفير بالأسفل أولاً — لا تُصدَّر نسخ غير مشفّرة.</p>
+                )}
+                <Button variant="secondary" onClick={handleBackup} loading={backupDownloading} disabled={!settings?.has_backup_password}>
                   <Download size={16} />
-                  تصدير نسخة احتياطية
+                  تنزيل النسخة الاحتياطية
                 </Button>
               </div>
               <div className="p-4 bg-sand-50 rounded-xl flex flex-col items-start gap-3">
                 <p className="text-sm font-medium text-neutral-700">استيراد نسخة</p>
-                <p className="text-xs text-neutral-500">استبدال البيانات الحالية من ملف نسخة احتياطية.</p>
+                <p className="text-xs text-neutral-500">استبدال البيانات الحالية من ملف نسخة احتياطية. ستطلب كلمة المرور التي شُفّرت بها.</p>
                 <Button variant="secondary" loading={restoring} onClick={() => fileInputRef.current?.click()}>
                   <Upload size={16} />
                   استيراد نسخة
@@ -973,28 +996,31 @@ export default function SettingsPage() {
             <div className="mt-6 p-4 bg-sand-50 rounded-xl">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-sm font-medium text-neutral-700">كلمة مرور تشفير النسخة الاحتياطية</p>
-                <Badge variant={settings?.has_backup_password ? 'success' : 'neutral'}>
-                  {settings?.has_backup_password ? 'مُشفّرة' : 'بدون تشفير'}
+                <Badge variant={settings?.has_backup_password ? 'success' : 'danger'}>
+                  {settings?.has_backup_password ? 'مُفعّلة' : 'مطلوبة — لم تُضبط'}
                 </Badge>
               </div>
               <p className="text-xs text-neutral-500 mb-3">
-                عند ضبط كلمة مرور تُصدَّر النسخة الاحتياطية مشفّرة تلقائياً، وتُطلب الكلمة نفسها للاستعادة.
-                اتركها فارغة لإلغاء التشفير.
+                كل نسخة تُصدَّر مشفّرة (AES-256-GCM)، فلا تُقرأ بملف نصوص ولا على جهاز آخر.
+                لا يمكن تعطيل التشفير، وكلمة المرور هذه ما يفتح النسخة عند الاسترجاع — احتفظ بها في مكان آمن.
               </p>
               <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
                 <div className="w-full sm:max-w-xs">
                   <Input
                     type="password"
-                    placeholder={settings?.has_backup_password ? 'أدخل كلمة مرور جديدة' : 'كلمة المرور'}
+                    placeholder={settings?.has_backup_password ? 'أدخل كلمة مرور جديدة' : 'كلمة المرور (8 أحرف على الأقل)'}
                     value={backupPassword}
                     onChange={(e) => setBackupPassword(e.target.value)}
                   />
                 </div>
-                <Button onClick={handleSavePassword} loading={savingPassword}>
+                <Button onClick={handleSavePassword} loading={savingPassword} disabled={!backupPassword.trim()}>
                   <Check size={16} />
                   حفظ كلمة المرور
                 </Button>
               </div>
+              <p className="text-xs text-neutral-400 mt-2">
+                تغيير الكلمة لا يفتح النسخ القديمة: كل نسخة تُفتح بالكلمة التي شُفّرت بها.
+              </p>
             </div>
           <div className="mt-6 p-4 bg-sand-50 rounded-xl">
               <div className="flex items-center justify-between mb-1">
@@ -1038,11 +1064,11 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              {/* زر «إنشاء نسخة الآن» أُزيل عمداً: صار النسخ الاحتياطي عمليةً
+                  واحدة بزر واحد (تصدير أعلى الصفحة). زرّان ينتجان الملف نفسه بلا
+                  فرق في المحتوى أو التشفير، فاختيار أيّهما كان يُربك أيّهما
+                  يُستعاد —"Well/آخر نسخة تلقائية" بقيت لأنها معلومات عن المجدول. */}
               <div className="mt-4 flex flex-wrap items-center gap-3">
-                <Button variant="secondary" onClick={handleRunAutoBackupNow} loading={runningNow}>
-                  <Download size={16} />
-                  إنشاء نسخة الآن
-                </Button>
                 {autoBackupInfo?.last_auto_backup_path && (
                   <span className="text-xs text-neutral-500">
                     آخر نسخة تلقائية:{' '}
@@ -1190,6 +1216,33 @@ export default function SettingsPage() {
             </div>
           </Card>
         )}
+
+        <ConfirmDialog
+          open={!!pendingRestore}
+          onClose={() => { setPendingRestore(null); setRestorePassword(''); }}
+          onConfirm={() => pendingRestore && runRestore(pendingRestore.text, restorePassword)}
+          loading={restoring}
+          title="فتح النسخة الاحتياطية"
+          confirmLabel="فتح النسخة"
+          message="هذه النسخة مشفّرة. أدخل كلمة المرور التي شُفّرت بها — بدونها لا يُقرأ الملف، ولن يُستبدل أي بيانات."
+        >
+          <div className="mt-4">
+            <label className="text-xs font-medium text-neutral-500 block mb-1">كلمة مرور النسخة الاحتياطية</label>
+            <input
+              type="password"
+              autoFocus
+              value={restorePassword}
+              onChange={(e) => setRestorePassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && restorePassword && pendingRestore) {
+                  runRestore(pendingRestore.text, restorePassword);
+                }
+              }}
+              placeholder="كلمة المرور التي شُفّرت بها النسخة"
+              className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            />
+          </div>
+        </ConfirmDialog>
 
         <ConfirmDialog
           open={resetOpen}

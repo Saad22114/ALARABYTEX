@@ -237,6 +237,9 @@ class BackupRetentionTest(TestCase):
         self.addCleanup(self.override.disable)
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.s = AppSettings.load()
+        # التشفير إلزامي، فبلا كلمة مرور يرفض ``write_backup_file`` الكتابة.
+        self.s.backup_password = "keep-test-password"
+        self.s.save(update_fields=["backup_password", "updated_at"])
 
     def _make(self, count, mtime_step=10):
         """ينشئ ``count`` ملف نسخة بتعديلات زمنية متزايدة."""

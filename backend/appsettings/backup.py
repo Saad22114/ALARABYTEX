@@ -9,6 +9,8 @@ from django.db import transaction
 
 from core.request_state import suppress_audit
 
+from .crypto import BackupPasswordError, password_problem
+
 #: عدد النسخ المحفوظة على القرص؛ ما قبلها يُحذف عند كل نسخة جديدة.
 #: يُضبط بمتغيّر البيئة BACKUP_KEEP دون حاجة لهجرة قاعدة بيانات.
 BACKUP_KEEP = getattr(settings, "BACKUP_KEEP", 20)
@@ -225,6 +227,24 @@ def export_backup(settings_obj):
     return data
 
 
+def backup_document(settings_obj):
+    """نص النسخة الاحتياطية كاملاً، **مشفّراً دائماً**.
+
+    التشفير ليس خياراً يُختار: النسخة غير المشفّرة تفتح بأي محرر نصوص على أي
+    جهاز، فتسريب الملف يعني تسريب كل بيانات النظام — الفروع والرواتب والزبائن
+    والأرباح. ومن يفتح الملف يملك كل شيء.
+
+    دالة واحدة يبني منها التنزيل والكتابة على القرص، لأن المسارين كانا يقرّران
+    التشفير كلٌّ منهما مستقلاً — فأمكن أن يُصدَّر ملف من أحدهما بلا تشفير
+    بينما الآخر مشفّر، ولا يظهر الخلل إلا حين يفشل الاسترجاع في أسوأ لحظة.
+    """
+    problem = password_problem(settings_obj.backup_password)
+    if problem:
+        raise BackupPasswordError(problem)
+    plaintext = json_dumps(export_backup(settings_obj))
+    return encrypt_content(plaintext, settings_obj.backup_password)
+
+
 def should_run_auto_backup(s, now=None):
     """Determine whether an automatic backup is due based on the settings schedule.
 
@@ -277,6 +297,9 @@ def run_auto_backup_if_due(now=None):
         if not should_run_auto_backup(locked, now):
             return None
         rel = write_backup_file(locked)
+        # ``last_auto_backup_at`` يُحدَّث فقط بعد نجاح الكتابة: تخطّاؤه عند
+        # الفشل يجعل الجدولة تعيد المحاولة في الطلب التالي بدل انتظار
+        # الفاصل الزمني كاملاً.
         locked.last_auto_backup_at = timezone.now()
         locked.last_auto_backup_path = rel
         locked.save(update_fields=["last_auto_backup_at", "last_auto_backup_path", "updated_at"])
@@ -305,13 +328,11 @@ def write_backup_file(settings_obj, prefix="backup"):
     Returns the relative path (e.g. backups/backup_20260922_101530.json).
 
     يُقصى ما تجاوز ``BACKUP_KEEP`` نسخةً فوراً بعد الكتابة، فلا تتراكم
-    النسخ على القرص بلا سقف.
+    النسخ على القرص بلا سقف. المحتوى مشفّر دائماً — انظر ``backup_document``.
     """
     from datetime import datetime
 
-    content = json_dumps(export_backup(settings_obj))
-    if settings_obj.backup_password:
-        content = encrypt_content(content, settings_obj.backup_password)
+    content = backup_document(settings_obj)
     rel_dir = Path("backups")
     backdir = Path(settings.MEDIA_ROOT) / rel_dir
     backdir.mkdir(parents=True, exist_ok=True)

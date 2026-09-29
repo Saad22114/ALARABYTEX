@@ -381,6 +381,64 @@ class ReportsTests(AccountingSetup):
         result = balance_sheet()
         self.assertTrue(result["balanced"])
 
+    def _post_revenue(self, amount, when):
+        """قيد إيراد حقيقي: debits نقدية مقابل ربح، فيصير للفترة ربح موجب."""
+        create_entry(
+            when,
+            "مبيعات الاختبار",
+            JournalEntry.Source.MANUAL,
+            None,
+            [
+                (Account.objects.get(source_key="CASH"), amount, Decimal("0"), "نقد"),
+                (
+                    Account.objects.get(source_key="SALE_REVENUE"),
+                    Decimal("0"),
+                    amount,
+                    "إيراد",
+                ),
+            ],
+        )
+
+    def test_balance_sheet_with_period_profit(self):
+        """المركز المالي لا ينهار على شركة رابحة.
+
+        كان مجموع الأصول مجموِعاً من قيم ``_float`` — أي ``float`` — ثم يُضاف
+        إليه صافي الربح وهو ``Decimal``، فيرمي السطر ``TypeError: unsupported
+        operand type(s) for +=: 'float' and 'decimal.Decimal'``. أي أن المركز
+        المالي كان ينهار في أي شركة رابحة، ولا ينهار في خاسرة أبداً، ولهذا
+        لم يظهر الخطأ في أي اختبار سابق.
+        """
+        self._post_revenue(Decimal("900"), date(2025, 6, 2))
+
+        result = balance_sheet()
+
+        self.assertIn("99", [row["code"] for row in result["equity_rows"]])
+        self.assertGreater(
+            [row for row in result["equity_rows"] if row["code"] == "99"][0]["amount"],
+            0,
+        )
+        self.assertAlmostEqual(result["difference"], 0.0, places=2)
+        self.assertTrue(result["balanced"])
+
+    def test_balance_sheet_totals_are_plain_numbers(self):
+        """كل المبالغ أرقام تُقارَن وتُعرض، لا ``Decimal`` مخلوط بـ``float``."""
+        self._post_revenue(Decimal("500"), date(2025, 6, 3))
+
+        result = balance_sheet()
+
+        for key in ("total_assets", "total_liabilities", "total_equity", "difference"):
+            value = result[key]
+            self.assertIsInstance(value, (int, float), key)
+            self.assertNotIsInstance(value, Decimal, key)
+        for section in ("asset_rows", "liability_rows", "equity_rows"):
+            for row in result[section]:
+                self.assertIsInstance(
+                    row["amount"], (int, float), f"{section}/{row['code']}"
+                )
+                self.assertNotIsInstance(
+                    row["amount"], Decimal, f"{section}/{row['code']}"
+                )
+
     def test_cash_flow(self):
         result = cash_flow()
         self.assertIn("totals", result)

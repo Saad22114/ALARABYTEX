@@ -1,0 +1,281 @@
+﻿== sale_sessions.SaleSession
+   id
+   created_at
+   updated_at
+   employee FK->sale_sessions.Employee (related=yes)
+   branch FK->branches.Branch (related=yes)
+   opened_at
+   closed_at
+   session_date
+   status choices=open,closed
+   commission_amount
+   is_manual
+   manual_date
+   manual_cash
+   manual_transfer
+   manual_card
+   notes
+   next_group_no
+
+== sale_sessions.SaleSessionItem
+   id
+   created_at
+   updated_at
+   session FK->sale_sessions.SaleSession (related=yes)
+   fabric FK->suppliers.Fabric (related=yes)
+   sale_type choices=yard,roll
+   quantity
+   unit_price
+   discount_amount
+   payment_method choices=cash,transfer,card
+   card_type choices=credit,debit
+   card_fee_amount
+   net_total
+   total
+   sale_date
+   customer_name
+   customer_phone
+   sale_group
+   group_no
+   is_returned
+   returned_at
+   return_reason
+
+== sales.DailySale
+   id
+   created_at
+   updated_at
+   branch FK->branches.Branch (related=yes)
+   date
+   employee FK->sale_sessions.Employee (related=yes)
+   total_sales
+   cash_amount
+   transfer_amount
+   card_amount
+   other_amount
+   notes
+
+== payroll.PayrollRun
+   id
+   created_at
+   updated_at
+   month
+   branch FK->branches.Branch (related=yes)
+   status choices=draft,approved,paid,cancelled
+   payment_method
+   paid_at
+   approved_at
+   created_by FK->auth.User (related=yes)
+   notes
+
+== payroll.Payslip
+   id
+   created_at
+   updated_at
+   run FK->payroll.PayrollRun (related=yes)
+   employee FK->sale_sessions.Employee (related=yes)
+   branch FK->branches.Branch (related=yes)
+   base_salary
+   housing_allowance
+   transport_allowance
+   other_allowance
+   working_days
+   daily_rate
+   overtime_hour_rate
+   overtime_hours
+   overtime_amount
+   bonus
+   commission_amount
+   absence_days
+   absence_deduction
+   late_deduction
+   other_deduction
+   advance_deduction
+   is_paid
+   paid_at
+   payment_method choices=cash,transfer
+   notes
+
+== payroll.SalaryAdvance
+   id
+   created_at
+   updated_at
+   is_active
+   employee FK->sale_sessions.Employee (related=yes)
+   branch FK->branches.Branch (related=yes)
+   amount
+   date
+   method choices=cash,transfer
+   status choices=pending,approved,rejected,settled
+   reason
+   notes
+   settled_at
+
+== payroll.SalaryStructure
+   id
+   created_at
+   updated_at
+   is_active
+   employee FK->sale_sessions.Employee (related=yes)
+   base_salary
+   housing_allowance
+   transport_allowance
+   other_allowance
+   overtime_hour_rate
+   working_days
+   daily_work_hours
+   effective_from
+   effective_to
+   notes
+
+== accounting.JournalEntry
+   id
+   created_at
+   updated_at
+   number
+   date
+   description
+   source choices=manual,session,purchase,expense,partner,closing,payroll,salary_advance
+   source_id
+   created_by FK->auth.User (related=yes)
+   reversed_at
+
+== accounting.JournalLine
+   id
+   created_at
+   updated_at
+   entry FK->accounting.JournalEntry (related=yes)
+   account FK->accounting.Account (related=yes)
+   debit
+   credit
+   description
+
+== warehouses.StockMovement
+   id
+   created_at
+   updated_at
+   warehouse FK->warehouses.Warehouse (related=yes)
+   fabric FK->suppliers.Fabric (related=yes)
+   roll FK->warehouses.FabricRoll (related=yes)
+   movement_type choices=receipt,transfer_out,transfer_in,adjustment_in,adjustment_out,count,sale,opening
+   quantity
+   balance_before
+   balance_after
+   reference_type
+   reference_id
+   reference_no
+   date
+   notes
+
+== warehouses.GoodsReceipt
+   id
+   created_at
+   updated_at
+   number
+   warehouse FK->warehouses.Warehouse (related=yes)
+   branch FK->branches.Branch (related=yes)
+   purchase_entry FK->suppliers.LedgerEntry (related=yes)
+   supplier FK->suppliers.Supplier (related=yes)
+   date
+   supplier_receipt_no
+   status choices=draft,posted
+   notes
+
+== warehouses.StockCount
+   id
+   created_at
+   updated_at
+   number
+   warehouse FK->warehouses.Warehouse (related=yes)
+   date
+   status choices=open,posted,cancelled
+   notes
+
+== warehouses.StockCountItem
+   id
+   created_at
+   updated_at
+   count FK->warehouses.StockCount (related=yes)
+   fabric FK->suppliers.Fabric (related=yes)
+   system_yards
+   counted_yards
+
+== warehouses.StockAdjustment
+   id
+   created_at
+   updated_at
+   number
+   warehouse FK->warehouses.Warehouse (related=yes)
+   date
+   reason choices=damage,loss,gain,correction
+   direction choices=in,out
+   notes
+
+== warehouses.StockOpening
+   id
+   created_at
+   updated_at
+   number
+   warehouse FK->warehouses.Warehouse (related=yes)
+   date
+   notes
+
+== warehouses.StockTransfer
+   id
+   created_at
+   updated_at
+   number
+   from_warehouse FK->warehouses.Warehouse (related=yes)
+   to_warehouse FK->warehouses.Warehouse (related=yes)
+   to_branch FK->branches.Branch (related=yes)
+   date
+   status choices=draft,requested,approved,rejected,completed,cancelled
+   requested_by
+   approved_by
+   requested_at
+   approved_at
+   completed_at
+   notes
+
+== customers.Customer
+   id
+   created_at
+   updated_at
+   is_active
+   name
+   phone
+   email
+   address
+   notes
+   branch FK->branches.Branch (related=yes)
+
+== expenses.Expense
+   id
+   created_at
+   updated_at
+   branch FK->branches.Branch (related=yes)
+   category FK->expenses.ExpenseCategory (related=yes)
+   date
+   amount
+   payment_method choices=cash,transfer,card,other
+   description
+   notes
+   is_recurring
+   recur_frequency choices=weekly,monthly
+   next_run_date
+   origin FK->expenses.Expense (related=yes)
+
+== partners.PartnerOperation
+   id
+   created_at
+   updated_at
+   number
+   date
+   partner FK->partners.Partner (related=yes)
+   operation_type choices=support,withdraw
+   payment_method choices=cash,transfer
+   amount
+   reason
+   notes
+
+

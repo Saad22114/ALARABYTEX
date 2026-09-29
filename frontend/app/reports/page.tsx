@@ -10,7 +10,7 @@ import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeTo
 import Spinner from '@/components/ui/Spinner';
 import EmptyState from '@/components/ui/EmptyState';
 import { Download } from 'lucide-react';
-import { Branch, SalesReportData, ExpensesReportData, ExpenseBudgetReportRow, CommissionReportRow, NetDailyReportData, BranchesReportData, SuppliersReportData, InventoryReportRow, InventoryMovementReportRow, Warehouse, CogsReportRow, ProfitLossReportResult, JournalReportRow } from '@/types';
+import { Branch, SalesReportData, ExpensesReportData, ExpenseBudgetReportRow, CommissionReportRow, NetDailyReportData, BranchesReportData, SuppliersReportData, InventoryReportRow, InventoryMovementReportRow, Warehouse, CogsReportRow, ProfitLossReportResult, ProfitLossComparison, JournalReportRow } from '@/types';
 import { listBranches } from '@/services/branches';
 import { listWarehouses } from '@/services/warehouses';
 import { getSalesReport, getExpensesReport, getExpensesBudgetReport, getCommissionsReport, getNetDailyReport, getSuppliersReport, getBranchesReport, getInventoryReport, getInventoryMovementsReport, getCogsReport, getProfitLossReport, getJournalReport } from '@/services/reports';
@@ -56,6 +56,29 @@ const UNIT_LABEL: Record<string, string> = {
   yard: 'ياردة',
   roll: 'طاقة',
 };
+
+/** سطر نسبة التغيّر عن الفترة السابقة. invert = بند ارتفاعه إيجابي (مبيعات/ربح). */
+function PlChange({ pct, invert = false }: { pct?: number | null; invert?: boolean }) {
+  if (pct == null) return null;
+  const up = pct > 0;
+  const good = invert ? up : !up;
+  const color = pct === 0 ? 'text-neutral-400' : good ? 'text-emerald-600' : 'text-red-600';
+  return (
+    <div className={`text-xs font-medium mt-1 ${color}`}>
+      {pct > 0 ? '▲' : pct < 0 ? '▼' : '■'} {formatNumber(Math.abs(pct))}% عن الفترة السابقة
+    </div>
+  );
+}
+
+/** بنود جدول المقارنة: [مفتاح، تسمية، هل ارتفاعه إيجابي؟] */
+const PL_COMPARISON_ROWS: [keyof ProfitLossComparison['change_pct'], string, boolean][] = [
+  ['total_sales', 'إجمالي المبيعات', true],
+  ['cogs', 'تكلفة البضاعة المباعة', false],
+  ['gross_profit', 'مجمل الربح', true],
+  ['salaries', 'الرواتب', false],
+  ['expenses', 'المصاريف', false],
+  ['net_profit', 'صافي الربح', true],
+];
 
 export default function ReportsPage() {
   const { toast } = useToast();
@@ -845,56 +868,246 @@ export default function ReportsPage() {
                     <div className="rounded-xl bg-sand-50 p-4">
                       <div className="text-xs text-neutral-500 mb-1">إجمالي المبيعات</div>
                       <div className="text-xl font-bold tabular-nums text-brand-700">{formatCurrency(plData.totals.total_sales)}</div>
+                      <PlChange pct={plData.comparison?.change_pct?.total_sales} invert />
                     </div>
                     <div className="rounded-xl bg-sand-50 p-4">
                       <div className="text-xs text-neutral-500 mb-1">تكلفة البضاعة المباعة</div>
                       <div className="text-xl font-bold tabular-nums text-neutral-800">{formatCurrency(plData.totals.cogs)}</div>
+                      <PlChange pct={plData.comparison?.change_pct?.cogs} />
                     </div>
                     <div className="rounded-xl bg-sand-50 p-4">
                       <div className="text-xs text-neutral-500 mb-1">مجمل الربح</div>
                       <div className="text-xl font-bold tabular-nums text-emerald-700">{formatCurrency(plData.totals.gross_profit)}</div>
+                      <PlChange pct={plData.comparison?.change_pct?.gross_profit} invert />
+                      {plData.totals.gross_margin_pct != null && (
+                        <div className="text-xs text-neutral-400 mt-1">هامش {formatNumber(plData.totals.gross_margin_pct)}%</div>
+                      )}
                     </div>
                     <div className="rounded-xl bg-red-50 dark:bg-red-950/30 p-4">
                       <div className="text-xs text-neutral-500 mb-1">الرواتب (شهر الفترة)</div>
                       <div className="text-xl font-bold tabular-nums text-red-700">{formatCurrency(plData.totals.salaries)}</div>
                       <div className="text-xs text-neutral-400 mt-1">المدفوع فعلياً: {formatCurrency(plData.totals.salaries_paid)}</div>
+                      <PlChange pct={plData.comparison?.change_pct?.salaries} />
                     </div>
                     <div className="rounded-xl bg-sand-50 p-4">
                       <div className="text-xs text-neutral-500 mb-1">المصاريف</div>
                       <div className="text-xl font-bold tabular-nums text-red-600">{formatCurrency(plData.totals.expenses)}</div>
+                      <PlChange pct={plData.comparison?.change_pct?.expenses} />
                     </div>
-                    <div className="rounded-xl bg-brand-50 dark:bg-brand-950/30 p-4 sm:col-span-2 lg:col-span-3">
+                    <div className="rounded-xl bg-brand-50 dark:bg-brand-950/30 p-4">
                       <div className="text-xs text-neutral-500 mb-1">صافي الربح بعد كل شيء (مبيعات - تكلفة - رواتب - مصاريف)</div>
                       <div className={`text-2xl font-bold tabular-nums ${plData.totals.net_profit < 0 ? 'text-red-600' : 'text-brand-700'}`}>{formatCurrency(plData.totals.net_profit)}</div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <PlChange pct={plData.comparison?.change_pct?.net_profit} invert />
+                        {plData.totals.net_margin_pct != null && (
+                          <span className="text-xs text-neutral-500">هامش {formatNumber(plData.totals.net_margin_pct)}%</span>
+                        )}
+                      </div>
                     </div>
                   </div>
+
+                  {plData.stock && (
+                    <div className="px-4 pb-4">
+                      <h3 className="text-sm font-semibold text-neutral-700 mb-1">
+                        المشتريات والمخزون
+                        <span className="text-xs font-normal text-neutral-500"> — تكلفة البضاعة غير المباعة تهمّ رأس المال، لا نتيجة الفترة</span>
+                      </h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        <div className="rounded-xl bg-sand-50 p-3">
+                          <div className="text-xs text-neutral-500 mb-1">تكلفة المشتريات</div>
+                          <div className="text-base font-bold tabular-nums text-neutral-800">{formatCurrency(plData.stock.purchases.value)}</div>
+                          <div className="text-xs text-neutral-400 mt-0.5">{formatNumber(plData.stock.purchases.yards)} ياردة</div>
+                        </div>
+                        <div className="rounded-xl bg-sand-50 p-3">
+                          <div className="text-xs text-neutral-500 mb-1">رصيد الإقفال بالياردة</div>
+                          <div className="text-base font-bold tabular-nums text-neutral-800">{formatNumber(plData.stock.closing.yards)}</div>
+                        </div>
+                        <div className="rounded-xl bg-sand-50 p-3">
+                          <div className="text-xs text-neutral-500 mb-1">قيمة رصيد الإقفال</div>
+                          <div className="text-base font-bold tabular-nums text-brand-700">{formatCurrency(plData.stock.closing.value)}</div>
+                        </div>
+                        <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 p-3">
+                          <div className="text-xs text-neutral-500 mb-1">قيمة البضاعة غير المباعة</div>
+                          <div className={`text-base font-bold tabular-nums ${plData.stock.unsold_value < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                            {formatCurrency(plData.stock.unsold_value)}
+                          </div>
+                          {plData.stock.unsold_margin_pct != null && (
+                            <div className="text-xs text-neutral-400 mt-0.5">{formatNumber(plData.stock.unsold_margin_pct)}% من المخزون</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {plData.comparison && (
+                    <div className="px-4 pb-4">
+                      <Table>
+                        <thead>
+                          <tr>
+                            <Th>البيان</Th>
+                            <Th>الفترة الحالية</Th>
+                            <Th>الفترة السابقة</Th>
+                            <Th>نسبة التغيّر</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {PL_COMPARISON_ROWS.map(([key, label, invert]) => (
+                            <Tr key={key}>
+                              <Td className="font-medium">{label}</Td>
+                              <Td className="tabular-nums">{formatCurrency(plData.totals[key])}</Td>
+                              <Td className="tabular-nums text-neutral-500">{formatCurrency(plData.comparison.totals[key])}</Td>
+                              <Td className="tabular-nums">
+                                <PlChange pct={plData.comparison.change_pct[key]} invert={invert} />
+                              </Td>
+                            </Tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                      <p className="text-xs text-neutral-400 mt-2">
+                        الفترة السابقة: {formatDate(plData.comparison.date_from)} — {formatDate(plData.comparison.date_to)}
+                      </p>
+                    </div>
+                  )}
+
+                  {plData.expense_breakdown?.items.length > 0 && (
+                    <div className="px-4 pb-4">
+                      <h3 className="text-sm font-semibold text-neutral-700 mb-2">تفصيل المصاريف حسب البند</h3>
+                      <Table>
+                        <thead>
+                          <tr>
+                            <Th>البند</Th>
+                            <Th>المبلغ</Th>
+                            <Th>النسبة من المصاريف</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {plData.expense_breakdown.items.map((r) => (
+                            <Tr key={r.category_id}>
+                              <Td className="font-medium">{r.category_name}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.amount)}</Td>
+                              <Td className="tabular-nums">{r.pct_of_total != null ? `${formatNumber(r.pct_of_total)}%` : '—'}</Td>
+                            </Tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-sand-100 font-semibold">
+                            <Td>الإجمالي</Td>
+                            <Td className="tabular-nums">{formatCurrency(plData.expense_breakdown.total)}</Td>
+                            <Td className="tabular-nums">100%</Td>
+                          </tr>
+                        </tfoot>
+                      </Table>
+                    </div>
+                  )}
+
+                  {plData.collection && (
+                    <div className="px-4 pb-4">
+                      <h3 className="text-sm font-semibold text-neutral-700 mb-2">
+                        تفصيل المبيعات حسب التحصيل
+                        {plData.collection.collection_rate_pct != null && (
+                          <span className="text-xs font-normal text-neutral-500"> — نسبة التحصيل {formatNumber(plData.collection.collection_rate_pct)}%</span>
+                        )}
+                      </h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        {([
+                          ['نقدي', plData.collection.cash, 'text-emerald-700'],
+                          ['تحويل', plData.collection.transfer, 'text-brand-700'],
+                          ['بطاقة', plData.collection.card, 'text-neutral-800'],
+                          ['أخرى', plData.collection.other, 'text-neutral-600'],
+                          ['إجمالي المحصّل', plData.collection.collected, 'text-brand-700'],
+                        ] as const).map(([label, value, color]) => (
+                          <div key={label} className="rounded-xl bg-sand-50 p-3">
+                            <div className="text-xs text-neutral-500 mb-1">{label}</div>
+                            <div className={`text-base font-bold tabular-nums ${color}`}>{formatCurrency(value)}</div>
+                            <div className="text-xs text-neutral-400 mt-0.5">
+                              {plData.collection.sales > 0
+                                ? `${formatNumber((value / plData.collection.sales) * 100)}%`
+                                : '—'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {plData.daily.length > 0 && (
+                    <div className="px-4 pb-4">
+                      <h3 className="text-sm font-semibold text-neutral-700 mb-2">
+                        التفصيل اليومي
+                        <span className="text-xs font-normal text-neutral-500"> — الرواتب تُحتسب على مستوى الشهر ولا تُوزَّع على الأيام</span>
+                      </h3>
+                      <Table>
+                        <thead>
+                          <tr>
+                            <Th>التاريخ</Th>
+                            <Th>المبيعات</Th>
+                            <Th>تكلفة البضاعة المباعة</Th>
+                            <Th>مجمل الربح</Th>
+                            <Th>المصاريف</Th>
+                            <Th>الصافي</Th>
+                            <Th>هامش الصافي</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {plData.daily.map((r) => (
+                            <Tr key={r.date}>
+                              <Td className="font-medium">{formatDate(r.date)}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.sales)}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.cogs)}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.gross_profit)}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.expenses)}</Td>
+                              <Td className={`tabular-nums font-medium ${r.net < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(r.net)}</Td>
+                              <Td className="tabular-nums">{r.net_margin_pct != null ? `${formatNumber(r.net_margin_pct)}%` : '—'}</Td>
+                            </Tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-sand-100 font-semibold">
+                            <Td>الإجمالي</Td>
+                            <Td className="tabular-nums">{formatCurrency(plData.totals.total_sales)}</Td>
+                            <Td className="tabular-nums">{formatCurrency(plData.totals.cogs)}</Td>
+                            <Td className="tabular-nums">{formatCurrency(plData.totals.gross_profit)}</Td>
+                            <Td className="tabular-nums">{formatCurrency(plData.totals.expenses)}</Td>
+                            <Td className="tabular-nums">{formatCurrency(plData.totals.net_profit)}</Td>
+                            <Td className="tabular-nums">{plData.totals.net_margin_pct != null ? `${formatNumber(plData.totals.net_margin_pct)}%` : '—'}</Td>
+                          </tr>
+                        </tfoot>
+                      </Table>
+                    </div>
+                  )}
+
                   {plData.branches.length === 0 ? (
                     <EmptyState title="لا توجد بيانات" description="لا توجد فروع في الفترة المحددة" />
                   ) : (
-                    <Table>
-                      <thead>
-                        <tr>
-                          <Th>الفرع</Th>
-                          <Th>المبيعات</Th>
-                          <Th>التكلفة</Th>
-                          <Th>الرواتب</Th>
-                          <Th>المصاريف</Th>
-                          <Th>الصافي</Th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {plData.branches.map((r, i) => (
-                          <Tr key={i}>
-                            <Td className="font-medium">{r.branch_name}</Td>
-                            <Td className="tabular-nums">{formatCurrency(r.sales)}</Td>
-                            <Td className="tabular-nums">{formatCurrency(r.cogs)}</Td>
-                            <Td className="tabular-nums">{formatCurrency(r.salaries)}</Td>
-                            <Td className="tabular-nums">{formatCurrency(r.expenses)}</Td>
-                            <Td className={`tabular-nums font-medium ${r.net < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(r.net)}</Td>
-                          </Tr>
-                        ))}
-                      </tbody>
-                    </Table>
+                    <div className="px-4 pb-4">
+                      <h3 className="text-sm font-semibold text-neutral-700 mb-2">مقارنة الفروع</h3>
+                      <Table>
+                        <thead>
+                          <tr>
+                            <Th>الفرع</Th>
+                            <Th>المبيعات</Th>
+                            <Th>التكلفة</Th>
+                            <Th>الرواتب</Th>
+                            <Th>المصاريف</Th>
+                            <Th>الصافي</Th>
+                            <Th>هامش الصافي</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {plData.branches.map((r) => (
+                            <Tr key={r.branch}>
+                              <Td className="font-medium">{r.branch_name}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.sales)}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.cogs)}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.salaries)}</Td>
+                              <Td className="tabular-nums">{formatCurrency(r.expenses)}</Td>
+                              <Td className={`tabular-nums font-medium ${r.net < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(r.net)}</Td>
+                              <Td className="tabular-nums">{r.net_margin_pct != null ? `${formatNumber(r.net_margin_pct)}%` : '—'}</Td>
+                            </Tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
                   )}
                 </>
               )}

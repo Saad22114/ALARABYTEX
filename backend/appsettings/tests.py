@@ -1,9 +1,14 @@
 from datetime import date
 import json
+import shutil
 import struct
 import tempfile
+from io import StringIO
+from pathlib import Path
+from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from core.testsupport import AUTH_ADMIN_BRANCH_CODE, authenticate_admin
@@ -13,6 +18,7 @@ from expenses.models import Expense, ExpenseCategory
 from sales.models import DailySale
 from suppliers.models import Supplier
 
+from .backup import export_backup as bk_export
 from .models import AppSettings
 
 
@@ -137,6 +143,9 @@ class SettingsAPITest(TestCase):
 
 
 class BackupEncryptionTest(TestCase):
+    #: كلمة المرور تُطال إلى ثمانية أحرف فأكثر، فالسابقة كانت تُرفض الآن.
+    PASSWORD = "s3cret-passphrase"
+
     def setUp(self):
         self.c = APIClient()
         authenticate_admin(self.c)
@@ -150,26 +159,105 @@ class BackupEncryptionTest(TestCase):
         Supplier.objects.all().delete()
         Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).delete()
 
-    def test_password_hidden_from_api(self):
-        r = self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+    def _set_password(self, value):
+        r = self.c.patch("/api/settings/", {"backup_password": value}, format="json")
         self.assertEqual(r.status_code, 200, r.data)
-        self.assertNotIn("backup_password", r.data)
-        self.assertTrue(r.data["has_backup_password"])
 
-        r = self.c.get("/api/settings/")
-        self.assertNotIn("backup_password", r.data)
-        self.assertTrue(r.data["has_backup_password"])
+    def test_password_hidden_from_api(self):
+        self._set_password(self.PASSWORD)
+        self.assertNotIn("backup_password", self.c.get("/api/settings/").data)
 
     def test_plain_backup_when_no_password(self):
+        """بلا مفتاح لا نسخة أصلاً — لا يُنتَج ملف يفتحه أي محرر نصوص."""
         r = self.c.get("/api/settings/backup/")
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertEqual(data.get("version"), 2)
-        self.assertIn("tables", data)
-        self.assertNotIn("encrypted", data)
+        self.assertEqual(r.status_code, 400)
+        self.assertNotIn("version", r.data)
+        self.assertNotIn("tables", r.data)
+
+    def test_backup_refused_when_password_too_short(self):
+        s = AppSettings.load()
+        s.backup_password = "abc"
+        s.save(update_fields=["backup_password", "updated_at"])
+        self.assertEqual(self.c.get("/api/settings/backup/").status_code, 400)
+
+    def test_short_password_rejected_on_save(self):
+        r = self.c.patch("/api/settings/", {"backup_password": "abc"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(AppSettings.load().backup_password)
+
+    def test_blank_password_cannot_disable_encryption(self):
+        """الفراغ يعني «لم تُغيّر» — لا باب لإلغاء التشفير بعد ضبطه."""
+        self._set_password(self.PASSWORD)
+        self._set_password("")
+        self.assertEqual(AppSettings.load().backup_password, self.PASSWORD)
+        self.assertEqual(self.c.get("/api/settings/backup/").status_code, 200)
+
+    def test_downloaded_file_is_opaque_without_the_password(self):
+        """الملف المُنزَّل لا يحمل بيانات مقروءة، ولا الجداول تظهر نصاً."""
+        self._set_password(self.PASSWORD)
+        DailySale.objects.create(
+            branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
+        )
+        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        self.assertNotIn("مركز مسقط", raw)
+        self.assertNotIn("tables", raw)
+        envelope = json.loads(raw)
+        self.assertEqual(envelope["format"], "qomash-backup")
+        self.assertEqual(envelope["cipher"], "aes-256-gcm")
+
+    def test_supplied_password_restores_on_a_fresh_install(self):
+        """جهاز جديد بلا كلمة محفوظة: الكلمة المرسلة مع الطلب تفتح النسخة."""
+        self._set_password(self.PASSWORD)
+        DailySale.objects.create(
+            branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
+        )
+        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+
+        # محاكاة تثبيت جديد: لا كلمة محفوظة في القاعدة إطلاقاً.
+        s = AppSettings.load()
+        s.backup_password = ""
+        s.save(update_fields=["backup_password", "updated_at"])
+
+        r = self.c.post(
+            "/api/settings/restore/",
+            {"content": raw, "backup_password": self.PASSWORD},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(DailySale.objects.count(), 1)
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
+
+    def test_wrong_supplied_password_is_rejected(self):
+        self._set_password(self.PASSWORD)
+        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        s = AppSettings.load()
+        s.backup_password = ""
+        s.save(update_fields=["backup_password", "updated_at"])
+
+        r = self.c.post(
+            "/api/settings/restore/",
+            {"content": raw, "backup_password": "totally-wrong"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("غير صحيحة", r.data["detail"])
+
+    def test_wrong_password_deletes_nothing(self):
+        """الرفض قبل الاستعادة: البيانات سليمة بعد كلمة مرور خاطئة."""
+        self._set_password(self.PASSWORD)
+        DailySale.objects.create(
+            branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
+        )
+        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        self.c.patch("/api/settings/", {"backup_password": "another-pass"}, format="json")
+
+        r = self.c.post("/api/settings/restore/", {"content": raw}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(DailySale.objects.count(), 1)
+        self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
 
     def test_encrypted_backup_roundtrip(self):
-        self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+        self._set_password(self.PASSWORD)
         DailySale.objects.create(
             branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
         )
@@ -190,25 +278,30 @@ class BackupEncryptionTest(TestCase):
         self.assertEqual(DailySale.objects.count(), 1)
 
     def test_restore_encrypted_with_wrong_password_fails(self):
-        self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+        self._set_password(self.PASSWORD)
         raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
 
-        self.c.patch("/api/settings/", {"backup_password": "other"}, format="json")
+        self._set_password("another-passphrase")
         r = self.c.post("/api/settings/restore/", {"content": raw_text}, format="json")
         self.assertEqual(r.status_code, 400)
         self.assertIn("غير صحيحة", r.data["detail"])
 
     def test_restore_encrypted_without_password_fails(self):
-        self.c.patch("/api/settings/", {"backup_password": "s3cret"}, format="json")
+        self._set_password(self.PASSWORD)
         raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
 
-        self.c.patch("/api/settings/", {"backup_password": ""}, format="json")
+        s = AppSettings.load()
+        s.backup_password = ""
+        s.save(update_fields=["backup_password", "updated_at"])
         r = self.c.post("/api/settings/restore/", {"content": raw_text}, format="json")
         self.assertEqual(r.status_code, 400)
 
     def test_restore_legacy_plain_object(self):
-        raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
-        data = json.loads(raw_text)
+        """نسخة قديمة JSON مقروءة تُستعاد — القاعدة على التصدير لا الاستيراد."""
+        s = AppSettings.load()
+        s.backup_password = self.PASSWORD
+        s.save(update_fields=["backup_password", "updated_at"])
+        data = bk_export(AppSettings.load())
         self._clear_data()
         r = self.c.post("/api/settings/restore/", data, format="json")
         self.assertEqual(r.status_code, 200, r.data)
@@ -216,12 +309,17 @@ class BackupEncryptionTest(TestCase):
 
 
 class BackupRestoreTest(TestCase):
+    PASSWORD = "restore-test-password"
+
     def setUp(self):
         self.c = APIClient()
         authenticate_admin(self.c)
         self.today = date.today().isoformat()
         self.branch = Branch.objects.create(name="مركز مسقط", code="MHN")
         self.cat = ExpenseCategory.objects.create(name="تصنيف تجريبي", code="TESTCAT")
+        s = AppSettings.load()
+        s.backup_password = self.PASSWORD
+        s.save(update_fields=["backup_password", "updated_at"])
 
     def _clear_data(self):
         Expense.objects.all().delete()
@@ -248,21 +346,26 @@ class BackupRestoreTest(TestCase):
         r = self.c.get("/api/settings/backup/")
         self.assertEqual(r.status_code, 200)
         self.assertIn("Content-Disposition", r.headers)
-        data = r.json()
+        # التنزيل مُشفّر، فالمحتوى مُغلَّف لا جداول مقروءة.
+        envelope = r.json()
+        self.assertTrue(envelope["encrypted"])
+        from appsettings.crypto import decrypt_backup
+
+        plaintext = json.loads(decrypt_backup(envelope, self.PASSWORD).decode("utf-8"))
         for key in ("version", "tables"):
-            self.assertIn(key, data)
-        self.assertEqual(data["version"], 2)
+            self.assertIn(key, plaintext)
+        self.assertEqual(plaintext["version"], 2)
         self.assertEqual(
-            len([b for b in data["tables"]["branches.Branch"] if b["code"] != AUTH_ADMIN_BRANCH_CODE]), 1
+            len([b for b in plaintext["tables"]["branches.Branch"] if b["code"] != AUTH_ADMIN_BRANCH_CODE]), 1
         )
-        self.assertEqual(len(data["tables"]["sales.DailySale"]), 1)
-        self.assertEqual(len(data["tables"]["expenses.Expense"]), 1)
+        self.assertEqual(len(plaintext["tables"]["sales.DailySale"]), 1)
+        self.assertEqual(len(plaintext["tables"]["expenses.Expense"]), 1)
 
         self._clear_data()
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 0)
         self.assertEqual(DailySale.objects.count(), 0)
 
-        r = self.c.post("/api/settings/restore/", data, format="json")
+        r = self.c.post("/api/settings/restore/", {"content": r.content.decode("utf-8")}, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
         self.assertTrue(Branch.objects.filter(code="MHN").exists())
@@ -350,6 +453,113 @@ class BackupRestoreTest(TestCase):
         self.assertEqual(Branch.objects.count(), 0)
         self.assertEqual(Supplier.objects.count(), 0)
         self.assertEqual(ExpenseCategory.objects.count(), 0)
+
+
+class LargeBackupRestoreTest(TestCase):
+    """نسخة تتجاوز حدّ Django الافتراضي تُرفض عند الاستعادة.
+
+    التشفير يكبّر الملف ~33% لأن base64 يمدّ النص 4/3، فنسخة كانت 2MB
+    صارت 2.7MB — وحدّ الطلب في Django 2.5MB. النتيجة أن الاستعادة تُرفض
+    بكلمة مرور صحيحة، وهو أسوأ شكل للخطأ: المستخدم يتهمّ مفتاحه السليم.
+    """
+
+    PASSWORD = "large-backup-pass"
+    #: أكبر من 2621440 بايت (حد Django الافتراضي).
+    FILLER_BYTES = 3_000_000
+
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        s = AppSettings.load()
+        s.backup_password = self.PASSWORD
+        s.save(update_fields=["backup_password", "updated_at"])
+
+    def test_backup_larger_than_the_request_limit_restores(self):
+        real_export = bk_export
+
+        def padded(settings_obj):
+            data = real_export(settings_obj)
+            # حشو بلا معنى دلالي: يختبر حجم الطلب فقط.
+            data["_padding"] = "x" * self.FILLER_BYTES
+            return data
+
+        with mock.patch("appsettings.backup.export_backup", padded):
+            r = self.c.get("/api/settings/backup/")
+            # استجابة التنزيل HttpResponse عادية، لا Response بـ.data
+            self.assertEqual(r.status_code, 200)
+            raw = r.content.decode("utf-8")
+        self.assertGreater(len(raw.encode("utf-8")), 2621440, "الاختبار بلا معنى بلا تجاوز الحد")
+
+        r = self.c.post(
+            "/api/settings/restore/",
+            {"content": raw, "backup_password": self.PASSWORD},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+
+
+class ScheduledBackupEncryptionTest(TestCase):
+    """النسخة التلقائية مشفّرة، وغياب المفتاح يُعلن فشلاً لا نجاحاً صامتاً.
+
+    الجدولة (cron/Task Scheduler) تقرأ رمز الخروج لا مخرجات الشاشة: صفر يعني
+    «احتفظت ببياناتك». لو ابتلع الأمرُ غيابَ المفتاح صامتاً لتوفّر في صمت
+    المفتاح، وبقي المستخدم شهوراً بلا نسخة دون أن يعرف.
+    """
+
+    PASSWORD = "cron-backup-pass"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="backup-cron-"))
+        self.override = override_settings(MEDIA_ROOT=self.tmp)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _run(self, *args):
+        out = StringIO()
+        err = StringIO()
+        call_command("auto_backup", *args, stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    def test_force_without_password_exits_nonzero(self):
+        out = StringIO()
+        err = StringIO()
+        with self.assertRaises(SystemExit) as cm:
+            call_command("auto_backup", "--force", stdout=out, stderr=err)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("مطلوبة", err.getvalue())
+        self.assertEqual(list((self.tmp / "backups").glob("*.json")), [])
+        self.assertEqual(AppSettings.load().last_auto_backup_at, None)
+
+    def test_force_with_password_writes_an_encrypted_file(self):
+        s = AppSettings.load()
+        s.backup_password = self.PASSWORD
+        s.save(update_fields=["backup_password", "updated_at"])
+
+        out, _ = self._run("--force")
+
+        files = list((self.tmp / "backups").glob("*.json"))
+        self.assertEqual(len(files), 1, out)
+        raw = files[0].read_text(encoding="utf-8")
+        envelope = json.loads(raw)
+        self.assertTrue(envelope["encrypted"])
+        self.assertEqual(envelope["cipher"], "aes-256-gcm")
+        # الملف على القرص لا يحمل بيانات مقروءة.
+        self.assertNotIn("tables", raw)
+        self.assertEqual(AppSettings.load().last_auto_backup_path, f"backups/{files[0].name}")
+
+    def test_scheduled_run_without_password_exits_nonzero(self):
+        s = AppSettings.load()
+        s.auto_backup_enabled = True
+        s.auto_backup_every_hours = 1
+        s.save(update_fields=["auto_backup_enabled", "auto_backup_every_hours", "updated_at"])
+
+        out = StringIO()
+        err = StringIO()
+        with self.assertRaises(SystemExit) as cm:
+            call_command("auto_backup", stdout=out, stderr=err)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(list((self.tmp / "backups").glob("*.json")), [])
 
 
 def _png_bytes(width=64, height=64):

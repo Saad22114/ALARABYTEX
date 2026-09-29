@@ -12,7 +12,7 @@ from expenses.models import Expense, ExpenseBudget, ExpenseCategory
 from sale_sessions.models import Employee, SaleSession
 from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric, Supplier
-from warehouses.models import GoodsReceipt, GoodsReceiptItem, Warehouse
+from warehouses.models import GoodsReceipt, GoodsReceiptItem, StockMovement, Warehouse
 
 
 class ReportsAPITest(TestCase):
@@ -321,6 +321,409 @@ class AdvancedReportsAPITest(TestCase):
         r = self.c.get("/api/reports/profit-loss/", {"export": "xlsx"})
         self.assertEqual(r.status_code, 200)
         self.assertIn("spreadsheetml.sheet", r.headers["Content-Type"])
+
+    def test_profit_loss_margins(self):
+        """الهامشان يُحسبان من صافي المبيعات: مجمل 840/1000 وصافي 540/1000."""
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        t = r.data["totals"]
+        self.assertEqual(t["gross_margin_pct"], 84.0)
+        self.assertEqual(t["net_margin_pct"], 54.0)
+
+    def test_profit_loss_margins_null_when_no_sales(self):
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": (self.today + timedelta(days=5)).isoformat(),
+            "date_to": (self.today + timedelta(days=6)).isoformat(),
+        })
+        t = r.data["totals"]
+        self.assertIsNone(t["gross_margin_pct"])
+        self.assertIsNone(t["net_margin_pct"])
+
+    def test_profit_loss_expense_breakdown(self):
+        other = ExpenseCategory.objects.create(name="صيانة", code="maint")
+        Expense.objects.create(
+            branch=self.branch, category=other,
+            date=self.today, amount=100,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        bd = r.data["expense_breakdown"]
+        self.assertEqual(bd["total"], 400.0)
+        # مرتّبة تنازلياً بالمبلغ، لذا المصروف (300) قبل الصيانة (100).
+        self.assertEqual(bd["items"][0]["category_name"], "مصروف")
+        self.assertEqual(bd["items"][0]["amount"], 300.0)
+        self.assertEqual(bd["items"][0]["pct_of_total"], 75.0)
+        self.assertEqual(bd["items"][1]["category_name"], "صيانة")
+        self.assertEqual(bd["items"][1]["amount"], 100.0)
+        self.assertEqual(bd["items"][1]["pct_of_total"], 25.0)
+
+    def test_profit_loss_collection_breakdown(self):
+        DailySale.objects.filter(branch=self.branch, date=self.today).update(
+            cash_amount=600, transfer_amount=200, card_amount=150, other_amount=50,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        col = r.data["collection"]
+        self.assertEqual(col["cash"], 600.0)
+        self.assertEqual(col["transfer"], 200.0)
+        self.assertEqual(col["card"], 150.0)
+        self.assertEqual(col["other"], 50.0)
+        self.assertEqual(col["collected"], 1000.0)
+        self.assertEqual(col["collection_rate_pct"], 100.0)
+
+    def test_profit_loss_collection_rate_below_100(self):
+        """التحصيل الناقص (آجل/معلّق) يجب أن ينعكس كنسبة أقل من 100%."""
+        DailySale.objects.filter(branch=self.branch, date=self.today).update(total_sales=1200)
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        col = r.data["collection"]
+        self.assertEqual(col["sales"], 1200.0)
+        self.assertEqual(col["collected"], 1000.0)
+        self.assertEqual(col["collection_rate_pct"], 83.3)
+
+    def test_profit_loss_daily_rows(self):
+        """السطر اليومي: مبيعات 1000 − تكلفة 160 − مصاريف 300 = 540 صافي."""
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        daily = r.data["daily"]
+        self.assertEqual(len(daily), 1)
+        row = daily[0]
+        self.assertEqual(row["date"], self.today.isoformat())
+        self.assertEqual(row["sales"], 1000.0)
+        self.assertEqual(row["cogs"], 160.0)
+        self.assertEqual(row["gross_profit"], 840.0)
+        self.assertEqual(row["expenses"], 300.0)
+        self.assertEqual(row["net"], 540.0)
+        self.assertEqual(row["net_margin_pct"], 54.0)
+
+    def test_profit_loss_daily_rows_exclude_salaries(self):
+        """الرواتب تخص شهراً كاملاً، فلا تُوزَّع على الأيام فيبقى صافي اليوم سالباً."""
+        from payroll.models import Payslip, PayrollRun
+
+        emp = Employee.objects.create(name="موظف", branch=self.branch)
+        run = PayrollRun.objects.create(
+            month=self.today.replace(day=1), branch=self.branch,
+            status=PayrollRun.Status.APPROVED,
+        )
+        Payslip.objects.create(run=run, employee=emp, branch=self.branch, base_salary=900)
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.data["totals"]["net_profit"], 540.0 - 900.0)
+        self.assertEqual(r.data["daily"][0]["net"], 540.0)
+
+    def test_profit_loss_daily_spans_multiple_days(self):
+        DailySale.objects.create(
+            branch=self.branch, date=self.today + timedelta(days=1),
+            total_sales=250, cash_amount=250,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": (self.today + timedelta(days=1)).isoformat(),
+        })
+        days = [d["date"] for d in r.data["daily"]]
+        self.assertEqual(days, sorted(days))
+        self.assertEqual(len(days), 2)
+        self.assertEqual(sum(d["sales"] for d in r.data["daily"]), 1250.0)
+        # يوم بلا مصاريف يظهر بصفري لا يُحذف.
+        tomorrow = next(d for d in r.data["daily"] if d["date"] == days[-1])
+        self.assertEqual(tomorrow["expenses"], 0.0)
+        self.assertEqual(tomorrow["sales"], 250.0)
+
+    def test_profit_loss_comparison_no_previous_data(self):
+        """بلا بيانات في الفترة السابقة، نسب التغيّر تكون None لا صفراً."""
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        cmp = r.data["comparison"]
+        self.assertEqual(cmp["totals"]["total_sales"], 0.0)
+        self.assertIsNone(cmp["change_pct"]["total_sales"])
+        self.assertIsNone(cmp["change_pct"]["net_profit"])
+
+    def test_profit_loss_comparison_change_pct(self):
+        """مبيعات اليوم 1000 مقابل 500 في فترة سابقة بطول يوم واحد = +100%."""
+        prev_day = self.today - timedelta(days=1)
+        DailySale.objects.create(
+            branch=self.branch, date=prev_day, total_sales=500, cash_amount=500,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        cmp = r.data["comparison"]
+        # فترة يوم واحد، فالفترة السابقة هي اليوم السابق وحده.
+        self.assertEqual(cmp["date_from"], (self.today - timedelta(days=1)).isoformat())
+        self.assertEqual(cmp["date_to"], (self.today - timedelta(days=1)).isoformat())
+        self.assertEqual(cmp["totals"]["total_sales"], 500.0)
+        self.assertEqual(cmp["change_pct"]["total_sales"], 100.0)
+        # المصاريف: 300 اليوم مقابل 0 سابقاً ⇒ بلا أساس ⇒ None.
+        self.assertIsNone(cmp["change_pct"]["expenses"])
+
+    def test_profit_loss_comparison_period_length_matches(self):
+        """الفترة السابقة بنفس طول الفترة الحالية مهما كان الطول."""
+        start = self.today - timedelta(days=4)
+        end = self.today + timedelta(days=2)
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": start.isoformat(), "date_to": end.isoformat(),
+        })
+        cmp = r.data["comparison"]
+        self.assertEqual(cmp["date_to"], (start - timedelta(days=1)).isoformat())
+        self.assertEqual(cmp["date_from"], (start - timedelta(days=7)).isoformat())
+
+    def test_profit_loss_branch_row_net_margin(self):
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        row = next(b for b in r.data["branches"] if b["branch_name"] == self.branch.name)
+        self.assertEqual(row["sales"], 1000.0)
+        self.assertEqual(row["cogs"], 160.0)
+        self.assertEqual(row["net"], 540.0)
+        self.assertEqual(row["net_margin_pct"], 54.0)
+
+    def test_profit_loss_xlsx_has_all_sheets(self):
+        import io
+
+        r = self.c.get("/api/reports/profit-loss/", {"export": "xlsx"})
+        self.assertEqual(r.status_code, 200)
+        try:
+            import openpyxl
+        except ImportError:
+            self.skipTest("openpyxl not installed")
+        wb = openpyxl.load_workbook(io.BytesIO(r.content))
+        for sheet in (
+            "الربح والخسارة بعد كل شيء", "حسب الفرع",
+            "تفصيل المصاريف", "تفصيل التحصيل", "التفصيل اليومي",
+        ):
+            self.assertIn(sheet, wb.sheetnames)
+
+    def test_profit_loss_branch_filter_scopes_everything(self):
+        """تصفية الفرع يجب أن تنعكس على كل الأقسام لا الإجماليات فقط."""
+        other_branch = Branch.objects.create(name="C", code="C")
+        cat2 = ExpenseCategory.objects.create(name="مصرفات", code="ops")
+        DailySale.objects.create(
+            branch=other_branch, date=self.today, total_sales=4000, cash_amount=4000,
+        )
+        Expense.objects.create(
+            branch=other_branch, category=cat2, date=self.today, amount=250,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+            "branch": self.branch.id,
+        })
+        self.assertEqual(r.data["totals"]["total_sales"], 1000.0)
+        self.assertEqual(r.data["expense_breakdown"]["total"], 300.0)
+        self.assertEqual(r.data["collection"]["sales"], 1000.0)
+        self.assertEqual(r.data["daily"][0]["sales"], 1000.0)
+        self.assertEqual([b["branch_name"] for b in r.data["branches"]], [self.branch.name])
+        # المقارنة تحترم نفس التصفية.
+        self.assertEqual(r.data["comparison"]["totals"]["total_sales"], 0.0)
+
+    def test_profit_loss_daily_cogs_across_multiple_branches(self):
+        """تكلفة البضاعة المباعة اليومية تُجمع عبر الفروع بلا تكرار ولا نقصان."""
+        other_branch = Branch.objects.create(name="C", code="C")
+        # متوسط تكلفة f1 = 200 ÷ 100 = 2 للياردة.
+        sale2 = DailySale.objects.create(
+            branch=other_branch, date=self.today, total_sales=400, cash_amount=400,
+        )
+        DailySaleItem.objects.create(sale=sale2, fabric=self.f1, yards=40)
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        # 80 ياردة في الفرع B + 40 في الفرع C = 120 × 2 = 240.
+        self.assertEqual(r.data["daily"][0]["cogs"], 240.0)
+        self.assertEqual(r.data["totals"]["cogs"], 240.0)
+        self.assertEqual(sum(b["cogs"] for b in r.data["branches"]), 240.0)
+
+    def test_profit_loss_purchases(self):
+        """تكلفة المشتريات = قيم الاستلامات المرحّلة داخل الفترة فقط."""
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        # السند GR-1 المرحّل: 100 ياردة × 2 = 200.
+        self.assertEqual(r.data["stock"]["purchases"]["value"], 200.0)
+        self.assertEqual(r.data["stock"]["purchases"]["yards"], 100.0)
+        self.assertEqual(r.data["stock"]["purchases"]["avg_cost"], 2.0)
+
+    def test_profit_loss_purchases_ignores_draft(self):
+        """سند مسوّدة ليس مشتريات محقّقة."""
+        draft = GoodsReceipt.objects.create(
+            number="GR-DRAFT", date=self.today, status="draft",
+        )
+        GoodsReceiptItem.objects.create(
+            receipt=draft, fabric=self.f1, rolls_count=1,
+            yards=50, unit_price=9, total=450,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.data["stock"]["purchases"]["value"], 200.0)
+
+    def test_profit_loss_purchases_outside_period(self):
+        """استلام قبل الفترة لا يُحتسب كمشتريات الفترة."""
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": (self.today + timedelta(days=1)).isoformat(),
+            "date_to": (self.today + timedelta(days=2)).isoformat(),
+        })
+        self.assertEqual(r.data["stock"]["purchases"]["value"], 0.0)
+        self.assertIsNone(r.data["stock"]["purchases"]["avg_cost"])
+
+    def test_profit_loss_purchases_unattributable_warehouse(self):
+        """استلام في مخزن بلا فرع لا يُنسب لأي فرع عند التصفية."""
+        # مخزن W في setUp بلا فرع.
+        self.assertIsNone(Warehouse.objects.get(name="W").branch_id)
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+            "branch": self.branch.id,
+        })
+        self.assertEqual(r.data["stock"]["purchases"]["value"], 0.0)
+
+    def test_profit_loss_purchases_respects_branch_filter(self):
+        """تصفية الفرع لا تسرّب مشتريات فرع آخر عبر مخزنه."""
+        # سند setUp أسند إلى مخزن بلا فرع، فنسنده للفرع ليجري الاختبار على أساس واضح.
+        wh = Warehouse.objects.get(name="W")
+        wh.branch = self.branch
+        wh.save()
+        other = Branch.objects.create(name="C", code="C")
+        wh2 = Warehouse.objects.create(name="W2", code="W2", branch=other)
+        r2 = GoodsReceipt.objects.create(
+            number="GR-2", warehouse=wh2, date=self.today, status="posted",
+        )
+        GoodsReceiptItem.objects.create(
+            receipt=r2, fabric=self.f1, rolls_count=1,
+            yards=10, unit_price=5, total=50,
+        )
+        # بلا تصفية: المجموع 250.
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.data["stock"]["purchases"]["value"], 250.0)
+        # مع تصفية: سند المستودع الأول فقط.
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+            "branch": self.branch.id,
+        })
+        self.assertEqual(r.data["stock"]["purchases"]["value"], 200.0)
+
+    def test_profit_loss_closing_stock(self):
+        """رصيد الإقفال = آخر رصيد مسجّل لكل (مخزن × قماش) عند نهاية الفترة."""
+        wh = Warehouse.objects.get(name="W")
+        wh.branch = self.branch
+        wh.save()
+        StockMovement.objects.create(
+            warehouse=wh, fabric=self.f1,
+            movement_type=StockMovement.Type.RECEIPT,
+            quantity=100, balance_after=100, date=self.today,
+        )
+        StockMovement.objects.create(
+            warehouse=wh, fabric=self.f1,
+            movement_type=StockMovement.Type.SALE,
+            quantity=-30, balance_after=70, date=self.today,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        closing = r.data["stock"]["closing"]
+        # آخر حركة تركت 70 ياردة، ومتوسط التكلفة 2 للياردة.
+        self.assertEqual(closing["yards"], 70.0)
+        self.assertEqual(closing["value"], 140.0)
+
+    def test_profit_loss_closing_stock_ignores_movements_after_period(self):
+        """حركة بعد نهاية الفترة لا تؤثر على رصيد الإقفال."""
+        wh = Warehouse.objects.get(name="W")
+        wh.branch = self.branch
+        wh.save()
+        StockMovement.objects.create(
+            warehouse=wh, fabric=self.f1,
+            movement_type=StockMovement.Type.RECEIPT,
+            quantity=100, balance_after=100, date=self.today,
+        )
+        later = self.today + timedelta(days=10)
+        StockMovement.objects.create(
+            warehouse=wh, fabric=self.f1,
+            movement_type=StockMovement.Type.SALE,
+            quantity=-40, balance_after=60, date=later,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.data["stock"]["closing"]["yards"], 100.0)
+        self.assertEqual(r.data["stock"]["closing"]["value"], 200.0)
+
+    def test_profit_loss_closing_stock_without_recorded_balance(self):
+        """حركة بلا رصيد مسجّل لا تُحتسب، ونتيجة ذلك رصيد صفر لا خطأ."""
+        wh = Warehouse.objects.get(name="W")
+        wh.branch = self.branch
+        wh.save()
+        StockMovement.objects.create(
+            warehouse=wh, fabric=self.f1,
+            movement_type=StockMovement.Type.ADJUSTMENT_IN,
+            quantity=50, balance_after=None, date=self.today,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.data["stock"]["closing"]["yards"], 0.0)
+        self.assertEqual(r.data["stock"]["closing"]["value"], 0.0)
+
+    def test_profit_loss_unsold_value(self):
+        """قيمة البضاعة غير المباعة = قيمة مشتريات الفترة − تكلفة المباع.
+
+        كان الحساب يقارن رصيد الإقفال (رصيد) بتكلفة المبيعات (تدفّق)، وهو
+        ما جعل الرقم سالباً في أول شهر تشغيلي وفي كل شهر يُصفّي مخزوناً
+        قديمة أكثر مما يشتري.
+        """
+        wh = Warehouse.objects.get(name="W")
+        wh.branch = self.branch
+        wh.save()
+        StockMovement.objects.create(
+            warehouse=wh, fabric=self.f1,
+            movement_type=StockMovement.Type.RECEIPT,
+            quantity=100, balance_after=100, date=self.today,
+        )
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        # المخزون 100 ياردة × 2 = 200، وبُيع 80 ياردة بتكلفة 160.
+        self.assertEqual(r.data["totals"]["cogs"], 160.0)
+        self.assertEqual(r.data["stock"]["closing"]["value"], 200.0)
+        self.assertEqual(r.data["stock"]["unsold_value"], 40.0)
+        self.assertEqual(r.data["stock"]["unsold_margin_pct"], 20.0)
+
+    def test_profit_loss_xlsx_has_stock_sheet(self):
+        import io
+
+        r = self.c.get("/api/reports/profit-loss/", {"export": "xlsx"})
+        self.assertEqual(r.status_code, 200)
+        try:
+            import openpyxl
+        except ImportError:
+            self.skipTest("openpyxl not installed")
+        wb = openpyxl.load_workbook(io.BytesIO(r.content))
+        self.assertIn("المشتريات والمخزون", wb.sheetnames)
 
     def test_journal(self):
         r = self.c.get("/api/reports/journal/", {

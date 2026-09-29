@@ -227,7 +227,7 @@ class AppSettings(TimeStampedModel):
         blank=True,
         default="",
         verbose_name="كلمة مرور النسخ الاحتياطي",
-        help_text="عند ضبطها تُشفَّر النسخ الاحتياطية وتتطلب كلمة المرور نفسها للاستعادة",
+        help_text="مفتاح تشفير النسخ الاحتياطية (AES-256-GCM). التشفير إلزامي: ما لم تُضبط تُرفض النسخ بدل تصديرها مقروءة. الكلمة نفسها تُطلب عند الاستعادة، وتغييرها لا يفتح النسخ السابقة",
     )
     auto_backup_enabled = models.BooleanField(
         default=False,

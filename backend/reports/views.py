@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework.response import Response
@@ -22,7 +22,12 @@ from warehouses.models import (
     Warehouse,
 )
 
-from .cogs import cogs_by_fabric, fabric_average_costs, sold_by_fabric
+from .cogs import (
+    cogs_by_day_branch,
+    cogs_by_fabric,
+    fabric_average_costs,
+    sold_by_fabric,
+)
 
 
 def _generate_excel(workbook, sheet_name, headers, rows):
@@ -595,29 +600,38 @@ def _report_dates(request):
     return date.fromisoformat(date_from), date.fromisoformat(date_to)
 
 
-def _scoped_cogs(request, date_from, date_to):
-    """تكلفة البضاعة المباعة الإجمالية في الفترة لنطاق فرع الموظف إن كان مقيداً."""
+def _scoped_branch_ids(request, branch=None):
+    """معرّفات الفروع التي يسري عليها الاستعلام.
+
+    تُرجع ``[None]`` للدلالة على «كل الفروع» (لا تقييد)، و``[]`` إذا لم يُسمح
+    بأي فرع. عند تمرير branch يتقدّم الفهرس على نطاق الموظف (الخارج يُرجع []).
+    """
+    if branch:
+        try:
+            return [int(branch)]
+        except (TypeError, ValueError):
+            return []
     allowed = allowed_branch_ids(request)
-    if allowed is not None:
-        if not allowed:
-            return Decimal("0")
-        branch_id = next(iter(allowed))
-    else:
-        branch_id = None
-    cogs = cogs_by_fabric(date_from, date_to, branch_id)
-    return sum(cogs.values(), Decimal("0"))
+    if allowed is None:
+        return [None]
+    return sorted(allowed)
+
+
+def _scoped_cogs(request, date_from, date_to, branch=None, costs=None):
+    """تكلفة البضاعة المباعة الإجمالية في الفترة لنطاق فرع الموظف إن كان مقيداً."""
+    total = Decimal("0")
+    for bid in _scoped_branch_ids(request, branch):
+        total += sum(
+            cogs_by_fabric(date_from, date_to, bid, costs).values(), Decimal("0")
+        )
+    return total
 
 
 def _scoped_sold(request, date_from, date_to, fabric_id=None):
     """الياردات المباعة لكل قماش في الفترة لنطاق فرع الموظف إن كان مقيداً."""
-    allowed = allowed_branch_ids(request)
-    if allowed is not None:
-        if not allowed:
-            return {}
-        branch_id = next(iter(allowed))
-    else:
-        branch_id = None
-    sold = sold_by_fabric(date_from, date_to, branch_id)
+    sold = {}
+    for bid in _scoped_branch_ids(request):
+        sold.update(sold_by_fabric(date_from, date_to, bid))
     if fabric_id:
         try:
             sold = {k: v for k, v in sold.items() if k == int(fabric_id)}
@@ -683,6 +697,119 @@ class CogsReportView(APIView):
         })
 
 
+def _last_of_month(value):
+    if value.month == 12:
+        return date(value.year + 1, 1, 1) - timedelta(days=1)
+    return date(value.year, value.month + 1, 1) - timedelta(days=1)
+
+
+def _pct(numerator, denominator):
+    """نسبة مئوية من base، أو None إذا كان الأساس صفراً."""
+    if not denominator:
+        return None
+    return round(float(numerator) / float(denominator) * 100, 1)
+
+
+def _ratio(numerator, denominator):
+    """نسبة عددية (لا مئوية) — كمتوسط تكلفة الياردة."""
+    if not denominator:
+        return None
+    return round(float(numerator) / float(denominator), 3)
+
+
+def _change_pct(current, previous):
+    """نسبة التغيّر عن الفترة السابقة، أو None إذا كانت الفترة السابقة صفراً."""
+    if not previous:
+        return None
+    return round((float(current) - float(previous)) / abs(float(previous)) * 100, 1)
+
+
+def _period_before(date_from, date_to):
+    """الفترة السابقة المطابقة في الطول مباشرة قبل الفترة الحالية."""
+    span = (date_to - date_from).days + 1
+    prev_to = date_from - timedelta(days=1)
+    prev_from = prev_to - timedelta(days=span - 1)
+    return prev_from, prev_to
+
+
+def _last_balance_per_series(qs, date_to, branch_ids=None):
+    """آخر رصيد (balance_after) لكل سلسلة (مخزن × قماش) عند تاريخ معيّن.
+
+    ``balance_after`` هو رصيد السلسلة بعد الحركة، فأخذ آخر حركة لكل سلسلة
+    عند end-of-date يعطي رصيد الإقفال الصحيح. الحركات بلا رصيد مسجّل تُتجاهل
+    لأنها لا يحملLastSnapshot لقيمته.
+    """
+    ids = set(qs.values_list("id", flat=True))
+    if not ids:
+        return {}
+    last = {}
+    # الترتيب تنازلي بالتاريخ ثم المعرّف: آخر حركة لكل سلسلة هي أول ما نراه.
+    for mv_id, warehouse_id, fabric_id, balance in (
+        qs.filter(date__lte=date_to, balance_after__isnull=False)
+        .order_by("warehouse_id", "fabric_id", "-date", "-id")
+        .values_list("id", "warehouse_id", "fabric_id", "balance_after")
+    ):
+        key = (warehouse_id, fabric_id)
+        if key not in last:
+            last[key] = balance
+    return last
+
+
+def _purchases(request, date_from, date_to, branch=None):
+    """تكلفة المشتريات الفعلية في الفترة: قيم الاستلامات المرحّلة."""
+    items_qs = scope_queryset_or(
+        request,
+        GoodsReceiptItem.objects.filter(
+            receipt__status="posted",
+            receipt__date__gte=date_from,
+            receipt__date__lte=date_to,
+        ),
+        ["receipt__branch", "receipt__warehouse__branch"],
+    )
+    if branch:
+        items_qs = items_qs.filter(
+            Q(receipt__branch_id=branch) | Q(receipt__warehouse__branch_id=branch)
+        )
+    agg = items_qs.aggregate(value=Sum("total"), yards=Sum("yards"))
+    return {
+        "value": float(agg["value"] or 0),
+        "yards": float(agg["yards"] or 0),
+        "avg_cost": _ratio(agg["value"], agg["yards"]),
+    }
+
+
+def _closing_stock(request, date_to, branch=None, costs=None):
+    """رصيد الإقفال بالياردة وقيمته عند نهاية الفترة.
+
+    القيمة بمتوسط التكلفة المرجّح نفسه المستخدم في تكلفة البضاعة المباعة،
+    حتى لا تختلط معاملتان في نفس التقرير.，力 كان الرصيد غير مسجّل لأحد
+    الأقمشة счита تكلفته صفراً (وهو ما تفعله تكلفة البضاعة المباعة أيضاً).
+    """
+    qs = scope_queryset(
+        request,
+        StockMovement.objects.filter(date__lte=date_to, balance_after__isnull=False),
+        branch_field="warehouse__branch",
+    )
+    if branch:
+        qs = qs.filter(warehouse__branch_id=branch)
+    if costs is None:
+        costs = fabric_average_costs()
+
+    balances = _last_balance_per_series(qs, date_to)
+    if not balances:
+        return {"yards": 0.0, "value": 0.0}
+
+    yards = 0.0
+    value = 0.0
+    for (_warehouse_id, fabric_id), balance in balances.items():
+        b = float(balance or 0)
+        if b <= 0:
+            continue
+        yards += b
+        value += b * float(costs.get(fabric_id) or 0)
+    return {"yards": round(yards, 2), "value": round(value, 2)}
+
+
 class ProfitLossReportView(APIView):
     """الربح والخسارة بعد كل شيء: مبيعات - تكلفة البضاعة المباعة - رواتب - مصاريف.
 
@@ -690,17 +817,16 @@ class ProfitLossReportView(APIView):
     """
     permission_section = "reports"
 
-    def get(self, request):
-        date_from, date_to = _report_dates(request)
-        branch = request.query_params.get("branch")
+    # ---------- بناء أرقام فترة واحدة ----------
 
+    def _totals(self, request, date_from, date_to, branch=None, costs=None):
         sales_qs = scope_queryset(
-            self.request, DailySale.objects.filter(
+            request, DailySale.objects.filter(
                 date__gte=date_from, date__lte=date_to
             )
         )
         expense_qs = scope_queryset(
-            self.request, Expense.objects.filter(
+            request, Expense.objects.filter(
                 date__gte=date_from, date__lte=date_to
             )
         )
@@ -710,17 +836,29 @@ class ProfitLossReportView(APIView):
 
         total_sales = sales_qs.aggregate(t=Sum("total_sales"))["t"] or 0
         total_expenses = expense_qs.aggregate(t=Sum("amount"))["t"] or 0
-        cogs = _scoped_cogs(request, date_from, date_to)
+        cogs = _scoped_cogs(request, date_from, date_to, branch, costs)
         gross_profit = total_sales - cogs
+        salaries, salaries_paid, _ = self._salaries(request, date_from, date_to, branch)
+        net_profit = gross_profit - salaries - total_expenses
 
-        # الرواتب: قسائم المسيّرات غير الملغاة التي يقع/يتداخل شهرها مع الفترة
-        # (التكلفة المستحقة). المسيّر يغطي شهراً كاملاً، لذا نطابق تداخل الفواصل.
+        return {
+            "total_sales": float(total_sales),
+            "cogs": float(cogs),
+            "gross_profit": float(gross_profit),
+            "salaries": float(salaries),
+            "salaries_paid": float(salaries_paid),
+            "expenses": float(total_expenses),
+            "net_profit": float(net_profit),
+            "gross_margin_pct": _pct(gross_profit, total_sales),
+            "net_margin_pct": _pct(net_profit, total_sales),
+        }
+
+    def _salaries(self, request, date_from, date_to, branch=None):
+        """الرواتب المستحقة (تكلفة المسيّرات المتداخلة مع الفترة) والمدفوعة فعلياً.
+
+        المسيّر يغطي شهراً كاملاً، لذا نطابق تداخل الفواصل لا التطابق التام.
+        """
         from payroll.models import Payslip, PayrollRun
-
-        def _last_of_month(value):
-            if value.month == 12:
-                return date(value.year + 1, 1, 1) - timedelta(days=1)
-            return date(value.year, value.month + 1, 1) - timedelta(days=1)
 
         run_qs = scope_queryset(
             request,
@@ -735,11 +873,9 @@ class ProfitLossReportView(APIView):
         payslips_qs = Payslip.objects.filter(run_id__in=run_ids) if run_ids else Payslip.objects.none()
         if branch:
             payslips_qs = payslips_qs.filter(branch_id=branch)
-        salaries = Decimal(
-            sum((p.net_pay for p in payslips_qs), Decimal("0"))
-        )
+        salaries = sum((p.net_pay for p in payslips_qs), Decimal("0"))
 
-        # الرواتب المدفوعة فعلياً داخل الفترة (حسب تاريخ الصرف) — للمقارنة.
+        # المدفوع فعلياً داخل الفترة (حسب تاريخ الصرف) — للمقارنة فقط.
         paid_run_ids = [
             r.id for r in candidates
             if (r.status == PayrollRun.Status.PAID and r.paid_at
@@ -748,76 +884,311 @@ class ProfitLossReportView(APIView):
         paid_qs = Payslip.objects.filter(run_id__in=paid_run_ids) if paid_run_ids else Payslip.objects.none()
         if branch:
             paid_qs = paid_qs.filter(branch_id=branch)
-        salaries_paid = Decimal(
-            sum((p.net_pay for p in paid_qs), Decimal("0"))
-        )
+        salaries_paid = sum((p.net_pay for p in paid_qs), Decimal("0"))
+        return salaries, salaries_paid, payslips_qs
 
-        net_profit = gross_profit - salaries - total_expenses
-
-        row_branches = scope_queryset(
-            self.request, Branch.objects.filter(is_active=True)
+    def _collection(self, request, date_from, date_to, branch=None):
+        """تفصيل المبيعات حسب طريقة التحصيل ونسبة التحصيل من إجمالي المبيعات."""
+        qs = scope_queryset(
+            request, DailySale.objects.filter(
+                date__gte=date_from, date__lte=date_to
+            )
         )
         if branch:
-            row_branches = row_branches.filter(id=branch)
-        rows = []
-        for b in row_branches.order_by("name"):
-            bs = DailySale.objects.filter(branch=b, date__gte=date_from, date__lte=date_to).aggregate(t=Sum("total_sales"))["t"] or 0
-            bcogs = sum(cogs_by_fabric(date_from, date_to, b.id).values(), Decimal("0"))
-            bsal = Decimal(
-                sum(
-                    (p.net_pay for p in
-                     (payslips_qs.filter(branch_id=b.id) if run_ids else Payslip.objects.none())),
-                    Decimal("0"),
-                )
+            qs = qs.filter(branch_id=branch)
+        agg = qs.aggregate(
+            total=Sum("total_sales"),
+            cash=Sum("cash_amount"),
+            transfer=Sum("transfer_amount"),
+            card=Sum("card_amount"),
+            other=Sum("other_amount"),
+        )
+        values = {k: float(agg[k] or 0) for k in ("cash", "transfer", "card", "other")}
+        total = sum(values.values())
+        sales = float(agg["total"] or 0)
+        return {
+            "cash": values["cash"],
+            "transfer": values["transfer"],
+            "card": values["card"],
+            "other": values["other"],
+            "collected": total,
+            "sales": sales,
+            "collection_rate_pct": _pct(total, sales),
+        }
+
+    def _expense_breakdown(self, request, date_from, date_to, branch=None):
+        """المصاريف مجمّعة حسب التصنيف مع نسبة كل تصنيف من الإجمالي."""
+        qs = scope_queryset(
+            request, Expense.objects.filter(
+                date__gte=date_from, date__lte=date_to
             )
-            be = Expense.objects.filter(branch=b, date__gte=date_from, date__lte=date_to).aggregate(t=Sum("amount"))["t"] or 0
+        )
+        if branch:
+            qs = qs.filter(branch_id=branch)
+        rows = (
+            qs.values("category_id", "category__name")
+            .annotate(amount=Sum("amount"))
+            .order_by("-amount")
+        )
+        total = float(sum((r["amount"] or 0) for r in rows))
+        items = [
+            {
+                "category_id": r["category_id"],
+                "category_name": r["category__name"] or "غير مصنّف",
+                "amount": float(r["amount"] or 0),
+                "pct_of_total": _pct(r["amount"] or 0, total),
+            }
+            for r in rows
+        ]
+        return {"items": items, "total": total}
+
+    def _branch_rows(self, request, date_from, date_to, branch=None, costs=None):
+        """صافي كل فرع: مبيعات - تكلفة - رواتب - مصاريف.
+
+        كل المجاميع محسوبة باستعلامات مجمّعة (GROUP BY) لا استعلام لكل فرع.
+        """
+        from payroll.models import Payslip
+
+        row_branches = scope_queryset(request, Branch.objects.filter(is_active=True))
+        if branch:
+            row_branches = row_branches.filter(id=branch)
+        row_branches = list(row_branches.order_by("name"))
+        if not row_branches:
+            return []
+        ids = [b.id for b in row_branches]
+
+        sales_by_branch = {
+            r["branch_id"]: r["t"] or 0
+            for r in DailySale.objects.filter(
+                branch_id__in=ids, date__gte=date_from, date__lte=date_to
+            ).values("branch_id").annotate(t=Sum("total_sales"))
+        }
+        expenses_by_branch = {
+            r["branch_id"]: r["t"] or 0
+            for r in Expense.objects.filter(
+                branch_id__in=ids, date__gte=date_from, date__lte=date_to
+            ).values("branch_id").annotate(t=Sum("amount"))
+        }
+        # branch_ids هنا قائمة صريحة، فنمرّرها كما هي إلى cogs_by_day_branch.
+        cogs_by_branch = defaultdict(Decimal)
+        for (_day, bid), value in cogs_by_day_branch(date_from, date_to, ids, costs).items():
+            cogs_by_branch[bid] += value
+
+        _, _, payslips_qs = self._salaries(request, date_from, date_to, branch)
+        salaries_by_branch = {
+            r["branch_id"]: r["t"] or 0
+            for r in payslips_qs.values("branch_id").annotate(
+                t=Sum(Payslip.net_pay_expression())
+            )
+        }
+
+        rows = []
+        for b in row_branches:
+            bs = sales_by_branch.get(b.id, 0)
+            bcogs = cogs_by_branch.get(b.id, Decimal("0"))
+            bsal = salaries_by_branch.get(b.id, 0)
+            be = expenses_by_branch.get(b.id, 0)
+            net = bs - bcogs - bsal - be
             rows.append({
+                "branch": b.id,
                 "branch_name": b.name,
                 "sales": float(bs),
                 "cogs": float(bcogs),
                 "salaries": float(bsal),
                 "expenses": float(be),
-                "net": float(bs - bcogs - bsal - be),
+                "net": float(net),
+                "net_margin_pct": _pct(net, bs),
             })
+        return rows
+
+    def _daily_rows(self, request, date_from, date_to, branch=None, costs=None):
+        """صافي كل يوم: مبيعات - تكلفة البضاعة المباعة - مصاريف.
+
+        الرواتب لا تُوزَّع على الأيام لأنها تخص شهراً كاملاً، فتبقى في البنود العامة.
+        """
+        sale_qs = scope_queryset(
+            request, DailySale.objects.filter(
+                date__gte=date_from, date__lte=date_to
+            )
+        )
+        exp_qs = scope_queryset(
+            request, Expense.objects.filter(
+                date__gte=date_from, date__lte=date_to
+            )
+        )
+        if branch:
+            sale_qs = sale_qs.filter(branch_id=branch)
+            exp_qs = exp_qs.filter(branch_id=branch)
+
+        sales_by_day = defaultdict(float)
+        for day, value in sale_qs.values_list("date", "total_sales"):
+            sales_by_day[day] += float(value or 0)
+        exp_by_day = defaultdict(float)
+        for day, value in exp_qs.values_list("date", "amount"):
+            exp_by_day[day] += float(value or 0)
+
+        cogs_by_day = defaultdict(float)
+        allowed = _scoped_branch_ids(request, branch)
+        # [None] تعني «كل الفروع» و cogs_by_day_branch تتوقع None أو قائمة معرّفات.
+        branch_ids = None if allowed == [None] else [b for b in allowed if b is not None]
+        for (day, _bid), value in cogs_by_day_branch(
+            date_from, date_to, branch_ids, costs
+        ).items():
+            cogs_by_day[day] += float(value)
+
+        rows = []
+        for day in sorted(set(sales_by_day) | set(exp_by_day) | set(cogs_by_day)):
+            s = sales_by_day[day]
+            c = cogs_by_day[day]
+            e = exp_by_day[day]
+            rows.append({
+                "date": day.isoformat(),
+                "sales": round(s, 2),
+                "cogs": round(c, 2),
+                "gross_profit": round(s - c, 2),
+                "expenses": round(e, 2),
+                "net": round(s - c - e, 2),
+                "net_margin_pct": _pct(s - c - e, s),
+            })
+        return rows
+
+    # ---------- الاستجابة ----------
+
+    def get(self, request):
+        date_from, date_to = _report_dates(request)
+        branch = request.query_params.get("branch")
+
+        # خريطة متوسطات التكلفة تُحسب مرة واحدة وتُعاد لكل الأقسام:
+        # fabric_average_costs تمسح كل الاستلامات والأرصدة الافتتاحية، فاستدعاؤها
+        # لكل فرع/يوم/فترة سابقة يحوّل التقرير إلى استعلامات مربّعة.
+        costs = fabric_average_costs()
+
+        totals = self._totals(request, date_from, date_to, branch, costs)
+        collection = self._collection(request, date_from, date_to, branch)
+        expenses = self._expense_breakdown(request, date_from, date_to, branch)
+        branch_rows = self._branch_rows(request, date_from, date_to, branch, costs)
+        daily = self._daily_rows(request, date_from, date_to, branch, costs)
+
+        # مقارنة مع الفترة السابقة المطابقة في الطول.
+        prev_from, prev_to = _period_before(date_from, date_to)
+        prev = self._totals(request, prev_from, prev_to, branch, costs)
+        comparison = {
+            "date_from": prev_from.isoformat(),
+            "date_to": prev_to.isoformat(),
+            "totals": prev,
+            "change_pct": {
+                key: _change_pct(totals[key], prev[key])
+                for key in (
+                    "total_sales", "cogs", "gross_profit",
+                    "salaries", "expenses", "net_profit",
+                )
+            },
+        }
+
+        purchases = _purchases(request, date_from, date_to, branch)
+        closing = _closing_stock(request, date_to, branch, costs)
+        # بضاعة لم تُبَع بعد: ما اشتريناه في الفترة ناقص ما خرج بالبيع منها.
+        # كان الحساب يقارن رصيداً (قيمة المخزون آخر الشهر) بتدفّق (تكلفة المبيعات)،
+        # فينتج رقم لا معنى له ويصبح سالباً في أول شهر تشغيلي أو في أي شهر يبيع
+        # مخزوناً قديمة أكثر مما يشتري. والسالب هنا له معنى: المخزون نقص.
+        unsold_value = purchases["value"] - totals["cogs"]
+        stock = {
+            "purchases": purchases,
+            "closing": closing,
+            "unsold_value": round(unsold_value, 2),
+            "unsold_margin_pct": _pct(unsold_value, purchases["value"]),
+        }
 
         if request.query_params.get("export") == "xlsx":
-            headers = ["البيان", "المبلغ"]
-            rows_x = [
-                ["إجمالي المبيعات", float(total_sales)],
-                ["تكلفة البضاعة المباعة", float(cogs)],
-                ["مجمل الربح", float(gross_profit)],
-                ["الرواتب (شهر الفترة)", float(salaries)],
-                ["الرواتب المدفوعة فعلياً", float(salaries_paid)],
-                ["المصاريف", float(total_expenses)],
-                ["صافي الربح بعد كل شيء", float(net_profit)],
-            ]
-            headers_b = ["الفرع", "المبيعات", "التكلفة", "الرواتب", "المصاريف", "الصافي"]
-            rows_b = [
-                [r["branch_name"], r["sales"], r["cogs"], r["salaries"], r["expenses"], r["net"]]
-                for r in rows
-            ]
-            wb = _export_generic_to_xlsx("الربح والخسارة بعد كل شيء", headers, rows_x)
-            if wb is None:
-                return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
-            wb.create_sheet("حسب الفرع")
-            ws2 = wb["حسب الفرع"]
-            ws2.append(headers_b)
-            for rrow in rows_b:
-                ws2.append(rrow)
-            return _xlsx_response(wb, "تقرير_الربح_والخسارة")
+            return self._export_xlsx(
+                totals, comparison, collection, expenses, branch_rows, daily, stock
+            )
 
         return Response({
-            "totals": {
-                "total_sales": float(total_sales),
-                "cogs": float(cogs),
-                "gross_profit": float(gross_profit),
-                "salaries": float(salaries),
-                "salaries_paid": float(salaries_paid),
-                "expenses": float(total_expenses),
-                "net_profit": float(net_profit),
-            },
-            "branches": rows,
+            "start_date": date_from.isoformat(),
+            "end_date": date_to.isoformat(),
+            "totals": totals,
+            "comparison": comparison,
+            "collection": collection,
+            "expense_breakdown": expenses,
+            "stock": stock,
+            "branches": branch_rows,
+            "daily": daily,
         })
+
+    def _export_xlsx(self, totals, comparison, collection, expenses, branch_rows, daily, stock):
+        change = comparison["change_pct"]
+
+        def _line(label, key):
+            pct = change.get(key)
+            return [
+                label,
+                round(totals[key], 2),
+                round(comparison["totals"][key], 2),
+                f"{pct:+.1f}%" if pct is not None else "—",
+            ]
+
+        headers = ["البيان", "الفترة الحالية", "الفترة السابقة", "نسبة التغيّر"]
+        rows_x = [
+            _line("إجمالي المبيعات", "total_sales"),
+            _line("تكلفة البضاعة المباعة", "cogs"),
+            _line("مجمل الربح", "gross_profit"),
+            _line("الرواتب (شهر الفترة)", "salaries"),
+            _line("المصاريف", "expenses"),
+            _line("صافي الربح بعد كل شيء", "net_profit"),
+            ["الرواتب المدفوعة فعلياً", round(totals["salaries_paid"], 2), "", ""],
+            ["هامش مجمل الربح %", totals["gross_margin_pct"] or 0, "", ""],
+            ["هامش صافي الربح %", totals["net_margin_pct"] or 0, "", ""],
+        ]
+        # بنود المخزون تُكتب في ورقة منفصلة: هي معلومات عن رأس المال لا عن
+        # نتيجة الفترة، وخلطها في قائمة الدخل يربك القراءة.
+        stock_rows = [
+            ["تكلفة المشتريات (استلامات مرحّلة)", round(stock["purchases"]["value"], 2)],
+            ["الياردات المشتراة", round(stock["purchases"]["yards"], 2)],
+            ["متوسط تكلفة الياردة المشتراة", stock["purchases"]["avg_cost"] or 0],
+            ["رصيد الإقفال بالياردة", round(stock["closing"]["yards"], 2)],
+            ["قيمة رصيد الإقفال", round(stock["closing"]["value"], 2)],
+            ["قيمة البضاعة غير المباعة", round(stock["unsold_value"], 2)],
+        ]
+        wb = _export_generic_to_xlsx("الربح والخسارة بعد كل شيء", headers, rows_x)
+        if wb is None:
+            return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
+
+        def _sheet(title, sheet_headers, sheet_rows):
+            ws = wb.create_sheet(title=title)
+            ws.append(sheet_headers)
+            for row in sheet_rows:
+                ws.append(row)
+
+        _sheet("حسب الفرع",
+               ["الفرع", "المبيعات", "التكلفة", "الرواتب", "المصاريف", "الصافي", "هامش الصافي %"],
+               [[r["branch_name"], round(r["sales"], 2), round(r["cogs"], 2),
+                 round(r["salaries"], 2), round(r["expenses"], 2),
+                 round(r["net"], 2), r["net_margin_pct"]] for r in branch_rows])
+
+        _sheet("تفصيل المصاريف",
+               ["التصنيف", "المبلغ", "النسبة %"],
+               [[r["category_name"], round(r["amount"], 2), r["pct_of_total"]]
+                for r in expenses["items"]])
+
+        _sheet("تفصيل التحصيل",
+               ["طريقة التحصيل", "المبلغ", "النسبة من المبيعات %"],
+               [
+                   ["نقدي", round(collection["cash"], 2), _pct(collection["cash"], collection["sales"])],
+                   ["تحويل", round(collection["transfer"], 2), _pct(collection["transfer"], collection["sales"])],
+                   ["بطاقة", round(collection["card"], 2), _pct(collection["card"], collection["sales"])],
+                   ["أخرى", round(collection["other"], 2), _pct(collection["other"], collection["sales"])],
+                   ["إجمالي المحصّل", round(collection["collected"], 2), collection["collection_rate_pct"] or 0],
+               ])
+
+        _sheet("التفصيل اليومي",
+               ["التاريخ", "المبيعات", "تكلفة البضاعة المباعة", "مجمل الربح", "المصاريف", "الصافي", "هامش الصافي %"],
+               [[r["date"], r["sales"], r["cogs"], r["gross_profit"], r["expenses"],
+                 r["net"], r["net_margin_pct"]] for r in daily])
+
+        _sheet("المشتريات والمخزون", ["البيان", "القيمة"], stock_rows)
+
+        return _xlsx_response(wb, "تقرير_الربح_والخسارة")
 
 
 class CommissionsReportView(APIView):

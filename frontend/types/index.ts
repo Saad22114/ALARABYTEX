@@ -1017,20 +1017,91 @@ export interface ProfitLossTotals {
   salaries_paid: number;
   expenses: number;
   net_profit: number;
+  gross_margin_pct: number | null;
+  net_margin_pct: number | null;
+}
+
+export interface ProfitLossComparison {
+  date_from: string;
+  date_to: string;
+  totals: ProfitLossTotals;
+  change_pct: {
+    total_sales: number | null;
+    cogs: number | null;
+    gross_profit: number | null;
+    salaries: number | null;
+    expenses: number | null;
+    net_profit: number | null;
+  };
+}
+
+export interface ProfitLossCollection {
+  cash: number;
+  transfer: number;
+  card: number;
+  other: number;
+  collected: number;
+  sales: number;
+  collection_rate_pct: number | null;
+}
+
+export interface ProfitLossExpenseRow {
+  category_id: number;
+  category_name: string;
+  amount: number;
+  pct_of_total: number | null;
+}
+
+export interface ProfitLossExpenseBreakdown {
+  items: ProfitLossExpenseRow[];
+  total: number;
 }
 
 export interface ProfitLossBranchRow {
+  branch: number;
   branch_name: string;
   sales: number;
   cogs: number;
   salaries: number;
   expenses: number;
   net: number;
+  net_margin_pct: number | null;
+}
+
+export interface ProfitLossStock {
+  purchases: {
+    value: number;
+    yards: number;
+    avg_cost: number | null;
+  };
+  closing: {
+    yards: number;
+    value: number;
+  };
+  unsold_value: number;
+  unsold_margin_pct: number | null;
+}
+
+export interface ProfitLossDailyRow {
+  date: string;
+  sales: number;
+  cogs: number;
+  gross_profit: number;
+  expenses: number;
+  net: number;
+  net_margin_pct: number | null;
 }
 
 export interface ProfitLossReportResult {
+  start_date: string;
+  end_date: string;
   totals: ProfitLossTotals;
+  comparison: ProfitLossComparison;
+  collection: ProfitLossCollection;
+  expense_breakdown: ProfitLossExpenseBreakdown;
+  stock: ProfitLossStock;
   branches: ProfitLossBranchRow[];
+  daily: ProfitLossDailyRow[];
 }
 
 export interface JournalReportRow {

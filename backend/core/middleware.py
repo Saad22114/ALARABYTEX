@@ -40,11 +40,19 @@ def _check_auto_backup():
         from appsettings.backup import run_auto_backup_if_due
 
         run_auto_backup_if_due()
-    except Exception:
+    except Exception as exc:
         # لا يجب أن يوقف النسخ الاحتياطي حياة الطلب أبداً
         import logging
 
-        logging.getLogger("appsettings").exception("استدعاء النسخة الاحتياطية التلقائية فشل")
+        log = logging.getLogger("appsettings")
+        # غياب مفتاح التشفير خطأ إعداد متوقّع لا عطل: يُسجَّل سطراً واحداً
+        # بدل أثر استدعاء كامل يتكرّر كل دقيقة على كل طلب.
+        from appsettings.crypto import BackupPasswordError
+
+        if isinstance(exc, BackupPasswordError):
+            log.warning("النسخ الاحتياطية التلقائية متوقفة: %s", exc)
+        else:
+            log.exception("استدعاء النسخة الاحتياطية التلقائية فشل")
 
 
 class AutoBackupMiddleware:

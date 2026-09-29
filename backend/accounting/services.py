@@ -584,9 +584,15 @@ def balance_sheet(date_to=None):
     def _sort(rows):
         return sorted(rows, key=lambda r: r["code"])
 
-    total_assets = sum(r["amount"] for r in asset_rows)
-    total_liabilities = sum(r["amount"] for r in liability_rows)
-    total_equity = sum(r["amount"] for r in equity_rows)
+    # المجاميع تُحسب بـDecimal لا على قيم ``_float``: خلط ``float`` مع ``Decimal``
+    # يرمي TypeError في السطر التالي متى وُجد ربح فترة، أي أن المركز المالي كان
+    # ينهار تماماً في أي شركة رابحة. التقريب إلى float عند الإخراج فقط.
+    def _total(rows):
+        return sum((Decimal(str(r["amount"])) for r in rows), Decimal("0"))
+
+    total_assets = _total(asset_rows)
+    total_liabilities = _total(liability_rows)
+    total_equity = _total(equity_rows)
 
     # صافي أرباح الفترة غير المغلقة يُضاف لحقوق الملكية
     pl = income_statement(None, date_to)
@@ -594,12 +600,12 @@ def balance_sheet(date_to=None):
     if period_profit:
         equity_rows.append({
             "code": "99",
-            "name": "أرباح الفترة الحالية (غير مقتلة)",
+            "name": "أرباح الفترة الحالية (غير مقفلة)",
             "amount": _float(period_profit),
         })
         total_equity += period_profit
 
-    difference = Decimal(str(total_assets)) - (Decimal(str(total_liabilities)) + total_equity)
+    difference = total_assets - (total_liabilities + total_equity)
     return {
         "date_to": date_to,
         "asset_rows": _sort(asset_rows),

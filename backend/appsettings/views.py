@@ -20,11 +20,11 @@ from sale_sessions.models import Employee, SaleSession, SaleSessionItem
 from sales.models import DailySale
 from suppliers.models import Supplier
 
-from .backup import export_backup
+from .backup import backup_document
 from .crypto import (
     BackupCryptoError,
+    BackupPasswordError,
     decrypt_backup,
-    encrypt_backup,
     is_encrypted_envelope,
 )
 from .models import AppSettings
@@ -136,7 +136,11 @@ class AutoBackupView(APIView):
         from .backup import BACKUP_KEEP, list_backup_files, write_backup_file
 
         s = AppSettings.load()
-        rel = write_backup_file(s)
+        try:
+            rel = write_backup_file(s)
+        except BackupPasswordError as exc:
+            # لا نسخة تلقائية بلا مفتاح: صامتُها تُوهم الجدولة أن البيانات محفوظة
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         s.last_auto_backup_at = timezone.now()
         s.last_auto_backup_path = rel
         s.save(update_fields=["last_auto_backup_at", "last_auto_backup_path", "updated_at"])
@@ -242,15 +246,19 @@ class ThemesControlView(APIView):
 
 
 class BackupView(APIView):
-    """GET exports ALL data as a downloadable file; encrypted when a password is set."""
+    """GET exports ALL data as a downloadable file — always encrypted (AES-256-GCM).
+
+    لا نسخة غير مشفّرة: الملف الذي يخرج من هنا يحتاج كلمة مرور النسخة
+    الاحتياطية ليُفتح، فلا يُقرأ بملف نصوص ولا على جهاز آخر.
+    """
     permission_section = "settings"
 
     def get(self, request):
         settings_obj = AppSettings.load()
-        data = export_backup(settings_obj)
-        content = json.dumps(data, ensure_ascii=False, indent=2, default=str)
-        if settings_obj.backup_password:
-            content = encrypt_backup(content.encode("utf-8"), settings_obj.backup_password).decode("utf-8")
+        try:
+            content = backup_document(settings_obj)
+        except BackupPasswordError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         response = HttpResponse(content, content_type="application/json; charset=utf-8")
         filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -274,11 +282,24 @@ class RestoreView(APIView):
     """POST replaces ALL data with the uploaded backup.
 
     Accepts either the parsed backup object or {"content": "<raw file text>"}.
-    Encrypted backups are decrypted using the saved backup password.
+
+    Decryption takes the password the request supplies in ``backup_password``
+    and falls back to the saved one. The supplied password matters: the saved
+    one lives in the database this very restore is about to overwrite, so a
+    machine that never held a backup (or one whose password was changed
+    since) could not open the file otherwise — and the failure surfaced only
+    at the worst moment, after the user had already chosen the file.
+
+    A wrong password is rejected *before* ``restore_backup`` runs, so nothing
+    is deleted on a failed attempt.
     """
     permission_section = "settings"
 
     def post(self, request):
+        supplied = ""
+        if isinstance(request.data, dict):
+            supplied = str(request.data.get("backup_password") or "")
+
         payload = request.data
         if isinstance(payload, dict) and isinstance(payload.get("content"), str):
             try:
@@ -288,14 +309,17 @@ class RestoreView(APIView):
         if not isinstance(payload, dict):
             return Response({"detail": "البيانات المرسلة غير صالحة"}, status=status.HTTP_400_BAD_REQUEST)
         if is_encrypted_envelope(payload):
-            settings_obj = AppSettings.load()
+            password = supplied or AppSettings.load().backup_password
             try:
-                decrypted = decrypt_backup(payload, settings_obj.backup_password)
+                decrypted = decrypt_backup(payload, password)
                 payload = json.loads(decrypted.decode("utf-8"))
             except BackupCryptoError as exc:
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             except (ValueError, UnicodeDecodeError):
                 return Response({"detail": "ملف النسخة الاحتياطية غير صالح"}, status=status.HTTP_400_BAD_REQUEST)
+        # النسخ الأقدم من تشفير إلزامي كُتبت JSON مقروءاً، وتُستعاد كما هي
+        # عمداً: رفضها يحبس نسخة المتجر الوحيدة خلف قاعدة لا يتبعها إلا ما
+        # صدر بعد اليوم. القاعدة على التصدير لا على الاستيراد.
         if payload.get("version") not in (1, 2):
             return Response({"detail": "إصدار النسخة الاحتياطية غير مدعوم"}, status=status.HTTP_400_BAD_REQUEST)
         payload = _coerce_v1(payload)

@@ -1,6 +1,8 @@
 import base64
 import json
 import os
+import secrets
+import string
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -13,9 +15,32 @@ SALT_SIZE = 16
 NONCE_SIZE = 12
 KEY_SIZE = 32
 
+#: أقل طول لكلمة مرور النسخ الاحتياطية. أقل من ثمانية أحرف يجعل المفتاح
+#: قابلاً للتخمين بالقوة الغاشمة رغم الـPBKDF2، وأطول دون سبب يُنسى.
+MIN_PASSWORD_LENGTH = 8
+
+_PASSWORD_ALPHABET = string.ascii_letters + string.digits
+
 
 class BackupCryptoError(Exception):
     """Raised when a backup cannot be decrypted."""
+
+
+class BackupPasswordError(BackupCryptoError):
+    """Raised when the backup password is missing or too weak to export with."""
+
+
+def password_problem(password: str) -> str | None:
+    """سبب رفض كلمة المرور بالعربية، أو ``None`` إن كانت صالحة.
+
+    دالة واحدة تحكم صالحتها في موضعين: عند الحفظ في الإعدادات، وعند التصدير.
+    تفرّق بينهما فتصير نسخة بلا مفتاح وقتُه يُكتشف متأخراً بعد تصديرها.
+    """
+    if not password:
+        return "كلمة مرور النسخة الاحتياطية مطلوبة — لا تُصدَّر نسخ غير مشفّرة"
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"كلمة مرور النسخة الاحتياطية قصيرة — {MIN_PASSWORD_LENGTH} أحرف على الأقل"
+    return None
 
 
 def _b64encode(value: bytes) -> str:
@@ -45,8 +70,9 @@ def is_encrypted_envelope(payload: dict) -> bool:
 
 
 def encrypt_backup(plaintext: bytes, password: str) -> bytes:
-    if not password:
-        raise BackupCryptoError("كلمة المرور غير محددة")
+    problem = password_problem(password)
+    if problem:
+        raise BackupPasswordError(problem)
     salt = os.urandom(SALT_SIZE)
     nonce = os.urandom(NONCE_SIZE)
     key = _derive_key(password, salt, KDF_ITERATIONS)
@@ -67,7 +93,7 @@ def encrypt_backup(plaintext: bytes, password: str) -> bytes:
 
 def decrypt_backup(payload: dict, password: str) -> bytes:
     if not password:
-        raise BackupCryptoError("هذه النسخة مشفّرة، اضبط كلمة مرور النسخ الاحتياطي أولاً")
+        raise BackupCryptoError("هذه النسخة مشفّرة — أدخل كلمة مرور النسخة الاحتياطية")
     try:
         salt = _b64decode(payload["salt"])
         nonce = _b64decode(payload["nonce"])
