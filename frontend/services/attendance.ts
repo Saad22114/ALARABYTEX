@@ -1,4 +1,4 @@
-import { apiRequest, buildQuery, downloadBlob, API_URL } from './api';
+import { apiRequest, buildQuery } from './api';
 import {
   AttendanceDaySheet,
   AttendanceExcuse,
@@ -121,25 +121,12 @@ export async function checkOut(): Promise<AttendanceRecord> {
 
 // ----------------------------------------------------------------- التصدير
 
-/**
- * تصدير Excel عبر ``downloadBlob`` لا عبر رابط مباشر.
+/*
+ * التصدير ليس في هذه الطبقة عن قصد. ``ExportButton`` يفعله نداءً واحداً
+ * داخله: يقرأ اسم الملف من ترويسة الخادم، ويعرض «تعذّر» بدل أن ينزّل
+ * صفحة الدخول باسم «حضور»، ويمنع النقر المزدوج أثناء العمل.
  *
- * السببُ الأول أنّه يمرّ بالمصادقة: رابطٌ مباشر على ``<a download>`` لا
- * يحمل الترويسة، فيردّ الخادم 401 وتُنزّل صفحة الدخول باسم «حضور». والسببُ
- * الثاني أنه يقرأ اسم الملف من ``Content-Disposition``، فلا يصطدم تنزيلان
- * في مجلدٍ واحد.
- *
- * تمرير ``date`` يصدّر ورقة اليوم كاملةً، بغياب من لا سجل لهم، وبلا
- * تمريره يصدّر المدى الزمني سطراً سطراً من جدول السجلات.
+ * فلو وُجد هنا طلبٌ ثانٍ لتصدير السجلات، لاختلف المساران يوماً ما —
+ * أحدهما يُنسى فيُصلَح، والآخر يعمل — والشاشةُ التي تناديه غير معروفة
+ * لأيّهما. الطريقُ الواحد في مكانٍ واحد خيرٌ من طريقين.
  */
-export async function exportAttendance(params?: {
-  date?: string;
-  start?: string;
-  end?: string;
-  employee?: number;
-}): Promise<void> {
-  await downloadBlob(
-    `${API_URL}/attendance/records/export/${buildQuery(params || {})}`,
-    'الحضور-والانصراف.xlsx',
-  );
-}

@@ -3,10 +3,10 @@
 
 from datetime import date, datetime, timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -95,7 +95,7 @@ class AttendancePolicyView(APIView):
     يبحث عن نمطٍ يقبل الطريقة.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_section = "attendance"
 
     def get(self, request):
         return Response(AttendancePolicySerializer(AttendancePolicy.load()).data)
@@ -122,7 +122,11 @@ class AttendancePolicyView(APIView):
 class AttendanceRecordViewSet(viewsets.ModelViewSet):
     queryset = AttendanceRecord.objects.all().select_related("employee")
     serializer_class = AttendanceRecordSerializer
-    permission_classes = [IsAuthenticated]
+    # حارسُ الأقسام في الإعدادات هو SystemPermission، وهو يقرأ هذا السطر.
+    # وتخطّيُه بـ IsAuthenticated يُلغي الحارس كلَّه: يُصبح الحفظُ
+    # والتعديلُ متاحَين لكلِّ من يحمل حساباً في النظام، لا لمن أُعطي
+    # صلاحيةَ القسم.
+    permission_section = "attendance"
 
     def get_serializer_class(self):
         # الكتابة لا تقبل ``status``: الحالة مُشتقّة، ولو سمحنا بإرسالها
@@ -146,6 +150,17 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
             qs = qs.filter(date__gte=start)
         if end:
             qs = qs.filter(date__lte=end)
+        search = (params.get("search") or "").strip()
+        if search:
+            # على الموظف والملاحظة، لا على الأوقات: «اكتب اسم من تأخّر»
+            # سؤالٌ عن إنسان، والبحث في وقتٍ مثل «09:15» يجد مَن دخل
+            # في تلك الدقيقة فقط ويقفل على الباقين. والأرقام العشرية
+            # في الملاحظة تجعل البحث فيها نصّاً حرفياً مفيداً.
+            qs = qs.filter(
+                Q(employee__name__icontains=search)
+                | Q(note__icontains=search)
+                | Q(employee__branch__name__icontains=search)
+            )
         return qs
 
     def update(self, request, *args, **kwargs):

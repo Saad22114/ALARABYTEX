@@ -25,7 +25,7 @@ import type { AttendancePolicy } from '@/types';
  * نافذةٍ قد تغيّرت. بلا ذلك يبقى رقمٌ مكتوبٌ تحت سياسةٍ لم تعد له
  * صالحة — وهو أسوأ من رقمٍ خاطئ، لأن صاحبه لا يعرف أنه خاطئ.
  */
-export default function PolicyTab() {
+export default function PolicyTab({ onSaved }: { onSaved?: () => void }) {
   const { toast } = useToast();
   const [policy, setPolicy] = useState<AttendancePolicy | null>(null);
   const [draft, setDraft] = useState<AttendancePolicy | null>(null);
@@ -79,6 +79,9 @@ export default function PolicyTab() {
       const data = await saveAttendancePolicy(draft);
       setPolicy(data);
       setDraft(data);
+      // الشاشة الأمّ تحتفظ بنسخةٍ سياستها أقدم من هذه، فلا بدّ من إخبارها:
+      // لولا ذلك لبقي التحذيرُ «معطّل» معروضاً بعد إعادة التفعيل.
+      onSaved?.();
       toast('success', 'حُفظت السياسة وأُعيد احتساب كل السجلات على أساسها');
     } catch (err: any) {
       toast('error', err.message);

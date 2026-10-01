@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
 import Pagination from '@/components/ui/Pagination';
+import DateRangeToolbar from '@/components/ui/DateRangeToolbar';
 import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
@@ -29,7 +30,13 @@ const STATUS_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({ v
  * الجارية يُظهر «لا نتائج» والقائمةُ ممتلئة تحتها، وهو أسوأ من بحثٍ
  * بطيء لأنه يوهم القارئ أن لا حضورَ في تلك السنة.
  */
-export default function RecordsTab({ from, to }: { from: string; to: string }) {
+interface RecordsTabProps {
+  from: string;
+  to: string;
+  onRangeChange: (from: string, to: string) => void;
+}
+
+export default function RecordsTab({ from, to, onRangeChange }: RecordsTabProps) {
   const { toast } = useToast();
   const [data, setData] = useState<Paginated<AttendanceRecord> | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -43,7 +50,7 @@ export default function RecordsTab({ from, to }: { from: string; to: string }) {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    listEmployees({ page_size: 200, is_active: true })
+    listEmployees({ page_size: 200, is_active: 'true' })
       .then((res) => setEmployees(res.results))
       .catch(() => {
         /* الفلتر بالموظف ثانوي: إخفاقه لا يُسقط السجلات */
@@ -97,6 +104,8 @@ export default function RecordsTab({ from, to }: { from: string; to: string }) {
   return (
     <div className="space-y-4">
       <Card>
+        <DateRangeToolbar from={from} to={to} onChange={onRangeChange} />
+        <div className="h-4" />
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[220px]">
             <span className="block text-xs font-medium text-neutral-600 mb-1">بحث</span>
@@ -130,9 +139,21 @@ export default function RecordsTab({ from, to }: { from: string; to: string }) {
             <Plus size={16} />
             سجلّ اليوم للموظف المختار
           </Button>
+          {/*
+            التصدير يحمل فلاترَ الجدول كلَّها، البحثَ نصّياً كان: لولا
+            ذلك لأخرج الملفُ كلَّ المدى بينما الجدولُ يعرض صفحةً واحدة
+            مفلترة، فيقول المستخدم «التصديرُ معطوب» وما عطب إلا أنه
+            صدّق الملفَ لا الشاشة.
+          */}
           <ExportButton
             path="/attendance/records/export/"
-            params={{ start: from, end: to, status: status || undefined, employee: employee || undefined }}
+            params={{
+              start: from,
+              end: to,
+              status: status || undefined,
+              employee: employee || undefined,
+              search: appliedSearch || undefined,
+            }}
             filename="الحضور-والانصراف.xlsx"
             label="تصدير المدى"
             variant="secondary"

@@ -38,7 +38,7 @@ function clamp01(n: number): number {
 }
 
 export function clampZoom(zoom: number): number {
-  // NaN ليس قيمة有意义 → نرجع للحدّ الأدنى. أما ±Infinity فتُقصّ إلى الطرفين.
+  // NaN ليس قيمةً ذات معنى → نرجع للحدّ الأدنى. أما ±Infinity فتُقصّ إلى الطرفين.
   if (Number.isNaN(zoom)) return MIN_ZOOM;
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
@@ -75,7 +75,7 @@ export function clampOffset(
   return Math.min(0, Math.max(min, offset));
 }
 
-/** يقصّ الإزاحات والزoom إلى نطاق صالح — يُستدعى بعد أي تغيير. */
+/** يقصّ الإزاحات وقيمة ``zoom`` إلى نطاق صالح — يُستدعى بعد أي تغيير. */
 export function clampView(view: CropView): CropView {
   const zoom = clampZoom(view.zoom);
   const { width, height } = renderedSize(

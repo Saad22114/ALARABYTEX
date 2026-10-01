@@ -18,6 +18,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounting.models import JournalEntry, JournalLine
+from attendance.models import AttendancePolicy, AttendanceRecord
+from attendance.services import is_working_day, recompute
 from branches.models import Branch
 from core.testsupport import authenticate_admin
 from customers.models import Customer
@@ -394,6 +396,152 @@ class SeedPopulatesEveryScreen(SeedShowcaseBase):
         for count in counts:
             self.assertTrue(count.items.exists(), f"جرد بلا بنود: {count.pk}")
 
+    def test_builds_attendance_for_every_employee_on_every_working_day(self):
+        """لكل موظفٍ في كل يومِ عملٍ سطر، والعطلةُ ليست يوماً ناقصاً.
+
+        الفارقُ بين «بيانات حضور» و«موظفٍ له حضورُه»: سطرٌ لكل موظفٍ في
+        كل يوم. ولو أُهمل الغائبُ بلا سطرٍ لَما عُدَّ في الملخّص أصلاً،
+        لأنّ الملخّص يعدُّ السطور لا الناس.
+        """
+        policy = AttendancePolicy.load()
+        self.assertTrue(policy.enabled, "سياسة الحضور معطّلة بعد البذرة")
+        employees = list(Employee.objects.filter(is_active=True))
+        self.assertTrue(employees, "لا موظفون نشطون")
+        dates = set(AttendanceRecord.objects.values_list("date", flat=True))
+        days = {day for day in dates if is_working_day(day, policy)}
+        self.assertTrue(days, "لا سجلات حضور على الإطلاق")
+        for employee in employees:
+            for day in days:
+                self.assertTrue(
+                    AttendanceRecord.objects.filter(
+                        employee=employee, date=day
+                    ).exists(),
+                    f"لا سطر حضور في {day}",
+                )
+        # الجمعة عطلةٌ في السياسة فلا سطر فيها: يومُ عملٍ بلا حضورٍ
+        # يُحسب غياباً، والغيابُ في يومِ عطلة يُقرأ خطأً لا واقعة.
+        fridays = sorted(
+            {day for day in dates if day.weekday() == 4}
+        )
+        self.assertEqual(fridays, [], f"\u0633\u0637\u0631\u064f \u062d\u0636\u0648\u0631 \u0641\u064a \u064a\u0648\u0645\u0650 \u0639\u0637\u0644\u0629: {fridays}")
+
+    def test_attendance_shows_every_status_the_table_can_hold(self):
+        """لكل حالةٍ في اللائحة سطر: الجدولُ نصفُه ميت إن لم يُملأ.
+
+        الانصرافُ المبكر والإضافي والتأخير والغياب والعذر: أيُّها غاب
+        عن شهرين فلا تُختبر القاعدةُ التي تحسبه، وتبقى الشاشةُ تعرض
+        دائماً صفراً دون أن يعلم أحد.
+        """
+        found = set(AttendanceRecord.objects.values_list("status", flat=True))
+        for status in (
+            AttendanceRecord.Status.ABSENT,
+            AttendanceRecord.Status.EXCUSED,
+            AttendanceRecord.Status.LATE,
+        ):
+            self.assertIn(status, found, f"لا سطر بحالة {status}")
+        # «داخل الدوام» سطرٌ بلا خروج، ولا معنى للكلمة إلّا في يومه:
+        # من لم يخرج منذ شهرين ليس داخل الدوام، والشاراةُ تكرّر الكذبة.
+        if is_working_day(timezone.localdate(), AttendancePolicy.load()):
+            self.assertIn(AttendanceRecord.Status.INSIDE, found)
+        self.assertTrue(
+            AttendanceRecord.objects.filter(
+                early_leave_minutes__gt=0
+            ).exists(),
+            "لا انصراف مبكر",
+        )
+        self.assertTrue(
+            AttendanceRecord.objects.filter(
+                overtime_minutes__gt=0
+            ).exists(),
+            "لا ساعات إضافية",
+        )
+        self.assertTrue(
+            AttendanceRecord.objects.exclude(note="").exists(),
+            "لا ملاحظات على المبررات",
+        )
+
+    def test_attendance_never_writes_a_time_in_the_future(self):
+        """لا خروجٌ بعد اللحظة الحالية.
+
+        سطرٌ بخروجٍ في المستقبل لا يُقرأ كسجلِّ حضور، بل كدليلٍ على أنّ
+        الأرقامَ زُروعت. والفرقُ بينهما لا يظهر في الجدول: كلتاهما نصٌّ
+        ووقت، حتى يأتي من يستند عليه في خصمِ يومٍ أو إضافتِ ساعات.
+        """
+        now = timezone.now()
+        for field in ("login_at", "logout_at"):
+            self.assertEqual(
+                AttendanceRecord.objects.filter(**{f"{field}__gt": now}).count(),
+                0,
+                f"{field} في المستقبل",
+            )
+
+    def test_attendance_numbers_are_derived_from_the_two_times(self):
+        """أرقامُ السطر تُشتقّ من وقتيه، فلا تُنسخ من محضِ المصادفة.
+
+        لو كُتبت جاهزةً لَما تأثّرت بتغيير السياسة: يموت اختبارُ
+        الحساب في ``tests`` وحده، ويبقى ما يعرضه الجدول على حاله،
+        ولا أحد يعلم أنّ الرقماً لم يعد يُشتقّ.
+        """
+        record = (
+            AttendanceRecord.objects.filter(
+                login_at__isnull=False,
+                logout_at__isnull=False,
+                late_minutes__gt=0,
+            )
+            .order_by("pk")
+            .first()
+        )
+        self.assertIsNotNone(record, "لا سطر متأخّر بأرقامٍ محسوبة")
+        policy = AttendancePolicy.load()
+        policy.grace_minutes = 0
+        before = record.late_minutes
+        recompute(record, policy)
+        self.assertGreaterEqual(record.late_minutes, before)
+        self.assertTrue(
+            AttendanceRecord.objects.filter(worked_minutes__gt=0).exists(),
+            "لا ساعات عمل محسوبة",
+        )
+
+    def test_the_attendance_screens_answer_with_numbers(self):
+        """الشاشةُ لا الجدول: الورقةُ والملخّص يجيبان بأرقامٍ لا بفراغ.
+
+        الجدولُ ممتلئٌ وسطرُ الورقة فارغ: يحدث حين يُكتب الحضورُ بتاريخٍ
+        آخر، أو حين يُجيب اليومُ بلا سطرٍ واحد. والاختبارُ يفتح
+        المسارات كما تفتحها الشاشة.
+        """
+        self.assertEqual(
+            self.c.get("/api/attendance/policy/").status_code, 200
+        )
+        busy_day = (
+            AttendanceRecord.objects.filter(login_at__isnull=False)
+            .order_by("-date")
+            .values_list("date", flat=True)
+            .first()
+        )
+        self.assertIsNotNone(busy_day, "لا يومَ مزروعٍ فيه دخول")
+        # ورقةُ اليومُ تُجاب هي أيضاً: تفتحُها الشاشةُ في أيّ يومٍ من الأسبوع.
+        self.assertEqual(
+            self.c.get("/api/attendance/records/sheet/").status_code, 200
+        )
+        sheet = self.c.get(f"/api/attendance/records/sheet/?date={busy_day}")
+        self.assertEqual(sheet.status_code, 200)
+        self.assertTrue(sheet.data["rows"], "ورقة بلا سطور")
+        self.assertTrue(
+            any(row["login_at"] for row in sheet.data["rows"]),
+            "ورقة بلا دخولٍ واحد",
+        )
+        summary = self.c.get("/api/attendance/records/summary/")
+        self.assertEqual(summary.status_code, 200)
+        counted = summary.data["summary"]
+        self.assertGreater(
+            counted["present"] + counted["absent"] + counted["excused"], 0
+        )
+        listed = self.c.get("/api/attendance/records/?limit=5")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(
+            listed.data["count"], AttendanceRecord.objects.count()
+        )
+
     def test_posts_journal_entries_for_every_operational_source(self):
         sources = set(JournalEntry.objects.values_list("source", flat=True))
         self.assertIn(JournalEntry.Source.EXPENSE, sources)
@@ -656,6 +804,38 @@ class SeedNoResetAddsInsteadOfDestroying(SeedShowcaseBase):
             "--no-reset محا البيانات رغم أنه لا يفترض أن يفعل",
         )
         self.assertGreater(DailySale.objects.count(), before - 1)
+
+    def test_no_reset_does_not_duplicate_attendance(self):
+        """\u0625\u0639\u0627\u062f\u0629\u064f \u0627\u0644\u062a\u0634\u063a\u064a\u0644 \u0644\u0627 \u062a\u064f\u0636\u0627\u0639\u0641 \u0633\u0637\u0648\u0631\u064e \u0627\u0644\u062d\u0636\u0648\u0631.
+
+        \u0633\u0637\u0631\u064f \u0627\u0644\u062d\u0636\u0648\u0631 \u0648\u0627\u062d\u062f\u064c \u0644\u0643\u0644 \u0645\u0648\u0638\u0641\u064d \u0641\u064a \u0643\u0644 \u064a\u0648\u0645\u064d \u0628\u0642\u064a\u062f\u064d \u0641\u0631\u064a\u062f\u064c. \u0641\u0625\u0646 \u0643\u062a\u0628\u062a \u0627\u0644\u0628\u0630\u0631\u0629\u064f
+        \u0633\u0637\u0631\u0627\u064b \u062c\u062f\u064a\u062f\u0627\u064b \u0641\u064a \u0643\u0644 \u062a\u0634\u063a\u064a\u0644\u060c \u0644\u0631\u0641\u0639 \u0627\u0644\u0642\u064a\u062f\u064f \u0641\u064a \u062b\u0627\u0646\u064a \u062a\u0634\u063a\u064a\u0644\u064d \u0644\u0640 ``--no-reset``\u060c
+        \u0648\u0647\u0648 \u0641\u0634\u0644\u064c \u064a\u0642\u0639 \u0628\u0639\u062f \u0623\u0646 \u0637\u064f\u0644\u0628 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0648\u0623\u064f\u062e\u0628\u0631\u062a \u0623\u0646\u0651\u0647\u0627 \u0623\u064f\u0636\u064a\u0641\u062a.
+        """
+        before = set(
+            AttendanceRecord.objects.values_list("employee_id", "date")
+        )
+        self.assertTrue(before, "\u0644\u0627 \u0633\u0637\u0648\u0631 \u062d\u0636\u0648\u0631 \u0645\u0646 \u0627\u0644\u0623\u0635\u0644")
+
+        call_command(
+            "seed_showcase",
+            months=self.months,
+            verbosity=0,
+            random_seed=4242,
+            no_reset=True,
+        )
+
+        pairs = list(
+            AttendanceRecord.objects.values_list("employee_id", "date")
+        )
+        self.assertTrue(
+            before.issubset(pairs),
+            "\u0633\u0637\u0631\u064f \u062d\u0636\u0648\u0631\u064d \u0627\u062e\u062a\u0641\u0649 \u0628\u0639\u062f \u0625\u0639\u0627\u062f\u0629 \u0627\u0644\u062a\u0634\u063a\u064a\u0644",
+        )
+        self.assertEqual(
+            len(pairs), len(set(pairs)),
+            "\u0633\u0637\u0648\u0631\u064d \u062d\u0636\u0648\u0631\u064d \u0645\u0643\u0631\u0651\u0631",
+        )
 
     def test_end_option_shifts_the_whole_window(self):
         target = add_months(month_start(self.ran_at), -5)

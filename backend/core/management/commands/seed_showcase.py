@@ -8,6 +8,11 @@
 المباشر لـ`DailySale` كان سيملأ الشاشة بأرقام لا تتفق مع حركات المخزون ولا
 بالقيود: أرقام تعمل في التقارير وتسقط في العمليات.
 
+وسجلُّ الحضور: سطرٌ لكل موظفٍ في كل يومِ عمل، بوقتَى دخولٍ وخروجٍ وحدهما،
+فتُشتقّ بقيةُ الأرقام — التأخيرُ والانصرافُ المبكر والإضافي ومدةُ العمل —
+في ``recompute`` كما في التشغيل الحقيقي. سطرُ اليوم يبقى سطراً مفتوحاً بلا
+خروج، ولا يُكتب في أيّ سطرٍ وقتٌ بعد اللحظة الحالية.
+
 الأشهر: ``--months`` شهراً متتالياً **ينتهي بالشهر الحالي**، والشهر الأخير يُولَّد
 حتى اليوم فقط. فالأول شهر كامل برواتبه المدفوعة وصافيه، والثاني شهر كامل أيضاً
 فتعمل مقارنة الفترة السابقة في تقرير الربح والخسارة، والأخير شهر جارٍ يُدخَل.
@@ -22,7 +27,7 @@ from decimal import ROUND_CEILING, Decimal
 from django.apps import apps
 from django.core.management import call_command, CommandError
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.utils import timezone
 
 from core.management.base import ArabicSafeCommand
@@ -634,7 +639,7 @@ class Command(ArabicSafeCommand):
         """يخطّط ورديات الشهر كاملاً قبل إنشائها.
 
         التخطيط المسبق ليس ترفاً: مشتريات الشهر تُحسب من **الاحتياج المخطط**،
-        فلا تصل بيعة إلى فرع رصيد قماشه صفر — وهو ما كان يعنيell's
+        فلا تصل بيعة إلى فرع رصيد قماشه صفر — وهو ما كان يعني
         ``رصيد المخزن لا يكفي`` في منتصف البيانات التجريبية بدل نهايتها.
         """
         plan = {}
@@ -1329,6 +1334,186 @@ class Command(ArabicSafeCommand):
         )
         return run
 
+    #: سيناريوهات حضورٍ تُفرض كل شهرٍ على موظفٍ بعينه حتى لا تكون الشاشةُ
+    #: نتيجةَ قرعة. الترتيبُ مقصود: كلُّ سيناريو على موظفٍ مختلف،
+    #: فالموظفُ الواحد لا يحمل تأخيراً وانصرافاً مبكراً وغياباً في يومٍ
+    #: واحد، ويُقرأ الجدولُ كحياةٍ لا كجدولِ أرقام.
+    ATTENDANCE_SCENARIOS = ("late", "early", "absent", "excused", "overtime")
+
+    @staticmethod
+    def _excuse_notes():
+        """نصُّ كلِّ عذر. دالّةٌ لا ثابتٌ لأنّ مفاتيحها من
+        ``AttendanceRecord.Excuse``؛ والاستيرادُ داخلها يمنع تحميلَ نموذج
+        الحضور عند قراءة هذا الملف."""
+        from attendance.models import AttendanceRecord
+
+        return {
+            AttendanceRecord.Excuse.SICK: "وعكة صحية — تقرير طبي مرفق",
+            AttendanceRecord.Excuse.LEAVE: "إجازة اعتيادية معتمدة من الإدارة",
+            AttendanceRecord.Excuse.OFFICIAL: "مهمة رسمية في فرع آخر",
+            AttendanceRecord.Excuse.OTHER: "\u0638\u0631\u0641 \u062e\u0627\u0635 \u2014 \u0625\u0630\u0646\u064c \u0634\u0641\u0648\u064a \u0645\u0646 \u0627\u0644\u0625\u062f\u0627\u0631\u0629",
+        }
+
+    def _make_attendance(self, rng, month_start, last_day, today, policy):
+        """حضور وانصراف كل موظفٍ في كل يوم عمل، بالمشتقّات محسوبةً.
+
+        لا يُكتب رقمٌ واحد هنا: ``login_at`` و ``logout_at`` وحدهما، ثم
+        ``recompute`` تشتقّ التأخير والانصراف والعمل والإضافي والحالة —
+        كما في الحياة. ولولا ذلك لبقيت أرقامُ المشتقّات على قيمها
+        الافتراضية، فلا يختلف السطرُ عن سطرٍ فارغ، وشاشةُ الحضور تمرّ
+        بلا أن تُختبر.
+
+        والسيناريوهاتُ المفروضة (``ATTENDANCE_SCENARIOS``) هي ما يجعل
+        الشاشةَ تُفتح عامرة: القرعةُ وحدَها تترك «انصراف مبكر» بلا سطرٍ
+        واحد في ثلاثة أشهر، والشاشةُ الفارغة شاشةٌ لم تُختبر.
+
+        و ``update_or_create`` لا ``create``: في وضع ``--no-reset`` يُعاد
+        تشغيل الأمر على بياناتٍ قائمة، وسطرُ الحضور واحدٌ لكل موظفٍ
+        في كل يوم بقيدٍ فريد — فالكتابةُ المباشرة ترمي بالقيد في ثاني
+        تشغيل، ورسالةُ القيد لا تُفهم من قرأ «أُضيفت البيانات».
+        """
+        from attendance.models import AttendanceRecord, AttendancePolicy
+        from attendance.services import is_working_day, recompute
+        from sale_sessions.models import Employee
+
+        employees = list(Employee.objects.filter(is_active=True).order_by("pk"))
+        policy = policy or AttendancePolicy.load()
+        days = [
+            day
+            for day in working_days(month_start, last_day)
+            if is_working_day(day, policy)
+        ]
+        if not employees or not days:
+            return 0
+
+        forced = self._attendance_scenarios(employees, days, today)
+        # «الآن» يُحسب مرّةً واحدة: به يُقصّ كلُّ وقتٍ يقع بعد اللحظة
+        # الحالية في يوم اليوم، فلا يُكتب خروجٌ في المستقبل.
+        moment = timezone.localtime()
+        now_minutes = moment.hour * 60 + moment.minute
+
+        made = 0
+        for employee in employees:
+            for day in days:
+                kind = forced.get((employee.pk, day))
+                if kind is None:
+                    kind = rng.choices(
+                        ["present", "late", "early", "absent", "excused"],
+                        weights=[68, 13, 8, 7, 4],
+                    )[0]
+                login, logout, excuse, note = self._attendance_times(
+                    rng, kind, policy, now_minutes if day == today else None
+                )
+                record, _created = AttendanceRecord.objects.update_or_create(
+                    employee=employee,
+                    date=day,
+                    defaults={
+                        "login_at": self._at(day, login),
+                        "logout_at": self._at(day, logout),
+                        "excuse": excuse,
+                        "note": note,
+                        "working_day": True,
+                        "source": AttendanceRecord.Source.AUTO
+                        if kind not in self.ATTENDANCE_SCENARIOS
+                        else AttendanceRecord.Source.MANUAL,
+                    },
+                )
+                recompute(record, policy)
+                made += 1
+        return made
+
+    def _attendance_scenarios(self, employees, days, today):
+        """خريطة ``(رقم الموظف، اليوم) -> نوع اليوم`` المفروض."""
+        forced = {}
+        # السيناريوهاتُ على أيامٍ سابقةٍ من الشهر ما أمكن: صفٌّ يُفرض على
+        # «اليوم» قد يسقط إن شُغِّل الأمرُ قبل نافذة الدوام، فيبقى القسمُ
+        # بلا «انصراف مبكر» ولا «غياب» ثلاثة أشهر كلُّها.
+        past = [day for day in days if day < today] or list(days)
+        for offset, kind in enumerate(self.ATTENDANCE_SCENARIOS):
+            if offset >= len(employees):
+                break
+            forced[(employees[offset].pk, past[min(offset, len(past) - 1)])] = kind
+
+        # سطرٌ مفتوحٌ في يوم اليوم: هو ما يُظهر «لم يخرج بعد» وشارة
+        # «داخل الدوام الآن». نضعه على موظفٍ لم يحمل سيناريو في ذلك
+        # اليوم، فلا نبتلع سيناريوً آخر، وإن ضاق البوم فنسقطه.
+        if days and days[-1] == today:
+            free = next(
+                (
+                    employee.pk
+                    for employee in employees
+                    if (employee.pk, today) not in forced
+                ),
+                None,
+            )
+            if free is not None:
+                forced[(free, today)] = "open"
+        return forced
+
+    def _attendance_times(self, rng, kind, policy, now_minutes=None):
+        """دقيقتا الدخول والخروج لهذا اليوم، والمبرر والملاحظة إن وُجدا.
+
+        الأرقامُ دقائقُ منتصف الليل، والنوافذُ من السياسة لا من أرقامٍ
+        مكتوبة هنا: لو غُيّرت نافذةُ الدخول إلى السادسة صباحاً وبقيت
+        الأرقامُ على السابعة، لتأخّر كلُّ موظفٍ في الشركة بلا سبب.
+
+        و ``now_minutes`` يمرُّ ليوم اليوم وحده، فيقصّ ما بعد اللحظة
+        الحالية: سطرٌ بخروجٍ في المستقبل يُقرأ دليلاً على أنّ الوقت
+        يُكتب بيدِ إنسانٍ لا بمقياسِ النظام — وهو أسوأُ من فراغِه.
+        """
+        from attendance.models import AttendanceRecord
+
+        def window_minutes(value):
+            return value.hour * 60 + value.minute
+
+        notes = self._excuse_notes()
+
+        login_start = window_minutes(policy.login_window_start)
+        login_end = window_minutes(policy.login_window_end)
+        logout_start = window_minutes(policy.logout_window_start)
+        logout_end = window_minutes(policy.logout_window_end)
+
+        if kind in ("absent", "excused"):
+            excuse = (
+                AttendanceRecord.Excuse.NONE
+                if kind == "absent"
+                else rng.choice(list(notes))
+            )
+            return None, None, excuse, notes.get(excuse, "")
+
+        if kind == "late":
+            login = login_end + 18 + rng.randrange(0, 42)
+        else:
+            login = login_start + rng.randrange(0, max(1, login_end - login_start))
+        if now_minutes is not None:
+            login = min(login, now_minutes)
+        if kind == "open":
+            return login, None, AttendanceRecord.Excuse.NONE, ""
+        if kind == "early":
+            logout = logout_start - 25 - rng.randrange(0, 45)
+        elif kind == "overtime":
+            logout = logout_end + 45 + rng.randrange(0, 105)
+        else:
+            logout = logout_start + rng.randrange(
+                0, max(1, logout_end - logout_start)
+            )
+        if now_minutes is not None:
+            logout = min(logout, now_minutes)
+        # الخروجُ قبل الدخول سطرٌ فاسد، والخروجُ بلا دخولٍ سطرُ سهرٍ
+        # لا يومُ عمل: ``recompute`` يصفّر الأول، والسطرُ الثاني يُقرأ
+        # «داخل الدوام» — وهو أصدقُ من يومٍ يدوم اثنتَي عشرةَ ساعة.
+        if logout is not None and logout <= login:
+            logout = None
+        return login, logout, AttendanceRecord.Excuse.NONE, ""
+
+    @staticmethod
+    def _at(day, minutes):
+        """وقتٌ واعٍ عند الدقيقة ``minutes`` من منتصف ليل ذلك اليوم."""
+        if minutes is None:
+            return None
+        moment = datetime.combine(day, datetime.min.time()) + timedelta(minutes=minutes)
+        return timezone.make_aware(moment, timezone.get_current_timezone())
+
     def _make_partner_ops(self, rng, day, partners):
         from accounting.services import post_partner_operation
         from partners.models import PartnerOperation
@@ -1388,7 +1573,10 @@ class Command(ArabicSafeCommand):
             partners = self._ensure_partners()
             self._ensure_settings()
 
+            from attendance.models import AttendancePolicy
+
             today = timezone.localdate()
+            policy = AttendancePolicy.load()
             end_month = self._parse_end(options.get("end"), today)
             month_starts = [
                 add_months(end_month, offset) for offset in range(-(months_count - 1), 1)
@@ -1423,6 +1611,7 @@ class Command(ArabicSafeCommand):
                 "advances": 0,
                 "runs": 0,
                 "collections": 0,
+                "attendance": 0,
             }
             # ما أنفقته دفعات الموردين من حسابَي التسوية عبر كامل المولَّد:
             # فحساب رصيده المتاح لا ينظر إلى شهرٍ واحد، وإلا اختير حسابٌ في
@@ -1523,6 +1712,9 @@ class Command(ArabicSafeCommand):
                     force_repayment=month_index == len(ranges) - 1,
                 )
                 totals["runs"] += bool(self._make_payroll(month_start, last_day))
+                totals["attendance"] += self._make_attendance(
+                    rng, month_start, last_day, today, policy
+                )
                 if month_start == first_month:
                     # أول شهر فقط: التسوية والجرد مرّة واحدة يكفيان لفتح الشاشتين،
                     # وتكرارهما كل شهر بلا داعٍ يُضخّم سجل الحركات بلا فائدة.
@@ -1641,6 +1833,26 @@ class Command(ArabicSafeCommand):
                 f"| {balance:>14,.2f}{flag}"
             )
 
+    @staticmethod
+    def _attendance_statuses():
+        """توزيعُ الحالات في سجلات الحضور، بالعدّ لا بالتقدير.
+
+        يُطبع في الملخّص ليُصدَّق الرقمُ قبل فتح القسم: «متأخر 412،
+        انصراف مبكر 233» في مخرجِ الأمرِ دليلُ بياناتٍ، و«سجلات الحضور:
+        3900» رقمٌ لا يميّز بياناتَ حقيقيةً من صفوفٍ فارغة.
+        """
+        from attendance.models import AttendanceRecord
+
+        labels = dict(AttendanceRecord.Status.choices)
+        rows = (
+            AttendanceRecord.objects.values("status")
+            .annotate(total=Count("id"))
+            .order_by("-total")
+        )
+        return [
+            (labels.get(row["status"], row["status"]), row["total"]) for row in rows
+        ]
+
     def _print_report(self, verbosity, totals, ranges, branches):
         """يطبع ملخّصاً بالأرقام الحقيقية المحسوبة من البيانات المُنشأة.
 
@@ -1663,6 +1875,12 @@ class Command(ArabicSafeCommand):
             f"ورديات البيع: {totals['sessions']}  |  سندات الشراء: {totals['purchases']}  |  "
             f"المصاريف: {totals['expenses']}  |  سلف: {totals['advances']}  |  "
             f"مسيّرات رواتب: {totals['runs']}  |  دفعات تسوية: {totals['collections']}"
+        )
+        self.write_line(
+            f"سجلات الحضور: {totals['attendance']}  |  "
+            + " |  ".join(
+                f"{label}: {total}" for label, total in self._attendance_statuses()
+            )
         )
         self.write_line(
             f"قيود اليومية: {JournalEntry.objects.count()}  |  "

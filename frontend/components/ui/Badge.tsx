@@ -1,6 +1,12 @@
 import React from 'react';
 
-type BadgeVariant = 'success' | 'warning' | 'danger' | 'neutral';
+/**
+ * مُصدَّر لأنّ خرائط العرض في ``lib/`` تبني عليه، لا على نسخةٍ ثانية
+ * منه. النسخةُ المكرّرة هي نوعٌ مستقلٌّ بنيوياً: تتطابق اليوم، وتُكسر
+ * ولا أحد يعلم — إذ يبقى ``STATUS_VARIANT`` يقبل «primary» و Badge
+ * يرفضه.
+ */
+export type BadgeVariant = 'success' | 'warning' | 'danger' | 'neutral';
 
 interface BadgeProps {
   variant?: BadgeVariant;

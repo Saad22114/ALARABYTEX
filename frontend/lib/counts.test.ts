@@ -87,7 +87,7 @@ describe('rowStatus', () => {
 
   it('gives every status a distinct label', () => {
     // «مطابق» تعني قِسته فوجدته كذلك. فلا يجوز أن تنطبق على «لم يُعدّ»
-    // ولا على «مرصود بلا مرجع»: في屏幕上 الجرد هذه كذبةٌ صغيرة صريحة.
+    // ولا على «مرصود بلا مرجع»: في شاشة الجرد هذه كذبةٌ صغيرة صريحة.
     const labels = ['pending', 'counted', 'match', 'variance'] as const;
     const seen = new Set<string>();
     for (const status of labels) {

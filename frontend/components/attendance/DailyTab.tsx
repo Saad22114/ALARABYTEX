@@ -5,6 +5,7 @@ import Card from '@/components/ui/Card';
 import StatCard from '@/components/ui/StatCard';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
+import ExportButton from '@/components/ui/ExportButton';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
@@ -12,7 +13,7 @@ import { CalendarCheck, Clock, DoorOpen, DoorClosed, UserCheck } from 'lucide-re
 import { getAttendancePolicy, getDaySheet } from '@/services/attendance';
 import { todayISO } from '@/lib/date';
 import { formatNumber } from '@/lib/format';
-import { attainmentPercent, clockLabel, minutesLabel } from '@/lib/attendance';
+import { attainmentPercent, clockLabel, isOpen, minutesLabel } from '@/lib/attendance';
 import type { AttendanceDaySheet, AttendancePolicy, AttendanceRecord } from '@/types';
 import AttendanceTable from './AttendanceTable';
 import RecordEditor from './RecordEditor';
@@ -53,8 +54,14 @@ export default function DailyTab({ day, onDayChange }: DailyTabProps) {
     load();
   }, [load, reloadKey]);
 
+  // «أقدمهم» يفترض الترتيبَ الزمني، فلا يُفترض هنا: الصفوفُ تصل من
+  // الخادم مرتّبةً بالاسم لا بالوقت، فأولُ سطرٍ قد يكون ساعتين بعد
+  // سطره التالي. وال-sort هنا على الوقت لا على موضعِه في القائمة.
   const open = useMemo(
-    () => (sheet?.rows || []).filter((r) => r.login_at && !r.logout_at),
+    () =>
+      (sheet?.rows || [])
+        .filter((r) => isOpen(r))
+        .sort((a, b) => (a.login_at || '').localeCompare(b.login_at || '')),
     [sheet],
   );
 
@@ -89,6 +96,17 @@ export default function DailyTab({ day, onDayChange }: DailyTabProps) {
           <Button variant="secondary" size="md" onClick={() => onDayChange(todayISO())}>
             اليوم
           </Button>
+          {/* `date` لا `start/end`: الخادم يصدّر به ورقة اليوم بسطرٍ لكل
+            موظف نشط، فيصل الغائب بلا سجلّ إلى الملف. وتصديرُ المدى
+            (`start/end`) لا يلتقط إلا من له سطر — فالملف يصحّ كجدول
+            سجلات ويخطئ كورقة يوم. */}
+          <ExportButton
+            path="/attendance/records/export/"
+            params={{ date: day }}
+            filename={`ورقة-الحضور-${day}.xlsx`}
+            label="تصدير الورقة"
+            size="md"
+          />
         </div>
       </div>
 

@@ -13,15 +13,35 @@
 """
 
 from datetime import date, timedelta
+import io
+import unittest
+from uuid import uuid4
 
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+try:
+    import openpyxl
+except ImportError:  # pragma: no cover - بيئة بلا openpyxl
+    openpyxl = None
+
 from attendance.models import AttendancePolicy, AttendanceRecord
 from core.testsupport import authenticate_admin, make_admin_user
 from sale_sessions.models import Employee
+
+
+def first_column(response):
+    """أسماءُ العمود الأول من ملف مُصدَّر: يُقرأ الملف كما سيراه المستخدم."""
+    if openpyxl is None:  # pragma: no cover - بيئة بلا openpyxl
+        raise unittest.SkipTest("openpyxl not installed")
+    sheet = openpyxl.load_workbook(io.BytesIO(response.content)).active
+    return [
+        str(row[0].value)
+        for row in sheet.iter_rows(min_col=1, max_col=1)
+        if row[0].value
+    ]
 
 
 class AttendanceApiTests(TestCase):
@@ -38,14 +58,14 @@ class AttendanceApiTests(TestCase):
         self.policy.enabled = True
         self.policy.save()
 
-    def record(self, day=None, **extra):
+    def record(self, day=None, employee=None, **extra):
         return AttendanceRecord.objects.create(
-            employee=self.employee,
+            employee=employee or self.employee,
             date=day or date(2026, 9, 28),
             **extra,
         )
 
-    # --- politique ---------------------------------------------------------
+    # --- السياسة -----------------------------------------------------------
     def test_policy_is_readable(self):
         response = self.client.get("/api/attendance/policy/")
         self.assertEqual(response.status_code, 200)
@@ -99,6 +119,27 @@ class AttendanceApiTests(TestCase):
         recompute(record, self.policy)
         response = self.client.get("/api/attendance/records/?status=absent")
         self.assertEqual(response.data["count"], 1)
+
+    def test_list_searches_by_employee_name_and_note(self):
+        # سطران بالاسم وحده لا يكفيان: لو كان الفلترُ على الموظف وحده
+        # لَما ظهر أثرُ الملاحظة في البحث.
+        other = Employee.objects.create(name="منصور النجار")
+        self.record(note="اتصال بمدير الفرع")
+        self.record(employee=other)
+        by_name = self.client.get("/api/attendance/records/?search=منصور")
+        self.assertEqual(by_name.data["count"], 1)
+        self.assertEqual(by_name.data["results"][0]["employee"]["name"], "منصور النجار")
+        by_note = self.client.get("/api/attendance/records/?search=مدير")
+        self.assertEqual(by_note.data["count"], 1)
+        self.assertEqual(by_note.data["results"][0]["note"], "اتصال بمدير الفرع")
+        empty = self.client.get("/api/attendance/records/?search=لا_يوجد")
+        self.assertEqual(empty.data["count"], 0)
+
+    def test_list_search_does_not_filter_out_everything_on_a_blank_needle(self):
+        self.record()
+        for needle in ("", "   "):
+            response = self.client.get(f"/api/attendance/records/?search={needle}")
+            self.assertEqual(response.data["count"], 1, needle)
 
     def test_status_cannot_be_written_by_hand(self):
         # ``status`` مُشتقّ. لو قُبل في الكتابة لأرسله كاتبٌ لا يعرف
@@ -235,6 +276,31 @@ class AttendanceApiTests(TestCase):
         response = self.client.get("/api/attendance/records/export/?date=2026-01-01")
         self.assertEqual(response.status_code, 200)
 
+    def test_day_export_carries_the_absent_and_the_range_export_does_not(self):
+        """الورقة تُصدَّر «من الموظف»، والمدى يُصدَّر «من السجل».
+
+        لولا هذا لخرج ملفُ اليوم بلا سطر الغائب — وهو الموظفُ الوحيد
+        الذي فُتحت الورقة لأجله. والملفُ حينها صحيحٌ تقنياً وناقصٌ عملياً:
+        يظهر الحاضرون ويخلو الغائب، فيُقرأ الملفُ «لم يتأخّر أحد» وفيه
+        أربعة. أمّا تصديرُ المدى فحُكمُه غيرُ ذلك، ولهذا الفارقُ في
+        الاختبار: ما لا يصلح في جدول السجلات يصلح في ورقة اليوم.
+        """
+        Employee.objects.create(name="عبد الله الغائب")
+        self.record(day=date(2026, 9, 28))
+
+        day_file = self.client.get(
+            "/api/attendance/records/export/?date=2026-09-28"
+        )
+        self.assertEqual(day_file.status_code, 200)
+        self.assertIn("عبد الله الغائب", first_column(day_file))
+        self.assertIn(self.employee.name, first_column(day_file))
+
+        range_file = self.client.get(
+            "/api/attendance/records/export/?start=2026-09-28&end=2026-09-28"
+        )
+        self.assertEqual(range_file.status_code, 200)
+        self.assertNotIn("عبد الله الغائب", first_column(range_file))
+
     # --- صلاحيات ----------------------------------------------------------
     def test_anonymous_access_is_refused(self):
         self.client.force_authenticate(None)
@@ -246,6 +312,85 @@ class AttendanceApiTests(TestCase):
             self.assertIn(
                 self.client.get(url).status_code, (401, 403), url
             )
+
+    def employee_with(self, role, attendance=None):
+        """موظفٌ بالدور المطلوب، وصلاحياتُ الحضور معدودة كما يريد الاختبار."""
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username=f"u_{uuid4().hex[:8]}")
+        emp = Employee.objects.create(
+            name=f"موظف {role}", user=user, is_active=True
+        )
+        emp.apply_role_preset(role)
+        if attendance is not None:
+            emp.permissions["attendance"] = attendance
+        emp.save()
+        return user
+
+    def test_a_stranger_cannot_read_anything(self):
+        # الموظفُ الذي لا يملك القسم أصلاً — دورُ «مخصص» بلا صلاحية
+        # حضور: لا سجلّات، ولا سياسة، ولا ورقةُ يوم. لولا الحارس لقرأ
+        # كلَّ حضورِ الشركة حسابٌ فارغُ الصلاحيات.
+        self.client.force_authenticate(
+            user=self.employee_with(Employee.Role.CUSTOM)
+        )
+        for url in (
+            "/api/attendance/records/",
+            "/api/attendance/policy/",
+            "/api/attendance/records/sheet/",
+            "/api/attendance/records/summary/",
+        ):
+            self.assertEqual(self.client.get(url).status_code, 403, url)
+
+    def test_a_viewer_cannot_change_the_policy_or_the_records(self):
+        # «يرى» ليست «يكتب»: النافذةُ بلا زرّ حفظ، لكنّ العنوان نفسه
+        # مفتوحٌ لمن يكتب عنواناً في شريط المتصفح. الرفضُ هنا هو الفرق
+        # بين واجهةٍ مرتّبةٍ وأمانٍ حقيقي.
+        user = self.employee_with(
+            Employee.Role.VIEWER,
+            attendance={"view": True, "create": False, "edit": False, "delete": False},
+        )
+        self.client.force_authenticate(user=user)
+        self.assertEqual(
+            self.client.get("/api/attendance/records/").status_code, 200
+        )
+        self.assertEqual(
+            self.client.patch(
+                "/api/attendance/policy/", {"grace_minutes": 60}, format="json"
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/attendance/records/{self.record().pk}/",
+                {"note": "تعديل"},
+                format="json",
+            ).status_code,
+            403,
+        )
+
+    def test_edit_grants_the_patch_and_not_the_delete(self):
+        # رفضان مختلفان لسببين: من لا يملك «حذف» يرفضه الحارسُ (403)، ومن يملكها
+        # يرفضه القسمُ نفسُه (405). وكلاهما يعني السجلَّ باقياً — والفرقُ
+        # بينهما في الطبقة لا في النتيجة، فلا يُبنى عليه سلوكٌ مختلف.
+        user = self.employee_with(
+            Employee.Role.ACCOUNTANT,
+            attendance={"view": True, "create": True, "edit": True, "delete": False},
+        )
+        self.client.force_authenticate(user=user)
+        record = self.record()
+        patched = self.client.patch(
+            f"/api/attendance/records/{record.pk}/",
+            {"note": "تعديل مسجل"},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, 200)
+        self.assertEqual(
+            self.client.delete(
+                f"/api/attendance/records/{record.pk}/"
+            ).status_code,
+            403,
+        )
 
 
 class LoginHookTests(TestCase):

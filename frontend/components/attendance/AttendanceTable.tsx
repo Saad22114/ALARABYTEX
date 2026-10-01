@@ -68,7 +68,11 @@ export default function AttendanceTable({
     return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
 
-  const workdayMinutes = policy?.workday_minutes ?? 480;
+  // يومُ العمل من السياسة، ولا يُخترع هنا. الرقمُ الافتراضي ليس تقديراً:
+  // «ناقص ساعتان» تحت كل سطرٍ حاضر بينما قد يكون يومُ العمل تسع
+  // ساعات. فالسياسةُ مصدرُ الحقيقة الوحيد، وغيابُها يعني أنّ الشاشة لا
+  // تعرف — فيُخفي النقصَ ولا يدّعي ما لا يعلم.
+  const workdayMinutes = policy?.workday_minutes ?? null;
 
   return (
     <Table>

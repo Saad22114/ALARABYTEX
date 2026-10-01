@@ -19,6 +19,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   '/sales': { title: 'المبيعات', subtitle: 'تسجيل المبيعات وورديات البيع' },
   '/employees': { title: 'الموظفون', subtitle: 'إدارة الموظفين وربطهم بالفروع' },
   '/warehouses': { title: 'المخازن', subtitle: 'إدارة المخازن والأقمشة والمخزون' },
+  '/attendance': { title: 'الحضور والانصراف', subtitle: 'سجلّ الدخول والخروج والتأخير والغياب' },
   '/expenses': { title: 'المصاريف', subtitle: 'تسجيل ومتابعة المصاريف' },
   '/reports': { title: 'التقارير', subtitle: 'التقارير المالية والإدارية' },
   '/accounting': { title: 'المحاسبة', subtitle: 'الدفاتر والقوائم المالية والخزينة' },

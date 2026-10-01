@@ -49,3 +49,10 @@ Thumbs.db
 backend/media/backups/
 backend/config/settings.rar
 backend/public/
+
+# One-off scratch: probes, dump files, migration fixups. Named with a
+# leading underscore so they are obvious in a directory listing, and
+# ignored so they never reach a commit as if they were project code.
+backend/_*.py
+backend/_*.txt
+backend/core/tests_zz_probe.py

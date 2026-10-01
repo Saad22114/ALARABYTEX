@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  attendanceWindows,
   attainmentPercent,
   clockLabel,
   dirtyRecord,
@@ -118,6 +117,13 @@ describe('shortfall', () => {
 
   it('لا يُقرض ما زاد العملُ عن اليوم', () => {
     expect(shortfall(600, 480)).toBe(0);
+  });
+
+  it('لا يختلق نقصاً ليومِ عملٍ لا يعرفه', () => {
+    // «ناقص ساعتان» تحت كل سطرٍ من جدولٍ لم تُفتح سياستُه بعدُ: حكمٌ
+    // على الموظف برقمٍ لم يأتِ من أحد.
+    expect(shortfall(300, null)).toBe(0);
+    expect(shortfall(null, null)).toBe(0);
   });
 });
 
@@ -265,8 +271,13 @@ describe('toDateTimeLocal / fromDateTimeLocal', () => {
   });
 
   it('يدور في الاتجاهين بلا فقد', () => {
+    // المقارنةُ بالتاريخ لا بالنصّ: ``toISOString`` يُخرج أصفارَ الأجزاء
+    // من الثانية («.000Z») بينما قد يعيد الخادمُ «Z» بلا أجزاء. النصان
+    // وقتٌ واحد، والفرقُ بينهما في التنسيق لا في اللحظة.
     const iso = '2026-10-01T09:00:00Z';
-    expect(fromDateTimeLocal(toDateTimeLocal(iso))).toBe(iso);
+    const round = fromDateTimeLocal(toDateTimeLocal(iso));
+    expect(round).not.toBeNull();
+    expect(new Date(round as string).toISOString()).toBe(new Date(iso).toISOString());
   });
 });
 
@@ -275,27 +286,5 @@ describe('clockLabel', () => {
     expect(clockLabel('2026-10-01T09:00:00Z')).toMatch(/^\d{2}:\d{2}$/);
     expect(clockLabel(null)).toBe('');
     expect(clockLabel('لاشيء')).toBe('');
-  });
-});
-
-describe('attendanceWindows', () => {
-  it('لا يُعرض إلا ما رُخّص به الموظف', () => {
-    expect(attendanceWindows(['daily', 'records', 'summary', 'policy'], ['daily', 'records']))
-      .toEqual(['daily', 'records']);
-  });
-
-  it('صلاحية فارغة تعني «لا شيء» لا «كل شيء»', () => {
-    // الافتراضي هنا هو إظهار كل شيء، فقد صار خلطٌ بين «لم يُحدَّد بعد»
-    // و«لا شيء» هو سببُ ظهور تبويبٍ لمن لا يحق له رؤيته.
-    expect(attendanceWindows(['daily', 'records'], [])).toEqual([]);
-  });
-
-  it('لا يُخلط مفتاحٌ لم يُعرَّف بما استُثني', () => {
-    expect(attendanceWindows(['daily'], ['daily', 'typo'])).toEqual(['daily']);
-  });
-
-  it('يحافظ على ترتيب القسم لا ترتيب الصلاحيات', () => {
-    expect(attendanceWindows(['daily', 'records'], ['records', 'daily']))
-      .toEqual(['daily', 'records']);
   });
 });

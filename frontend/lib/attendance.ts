@@ -7,9 +7,8 @@
  * وهو حاضر. فالدالة `workedText` ترفض أن تُخترع ساعةً لسطرٍ مفتوح.
  */
 
+import type { BadgeVariant } from '@/components/ui/Badge';
 import type { AttendanceRecord, AttendanceStatus } from '@/types';
-
-type BadgeVariant = 'success' | 'warning' | 'danger' | 'neutral';
 
 /**
  * الحالة تُترجم مرة واحدة في هذا الملف. الخريطة تقيم بثلاثة لا بأربعة:
@@ -71,19 +70,6 @@ export const WEEKDAY_NAME: Record<number, string> = {
 
 /** كل أيام الأسبوع بترتيب الخلفية، لعرضها بترتيبٍ لا يخلطه الناظر. */
 export const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
-
-/**
- * التبويبات مرتّبةً بترتيب القسم لا بترتيب الصلاحيات.
- *
- * الصلاحياتُ تصل من الخادم مجموعةً (JSON لا يحفظ ترتيباً)، فلو عرضناها
- * كما وصلت لقفز التبويبُ من شاشةٍ إلى أخرى في كل تحميل. والقائمة
- * الفارغة تعني «لا شيء» لا «كل شيء»: الخلطُ بين «لم يُحدَّد بعد» و«لا شيء»
- * هو سببُ ظهور تبويبٍ لمن لا يحق له رؤيته.
- */
-export function attendanceWindows(all: string[], granted: string[]): string[] {
-  const allowed = new Set(granted);
-  return all.filter((key) => allowed.has(key));
-}
 
 /** هل الحالة تستحق تمييزاً في الجدول أم تُقرأ من سطرها وحده؟ */
 export function statusLabel(status: string): string {
@@ -160,8 +146,19 @@ export function minutesLabel(minutes: number | null | undefined): string {
  * ظهر ذلك الرقم على راتبه كأنّه أراد أن يعمل ولم يستطع — والصحيح أن
  * يعمل غداً. فنُبقي الرقم صفراً، والقرارُ لمن يقرأ التقرير.
  */
-export function shortfall(minutes: number | null, workdayMinutes: number): number {
-  if (!minutes) return 0;
+/**
+ * كم دقيقةً ينقص عملَ هذا اليوم عن يوم العمل.
+ *
+ * ``workdayMinutes`` قد يكون ``null`` أي «لا نعرف يوم العمل» — وهي
+ * الحالة التي يفترض فيها غيري رقماً فيظهر «ناقص ساعتان» تحت كل سطرٍ
+ * من جدولٍ لم يُفتح بعد سياسته. فالنقصُ يُخفى عند عدم اليقين: الرقمُ
+ * المختلَق يُقرأ حُكماً على الموظف.
+ */
+export function shortfall(
+  minutes: number | null,
+  workdayMinutes: number | null,
+): number {
+  if (!minutes || !workdayMinutes) return 0;
   return Math.max(0, workdayMinutes - minutes);
 }
 

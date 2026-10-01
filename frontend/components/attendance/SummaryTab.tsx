@@ -6,6 +6,7 @@ import StatCard from '@/components/ui/StatCard';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import ExportButton from '@/components/ui/ExportButton';
+import DateRangeToolbar from '@/components/ui/DateRangeToolbar';
 import { useToast } from '@/components/ui/Toast';
 import {
   CalendarDays, CalendarCheck, CalendarX2, Clock4, Flame, Timer,
@@ -23,7 +24,13 @@ import type { AttendancePolicy, AttendanceSummary } from '@/types';
  * جدولٌ هنا يُعاد جدولُ الملخّص سطراً سطراً، والمرء يقفز إلى «من»
  * فيبحث في عددٍ من الصفوف بدل أن يفتح السجلات.
  */
-export default function SummaryTab({ from, to }: { from: string; to: string }) {
+interface SummaryTabProps {
+  from: string;
+  to: string;
+  onRangeChange: (from: string, to: string) => void;
+}
+
+export default function SummaryTab({ from, to, onRangeChange }: SummaryTabProps) {
   const { toast } = useToast();
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
   const [policy, setPolicy] = useState<AttendancePolicy | null>(null);
@@ -75,6 +82,8 @@ export default function SummaryTab({ from, to }: { from: string; to: string }) {
           label="تصدير الملخّص"
         />
       </div>
+
+      <DateRangeToolbar from={from} to={to} onChange={onRangeChange} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
