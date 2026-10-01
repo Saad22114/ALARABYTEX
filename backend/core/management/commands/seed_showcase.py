@@ -14,9 +14,10 @@
 """
 
 import random
+import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 from django.apps import apps
 from django.core.management import call_command, CommandError
@@ -139,6 +140,16 @@ def money(value):
     return Decimal(str(value)).quantize(CENTS)
 
 
+def q2_up(value):
+    """قرشان، **إلى الأعلى دائماً**.
+
+    يُستعمل لحدّ أدنى لا يجوز النزول عنه — كسعر بيع لا يقل عن حدّ شفته القواعد.
+    ``q2`` يستخدم تقريب «المقرّب إلى أقرب زوجي»، فيقرّب 7.125 إلى 7.12 أي
+    **تحت** الحدّ 7.125، فيرفضه القاعد نفسه الذي اشتُقّ منه الحدّ.
+    """
+    return (value or ZERO).quantize(CENTS, rounding=ROUND_CEILING)
+
+
 def add_months(value: date, months: int) -> date:
     total = value.year * 12 + (value.month - 1) + months
     return date(total // 12, total % 12 + 1, 1)
@@ -229,7 +240,7 @@ class Command(ArabicSafeCommand):
             removed += Account.objects.filter(source_key__startswith="expense_cat:").delete()[0]
 
             # المسح الجزئي أخطر من عدم المسح: يُعلِن الأمر أنه مسح، ثم يترك
-            # صفوفاً من التشغيل السابق تختلط بالجديد، فتصير كل الأرقام 이후ها
+            # صفوفاً من التشغيل السابق تختلط بالجديد، فتصير كل الأرقام ها
             # غير قابلة للنسبة إلى أي شهر. فنتأكد أن كل جدول غير محفوظ صار
             # خالياً، وإن بقي شيء نوقف الأمر بدل أن نُكمل ونُخفي.
             leftovers = {}
@@ -273,8 +284,8 @@ class Command(ArabicSafeCommand):
         الفروع عمّا يفعلهما. فنضيف الناقص من الفروع التجريبية ولا نلمس القائم.
 
         ويعيد **النشطة فقط**: فرع أوقفه صاحب النظام لا يبيع ولا يُصرف عليه،
-        وتوليد مبيعات له يعني ان/reviews تقرير أداء الفروع رقماً لفرع مغلق،
-        ومخزناً له بلا حركة، وردية بيع في مكان لا تُفتح فيه ال��رضيات.
+        وتوليد مبيعات له يعني رقماً لفرع مغلق في تقرير أداء الفروع، ومخزناً
+        له بلا حركة، وردية بيع في مكان لا تُفتح فيه الورديات.
         """
         from branches.models import Branch
 
@@ -357,7 +368,7 @@ class Command(ArabicSafeCommand):
 
         النظام يقيس الصلاحيات عبر ``Employee`` لا عبر ``auth.User``، فحساب
         بلا موظف يدخل الموقع ويرى شاشة فارغة أو خطأ 403 في كل تقرير — وهو
-        أسوأ ما يمكن أن会遇到ه من يفتح بيانات اختبار.
+        أسوأ ما يمكن أن يلقاه من يفتح بيانات اختبار.
         """
         from django.contrib.auth import get_user_model
 
@@ -392,14 +403,38 @@ class Command(ArabicSafeCommand):
                 out[branch.pk] = list(employees)
         return out
 
+    def _payroll_staff(self, employees):
+        """من يُبنى له هيكل راتب: من **له راتب**، لا كل من لديه حساب دخول.
+
+        الرواتب في هذا النظام تُبنى على ``SalaryStructure``، والأمر كان يبنيه
+        لكل موظف يجده — بمن فيهم الموظف الذي أُنشئ لمجرّد أن يدخل صاحبُه
+        النظام. وفي بيئة فيها خمسون حساب دخول — وهو حال هذه البيئة — يصير
+        لفرع واحد خمسون موظفاً لا يعملون، فيقفز راتبه إلى ما يقارب ثلاثة آلاف
+        ونصف، تهبط نسبة صافي ربحه إلى 5.8% بينما هامش بقية الفروع 27–31%.
+        رقمٌ يُقرأ كخطأ في التقرير، وهو في الحقيقة اختيارٌ في البيانات.
+
+        فالعلامة على العامل الحقيقي راتبه: من لا راتب له حساب دخول، لا موظف.
+        فلا خمول له ولا قسائم ولا مصروف رواتب على فرع لا يعمل فيه أحد.
+        """
+        return [e for e in employees if (e.base_salary or ZERO) > ZERO]
+
     def _ensure_salary_structures(self, employees, start):
         from payroll.models import SalaryStructure
 
+        staff = self._payroll_staff(employees)
+        skipped = len(employees) - len(staff)
+        if skipped:
+            self.write_line(
+                f"بدون راتب: {skipped} حساب دخول بلا راتب محدّد — لا هياكل ولا "
+                f"قسائم لهم، فلا يظهروا في تقرير الرواتب ولا في صافي الفرع.",
+                self.style.WARNING,
+            )
+
         made = 0
-        for employee in employees:
+        for employee in staff:
             if SalaryStructure.objects.filter(employee=employee).exists():
                 continue
-            base = employee.base_salary or Decimal("300")
+            base = employee.base_salary or ZERO
             SalaryStructure.objects.create(
                 employee=employee,
                 base_salary=base,
@@ -425,10 +460,42 @@ class Command(ArabicSafeCommand):
         return list(Supplier.objects.all())
 
     def _ensure_fabrics(self, suppliers):
+        """قماش تجريبي بسعر بيع **يُقبل** في هذا النظام مضبوطاً عليه.
+
+        هامش الربح ليس رقماً ثابتاً يُنسخ من منشأة إلى أخرى: قاعدة «سعر القطعة»
+        في الإعدادات ترفض أي بيعة كان سعر الياردة فيها أقل من
+        «تكلفة الشراء × المضاعف». والمضاعف المضبوط قد يبلغ 1.5، بينما كان
+        الأمر يكتب هامشاً ثابتاً 1.35 — فيرفض مُسلسل البيع **كل** بيعة من
+        أولها لآخرها، فلا يبقى في البيانات سوى أسطر نجت بالمصادفة.
+
+        فنقرأ المضاعف من الإعدادات ونشتق منه هامشاً يتجاوزه، مع فائض يستوعب
+        أدنى فرق سعر بين الفروع حتى لا يقع أدنى فرع تحت الحد عند بيعة واحدة.
+        """
+
+        from appsettings.models import AppSettings
         from suppliers.models import Fabric
+
+        conf = AppSettings.load()
+        multiplier = conf.min_piece_price_multiplier or ZERO
+        # الهامش فوق **سقف صاحب النظام** لا فوق حدٍّ ثابت: نترك 20% فوق
+        # المضاعف المضبوط، فيبقى للخصم مجال حقيقي. فمع مضاعف 1.5 وهامش 1.35
+        # كان أقصى خصم ممكن 2% — أي لا خصم يُذكر في بيانات الاختبار، بينما
+        # عمود «الخصم» في كل بيعة يبقى صفراً.
+        markup = max(
+            Decimal("1.35"),
+            q2(multiplier * Decimal("1.20")) if multiplier > ZERO else Decimal("1.35"),
+        )
+
+        if markup > Decimal("1.35"):
+            self.write_line(
+                f"هامش سعر البيع {markup}× (لا 1.35×) لأن «الحد الأدنى لسعر القطعة» "
+                f"مضبوط على {multiplier}× في الإعدادات — وبه تمرّ كل قرارات البيع",
+                self.style.SUCCESS,
+            )
 
         for index, (name, code, cost, kind, color) in enumerate(DEMO_FABRICS):
             purchase = Decimal(cost)
+            sale = q2(purchase * markup)
             Fabric.objects.get_or_create(
                 code=code,
                 defaults={
@@ -442,9 +509,9 @@ class Command(ArabicSafeCommand):
                     "weight_gsm": Decimal("180") if kind == "قطن" else Decimal("140"),
                     "origin": "عمان" if index % 2 else "الهند",
                     "purchase_price": purchase,
-                    "sale_price_yard": q2(purchase * Decimal("1.35")),
-                    "piece_price": q2(purchase * Decimal("3.5")),
-                    "min_sale_yard": q2(purchase * Decimal("1.10")),
+                    "sale_price_yard": sale,
+                    "piece_price": q2(sale * Decimal("3.5")),
+                    "min_sale_yard": q2(sale * Decimal("0.92")),
                     "yards_per_roll": Decimal("50"),
                     "min_stock": Decimal("120"),
                     "description": f"{name} — {color}",
@@ -457,19 +524,37 @@ class Command(ArabicSafeCommand):
 
         وجود سعر في الفروع يجعل التقارير تُظهر فروقاً حقيقية بدل سعر واحد مكرر،
         وهو ما تفعله محلات الأقمشة فعلاً.
+
+        لكن تفاوت السعر هنا لا يجوز أن يهبط تحت الحدّ الذي تفرضه الإعدادات: سعر
+        أقل من ``تكلفة × مضاعف الحد الأدنى لسعر القطعة`` يجعل سعر الفرع غير
+        قابل للبيع أصلاً، فيرفضه المُسلسل في كل بيعة — حتى لو كان سعر القماش
+        نفسه فوق الحد. فنقفل كل سعر فرع من تحت بسقف الحدّ المطلوب.
         """
+        from appsettings.models import AppSettings
         from branches.models import FabricBranchPrice
+
+        conf = AppSettings.load()
+        multiplier = conf.min_piece_price_multiplier or ZERO
 
         rng = random.Random(7)
         for branch in branches:
             for fabric in fabrics:
                 factor = Decimal(str(round(rng.uniform(0.97, 1.06), 4)))
                 price = q2(fabric.sale_price_yard * factor)
+                if multiplier > ZERO and fabric.purchase_price:
+                    # المقارنة على سعر الياردة: قاعدة «سعر القطعة» تقارن
+                    # السعر × 3.5 بتكلفة الشراء × 3.5 × المضاعف، فيُلغى
+                    # 3.5 ويبقى: السعر ≥ التكلفة × المضاعف.
+                    floor = q2_up(fabric.purchase_price * multiplier)
+                    if price < floor:
+                        price = floor
                 FabricBranchPrice.objects.update_or_create(
                     branch=branch,
                     fabric=fabric,
                     defaults={
                         "sale_price_yard": price,
+                        # الحد الأدنى تحت السعر بهامش الخصم لا عند حدّ الشراء،
+                        # فيبقى في المتاح ما يُخصم ويُقبل في نفس الوقت.
                         "min_sale_yard": q2(price * Decimal("0.92")),
                         "piece_price": q2(price * Decimal("3.5")),
                     },
@@ -678,9 +763,10 @@ class Command(ArabicSafeCommand):
             made += 1
         return made
 
-    def _pay_suppliers(self, rng, day, suppliers, owed):
+    def _pay_suppliers(self, rng, day, suppliers, owed, branches):
         from accounting.services import post_supplier_entry
         from suppliers.models import LedgerEntry
+        from suppliers.settlement import sync_settlement
 
         made = 0
         for supplier in suppliers:
@@ -691,6 +777,10 @@ class Command(ArabicSafeCommand):
             method = rng.choice(
                 [LedgerEntry.PaymentMethod.CASH, LedgerEntry.PaymentMethod.BANK]
             )
+            # الطلب: من أي حساب خرجت الدفعة. ولا نؤدّي من حساب تسوية إلا ما
+            # فيه فعلاً، وإلا بدا رصيده سالباً — وهو رقم يدعو إلى إصلاح
+            # البرنامج لا إلى إصلاح البيانات.
+            settlement, pay = self._pick_settlement(rng, pay, branches, day)
             entry = LedgerEntry.objects.create(
                 supplier=supplier,
                 date=day,
@@ -699,6 +789,7 @@ class Command(ArabicSafeCommand):
                 description="دفعة للمورد",
                 receipt_no=f"RC-{day:%Y%m%d}-{supplier.pk:02d}",
                 payment_method=method,
+                settlement_account=settlement,
                 bank_reference=(
                     f"TR{rng.randint(100000, 999999)}"
                     if method == LedgerEntry.PaymentMethod.BANK
@@ -709,8 +800,142 @@ class Command(ArabicSafeCommand):
                 ),
             )
             post_supplier_entry(entry)
+            if sync_settlement(entry):
+                # حركة التسوية نقصت رصيد الحساب، فنستثنيه من رصيده المتاح.
+                self._channel_spent[settlement] = (
+                    self._channel_spent.get(settlement, ZERO) + pay
+                )
             owed[supplier.pk] = balance - pay
             made += 1
+        return made
+
+    # ------------------------------------------------------------------
+    # حسابات التسوية: حساب الماكينة وحساب البنك
+    # ------------------------------------------------------------------
+    #: عمود المبيعات الذي يقابل كل حساب تسوية — كما في شاشة الحسابات نفسها،
+    #: فالتوليد والشاشة لا يكذبان على بعضهما.
+    CHANNEL_FIELDS = {
+        "machine": "card_amount",
+        "bank": "transfer_amount",
+    }
+
+    #: أيام الشهر التي تصل فيها دفعات شركة البطاقة والبنك. أسبوعياً: التحويل
+    #: المتأخر يومين أو ثلاثة لا أسبوعاً كاملاً.
+    SETTLEMENT_DAYS = (6, 13, 20, 27)
+
+    #: نسبة ما يُسدَّد من المستحق عند كل دفعة. الباقي مقصود: هو الرصيد
+    #: المتبقي، ووجوده هو سبب وجود شاشة حسابات التسوية أصلاً.
+    SETTLEMENT_RATE = Decimal("0.62")
+
+    #: أقل مبلغ يُؤدَّى من حساب تسوية. تحته لا يُشترى من الحساب أصلاً —
+    #: دفعة بعشرة جنيهات تُبقيها شاشة الحساب بلا أثر يُذكر.
+    MIN_CHANNEL_DRAW = Decimal("500")
+
+    #: نسبة ما يُسحب من رصيد حساب التسوية في دفعة واحدة. السحب حتى آخر
+    #: قرش يجعل الرصيد صفراً بالضبط، فيعرض الحساب «لا مستحق» لا «مستحق
+    #: كذا» — والشاشة التي بُنيت لعرض الرصيد لا معنى لعرضها فارغة.
+    CHANNEL_DRAW_CEILING = Decimal("0.6")
+
+    def _pick_settlement(self, rng, pay, branches, day):
+        """من أي حساب تُسدَّد الدفعة، وبكم — بحصر ما يقدر الحساب أن يتحمّله.
+
+        يُرجع ``(account, amount)``. المبلغ جزءٌ من القرار لا تفصيلٌ بعده:
+        رصيد حساب تسوية منفَّقٌ على مدى شهور، ودفعة المورد الأخيرة قد تفوقه
+        كلَّه، فيبقى شرطُ «يحتمله الحساب» بلا فائدة ما لم يُقصَّر الدفعة على
+        ما يحمله — والباقي يبقى على المورد في دفتره، كما في الواقع.
+        """
+        # ``_pay_suppliers`` تُنادى مرّة في آخر الشهر خارج حلقة الأيام، فيمرّ
+        # ``day`` على أول الشهر التالي. نقارن بالمحصّل كلَّه لا بيوم الدفع.
+        affordable = {
+            account: self._channel_available(account, branches)
+            for account in ("machine", "bank")
+        }
+        usable = [a for a, avail in affordable.items() if avail >= min(pay, self.MIN_CHANNEL_DRAW)]
+        if not usable:
+            return "none", pay
+        # ثلث الخيارات «لا خصم منهما» حتى يظهر هذا الخيار في الدفتر
+        # هو الآخر، لا أن يبقى نادراً فيظهر كحالة نسيان.
+        if rng.random() < 0.34:
+            return "none", pay
+
+        account = rng.choice(usable)
+        # ما لا يتحمّله الحساب يبقى عند المورد؛ وما يتحمله يُخصم منه فعلاً،
+        # فلا يصير رصيد الحساب سالباً — وهو ما تنبّه إليه «اختر حساباً
+        # ووجده قد أُفرغ» الذي يُصلَح بإعادة تسجيل الدفعة لا بتصحيح رقم.
+        # ومع ذلك لا يُفرَّغ الحساب: نُبقي جزءاً من رصيده معلّقاً كما يبقى
+        # في الواقع بعد آخر دفعة.
+        return account, min(pay, q2(affordable[account] * self.CHANNEL_DRAW_CEILING))
+
+    def _channel_available(self, account, branches):
+        """كم تحتمل حسابات التسوية أن تدفع اليوم دون أن يصير رصيدها سالباً."""
+        sales = self._channel_sales(account, branches)
+        received = self._channel_received(account, branches)
+        spent = self._channel_spent.get(account, ZERO)
+        available = sales - received - spent
+        return available if available > ZERO else ZERO
+
+    def _channel_sales(self, account, branches, through=None):
+        from django.db.models import Sum
+        from sales.models import DailySale
+
+        qs = DailySale.objects.filter(branch__in=branches)
+        if through is not None:
+            qs = qs.filter(date__lte=through)
+        return qs.aggregate(t=Sum(self.CHANNEL_FIELDS[account]))["t"] or ZERO
+
+    def _channel_received(self, account, branches, through=None):
+        from django.db.models import Sum
+        from machine_account.models import MachineCollection
+
+        qs = MachineCollection.objects.filter(
+            account=account, branch__in=branches
+        )
+        if through is not None:
+            qs = qs.filter(date__lte=through)
+        return qs.aggregate(t=Sum("amount"))["t"] or ZERO
+
+    def _settle_channels(self, rng, day, branches):
+        """دفعة واردة من شركة البطاقة أو من البنك، تُقسَّم على الفروع.
+
+        بلا هذه الحركات تبقى شاشة حسابات التسوية تعرض مبيعات ولا تعرض
+        وصولاً، فيبقى رصيدها كلَّه «مستحقاً» شهراً بعد شهر — وهو رقم يوهم
+        بأن شركة البطاقة لم تحوّل شيئاً قط.
+        """
+        from machine_account.models import MachineCollection
+
+        made = 0
+        for account in ("machine", "bank"):
+            sales = self._channel_sales(account, branches, through=day)
+            received = self._channel_received(account, branches, through=day)
+            outstanding = sales - received - self._channel_spent.get(account, ZERO)
+            if outstanding <= Decimal("100"):
+                continue
+            for branch in branches:
+                share = q2(
+                    outstanding
+                    * self.SETTLEMENT_RATE
+                    * Decimal(str(round(rng.uniform(0.15, 0.4), 3)))
+                )
+                if share < Decimal("50"):
+                    continue
+                MachineCollection.objects.create(
+                    account=account,
+                    branch=branch,
+                    date=day,
+                    amount=share,
+                    method=MachineCollection.CollectionMethod.TRANSFER,
+                    reference=(
+                        f"MC{rng.randint(100000, 999999)}"
+                        if account == "machine"
+                        else f"BN{rng.randint(100000, 999999)}"
+                    ),
+                    notes=(
+                        "تحويل شركة البطاقة"
+                        if account == "machine"
+                        else "تحويلات بنكية إلى حسابنا"
+                    ),
+                )
+                made += 1
         return made
 
     # ------------------------------------------------------------------
@@ -721,7 +946,7 @@ class Command(ArabicSafeCommand):
         from warehouses.services import post_opening
 
         # ``post_opening`` يرفض رصيداً افتتاحياً مكرّراً للقماش نفسه في المخزن
-        # نفسه، فيسقط أي تشغيل ثانٍ بـ--no-reset. 그래서 الرصيد الافتتاحي
+        # نفسه، فيسقط أي تشغيل ثانٍ بـ``--no-reset``. والرصيد الافتتاحي
         # يُكتب مرّة واحدة لكل مخزن: هو لقطة بداية، لا حركة متكرّرة.
         already = StockOpeningItem.objects.filter(
             opening__warehouse=main_warehouse
@@ -926,8 +1151,10 @@ class Command(ArabicSafeCommand):
         multiplier = conf.min_piece_price_multiplier
         purchase = fabric.purchase_price or ZERO
         if multiplier > ZERO and purchase > ZERO:
-            # أقل سعر ياردة يمرّ: لا بدّ أن يبقى فوق التكلفة × المضاعف.
-            floor = q2(yards * purchase * multiplier)
+            # أقل إجمالي يمرّ: الخصم لا يجوز أن ينزل بالسعر تحت التكلفة ×
+            # المضاعف. التقريب **إلى الأعلى** هنا مقصود: تقريب النصف إلى الزوجي
+            # يقرّب 7.125 إلى 7.12، فيبقى الخصم تحت الحدّ فيرفضه المُسلسل.
+            floor = q2_up(yards * purchase * multiplier)
             cap = min(cap, line - floor)
         if cap <= ZERO:
             return ZERO
@@ -943,6 +1170,26 @@ class Command(ArabicSafeCommand):
     # ------------------------------------------------------------------
     # الكتابة: المصاريف والشركاء والسلف والرواتب
     # ------------------------------------------------------------------
+    @staticmethod
+    def _expense_occurrences(per_month, elapsed_days, month_days):
+        """كم مرّةً يقع هذا المصروف فعلاً في الأيام التي مرّت؟
+
+        مصروفٌ شهريٌّ واحد (إيجار، كهرباء، ماء) يُدفع في أيٍّ من أيام الشهر،
+        فمرّةً واحدةً ولو لم يمرّ من الشهر إلا يوم. ومصروفٌ خمس مرّاتٍ لا
+        يقع خمساً في يومه الأول: تكرارُه على امتداد الشهر، لا في أوّله.
+
+        قسمةُ التكرار على نسبة الأيام المنقضية هي ما يمنع شهراً فيه يومٌ
+        واحداً من أن يحمل مصاريف شهرٍ كاملٍ في أوله. وهي أيضاً ما يجعل
+        صافي ربحه سالباً بلا سببٍ حقيقي: مصاريفٌ في يومها الأول لما يُقتنى
+        منها بعد ثلاثة أسابيع، ومبيعاتُ يومٍ واحدٍ لا تساويها.
+
+        والشهرُ التامّ لا يتأثر: نسبةُ الأيام المنقضية واحد، فيعود التكرارُ
+        كما هو. والفرقُ يظهر في الشهر الأخير وحده — وهو المقصود.
+        """
+        if per_month <= 1:
+            return 1
+        return int(per_month * elapsed_days / month_days)
+
     def _make_expenses(self, rng, month_start, last_day, branches, categories):
         from accounting.services import post_expense
         from expenses.models import Expense, ExpenseBudget
@@ -950,13 +1197,18 @@ class Command(ArabicSafeCommand):
         made = budgets = 0
         month_label = f"{month_start:%B %Y}"
         span = (last_day - month_start).days
+        elapsed_days = span + 1
+        month_days = month_last_day(month_start).day
         for branch in branches:
             for code, template, low, high, per_month in EXPENSE_TEMPLATES:
                 category = categories.get(code)
                 if category is None:
                     continue
                 total = ZERO
-                for _ in range(per_month):
+                occurrences = self._expense_occurrences(
+                    per_month, elapsed_days, month_days
+                )
+                for _ in range(occurrences):
                     expense = Expense.objects.create(
                         branch=branch,
                         category=category,
@@ -981,7 +1233,18 @@ class Command(ArabicSafeCommand):
                 budgets += 1
         return made, budgets
 
-    def _make_advances(self, rng, day, employees):
+    def _make_advances(self, rng, day, employees, force_repayment=False):
+        """سلف موظفين: تفويض، ثم أقساط على بعضها.
+
+        السلفة بلا قسط لا أثر مالي يُرى: شاشة السلف تعرض مبلغاً بلا ما قُطع
+        منه ولا ما سُدِّد، فلا يعرف القارئ أين ذهب. وقسطٌ جزئيٌّ وحده لا
+        يُنهي السلفة: نصفُ المبلغ عندي ونصفُه عنده، فلا حالةَ «مسدَّدة»
+        تظهر في الشاشة ولا يُختبر مسارُ الإغلاق.
+
+        فـ``force_repayment`` يُسدِّد سلفةً **بالكامل**، لا نصفَها. نقدٌ
+        هنا: نتفادى أن يكون امتلاءُ الشاشة رميَ عملة، فنضمن ما تُفتح
+        الشاشةُ من أجله.
+        """
         from payroll.models import AdvanceInstallment, SalaryAdvance
         from payroll.services import approve_advance, repay_advance
 
@@ -1002,25 +1265,54 @@ class Command(ArabicSafeCommand):
                 )
             )
             made += 1
-        for advance in SalaryAdvance.objects.filter(
-            status=SalaryAdvance.Status.APPROVED
-        )[:2]:
-            if advance.remaining_amount <= 0 or rng.random() < 0.5:
+
+        owed = list(
+            SalaryAdvance.objects.filter(status=SalaryAdvance.Status.APPROVED).order_by(
+                "date", "pk"
+            )[:2]
+        )
+        repaid = 0
+        for advance in owed:
+            if advance.remaining_amount <= 0:
                 continue
+            # أول سلفة تُسدَّد كاملةً: هي التي تُظهر حالة
+            # «مسدَّدة» وتُغلق مسار التسوية. وما بعدها فنصفه — قسطٌ جزئيٌّ
+            # لموظفٍ ثانٍ يُظهر في شاشة السلف أكثر من حالة واحدة.
+            if repaid == 0 and force_repayment:
+                amount = advance.remaining_amount
+            elif repaid and rng.random() < 0.5:
+                continue
+            else:
+                amount = q2(advance.remaining_amount * Decimal("0.5"))
             repay_advance(
                 advance,
-                q2(advance.remaining_amount * Decimal("0.5")),
+                amount,
                 method=AdvanceInstallment.Method.CASH,
                 paid_on=day,
             )
             made += 1
+            repaid += 1
         return made
 
-    def _make_payroll(self, month_start, last_day_of_month):
-        """مسيّر رواتب الشهر الكامل: إنشاء ثم اعتماد ثم صرف."""
+    def _make_payroll(self, month_start, seeded_through):
+        """مسيّر رواتب شهرٍ انتهى: إنشاء ثم اعتماد ثم صرف.
+
+        يُنشأ لشهرٍ **اكتمل** فقط، والشرطُ أن يكون ``seeded_through`` قد
+        بلغ آخرَ ذلك الشهر. الراتبُ مصروفٌ نهايةَ الشهر، فمسيّرٌ لشهرٍ ما
+        زال يجري يُصرف في آخر يومٍ منه — أي بتاريخٍ لم يأتِ بعد، وهو ما
+        يُفسد تقريرَ الشهر الجاري بأرقامٍ من المستقبل. وشهرٌ لم يُقفل بعد
+        لا يستحقّ مسيّراً أصلاً: لم يُعرف ما يستحقّه أحد.
+
+        والحدُّ في ``seeded_through`` لا في تاريخ اليوم: أمرٌ يُشغَّل
+        ``--end`` في شهرٍ سابق يزرع شهوراً كاملةً، فأولُ شهرٍ بعد ``today``
+        يجب أن يُقبل كما لو انتهى فعلاً.
+        """
         from payroll.models import PayrollRun
         from payroll.services import approve_run, generate_run, pay_run
 
+        month_final = month_last_day(month_start)
+        if seeded_through < month_final:
+            return None
         if PayrollRun.objects.filter(month=month_start).exists():
             return None
         run = generate_run(month_start)
@@ -1032,7 +1324,7 @@ class Command(ArabicSafeCommand):
             run,
             payment_method="cash",
             paid_at=timezone.make_aware(
-                datetime.combine(last_day_of_month, datetime.min.time()).replace(hour=18)
+                datetime.combine(month_final, datetime.min.time()).replace(hour=18)
             ),
         )
         return run
@@ -1044,7 +1336,10 @@ class Command(ArabicSafeCommand):
 
         made = 0
         for partner in partners:
-            if rng.random() < 0.5:
+            # أولُ شريكٍ عمليةٌ له كل شهرٍ بلا استثناء. القرعةُ على
+            # الشركاء الباقين كانت تترك شاشة العمليات فارغةً في نصف
+            # التشغيلات، والشاشةُ الفارغة شاشةٌ لم تُختبر.
+            if partner is not partners[0] and rng.random() < 0.5:
                 continue
             operation = create_partner_operation(
                 partner=partner,
@@ -1127,11 +1422,14 @@ class Command(ArabicSafeCommand):
                 "expenses": 0,
                 "advances": 0,
                 "runs": 0,
+                "collections": 0,
             }
+            # ما أنفقته دفعات الموردين من حسابَي التسوية عبر كامل المولَّد:
+            # فحساب رصيده المتاح لا ينظر إلى شهرٍ واحد، وإلا اختير حسابٌ في
+            # شهرٍ ما ثم رجع الرصيد موجباً في الشهر التالي بلا سبب ظاهر.
+            self._channel_spent = {}
 
-            for month_start, last_day in ranges:
-                month_final = month_last_day(month_start)
-                is_partial = last_day < month_final
+            for month_index, (month_start, last_day) in enumerate(ranges):
                 plan = self._plan_month(
                     rng, month_start, last_day, branches, staff, fabrics, customers
                 )
@@ -1175,6 +1473,9 @@ class Command(ArabicSafeCommand):
                     if day in plan:
                         totals["sessions"] += self._run_day_sales(rng, day, plan[day], staff)
 
+                    if (day - month_start).days + 1 in self.SETTLEMENT_DAYS:
+                        totals["collections"] += self._settle_channels(rng, day, branches)
+
                 # دفعة ختامية في آخر الشهر تترك رصيداً افتتاحياً للشهر التالي،
                 # فيظهر في قسم «المشتريات والمخزون» من تقرير الربح والخسارة
                 # قيمة البضاعة غير المباعة — وهي من أرقام التقارير. المعامل 1.25
@@ -1212,8 +1513,16 @@ class Command(ArabicSafeCommand):
                 # تاريخ السلفة داخل الشهر: نقصره على آخر يوم مُولَّد حتى لا
                 # تقع سلفة شهرٍ ناقص في يوم لم تُبنَ بياناته بعد.
                 advance_day = min(month_start + timedelta(days=5), last_day)
-                totals["advances"] += self._make_advances(rng, advance_day, employees)
-                totals["runs"] += bool(self._make_payroll(month_start, month_final))
+                totals["advances"] += self._make_advances(
+                    rng,
+                    advance_day,
+                    employees,
+                    # في الشهر الأخير نضمن قسطاً واحداً على الأقل: شاشة
+                    # أقساط السلف بلا صفّ واحد تبقى شجرة بلا ورقة، وهي من
+                    # أكثر الشاشات التي لا تُفتح إلا عند وجود سلف.
+                    force_repayment=month_index == len(ranges) - 1,
+                )
+                totals["runs"] += bool(self._make_payroll(month_start, last_day))
                 if month_start == first_month:
                     # أول شهر فقط: التسوية والجرد مرّة واحدة يكفيان لفتح الشاشتين،
                     # وتكرارهما كل شهر بلا داعٍ يُضخّم سجل الحركات بلا فائدة.
@@ -1229,23 +1538,50 @@ class Command(ArabicSafeCommand):
                         min(month_start + timedelta(days=8), last_day),
                         partners,
                     )
-                if is_partial:
+                if month_index == len(ranges) - 1:
+                    # الجرد في **آخر** شهر، لا في شهرٍ ناقص: أحدث تاريخ يمكن
+                    # أن يُسجَّل هو اليوم الذي انتهى عنده توليد البيانات، فجردٌ
+                    # بتاريخ أول الشهر التالي يقع خارج البيانات كلّها ويظهر في
+                    # شاشة الجرد صفّاً بلا حركة.
+                    #
+                    # وكان الشرط ``is_partial`` (الشهر غير مكتمل)، وهو ينقلب
+                    # على نفسه في آخر الشهر: ``last_day == month_last_day``
+                    # فيوم 30 من شهرٍ من 30 يوماً، فلا يقع الشرط ولا يُنشأ أي
+                    # جرد. فتبقى شاشتا الجرد والتسوية فارغتين كلما وقع التشغيل
+                    # في أواخر الشهر — وهو أسوأ وقت للتجربة.
                     self._stock_count(
                         rng,
-                        max(month_start, last_day - timedelta(days=3)),
+                        last_day,
                         main_warehouse,
                     )
+                    self._stock_count(
+                        rng,
+                        last_day,
+                        branch_warehouses[branches[0].pk],
+                    )
 
-            self._pay_suppliers(rng, ranges[-1][1] + timedelta(days=1), suppliers, owed)
-            self._print_report(verbosity, totals, ranges)
+            self._pay_suppliers(
+                rng, ranges[-1][1] + timedelta(days=1), suppliers, owed, branches
+            )
+            self._print_report(verbosity, totals, ranges, branches)
 
     # ------------------------------------------------------------------
     def _parse_end(self, raw, today):
+        """أول يوم في آخر شهر، من ``YYYY-MM`` أو من تاريخ كامل.
+
+        ``date.fromisoformat`` لا يقبل ``YYYY-MM`` — الصيغة الموثّقة في
+        ``--end`` كانت ترمي ``ValueError``، فترجع إلى الشهر الحالي مع
+        تحذير، فيبني الأمر ثلاثة أشهر من غير أن يطلك. فنقرأ الشهر بنفسنا.
+        """
         if not raw:
             return today.replace(day=1)
+        text = str(raw).strip()
         try:
-            return date.fromisoformat(str(raw).strip()).replace(day=1)
-        except ValueError:
+            if re.fullmatch(r"\d{4}-\d{2}", text):
+                year, month = text.split("-")
+                return date(int(year), int(month), 1)
+            return date.fromisoformat(text).replace(day=1)
+        except (ValueError, TypeError):
             self.write_line(
                 f"تجاهلنا قيمة --end غير الصالحة «{raw}» واستعملنا الشهر الحالي", self.style.WARNING
             )
@@ -1283,7 +1619,29 @@ class Command(ArabicSafeCommand):
             return {}
         return {key: q2(padded - already)}
 
-    def _print_report(self, verbosity, totals, ranges):
+    def _print_channels(self, branches):
+        """حسابا التسوية بأرقام شاشتهما: مبيعات، مستلَم، رصيد.
+
+        الرصيد السالب يعني أن المولِّد أنفق من حسابٍ لم يمتلئ بعد. نعلنه
+        صريحاً بدل تركه في الشاشة يبحث عنه المستخدم.
+        """
+        from machine_account.models import MachineCollection
+
+        self.write_line("")
+        self.write_line("حساب التسوية |       المبيعات |        المستلَم |         الرصيد")
+        self.write_line("-" * 62)
+        for account in ("machine", "bank"):
+            sales = self._channel_sales(account, branches)
+            received = self._channel_received(account, branches)
+            balance = sales - received - self._channel_spent.get(account, ZERO)
+            label = MachineCollection.Account(account).label
+            flag = "  <-- سالب" if balance < ZERO else ""
+            self.write_line(
+                f"{label:<15} | {sales:>14,.2f} | {received:>16,.2f} "
+                f"| {balance:>14,.2f}{flag}"
+            )
+
+    def _print_report(self, verbosity, totals, ranges, branches):
         """يطبع ملخّصاً بالأرقام الحقيقية المحسوبة من البيانات المُنشأة.
 
         الأرقام تُقرأ من جداول النظام ومن ``reports.cogs`` نفسها التي يقرأ بها
@@ -1304,12 +1662,14 @@ class Command(ArabicSafeCommand):
         self.write_line(
             f"ورديات البيع: {totals['sessions']}  |  سندات الشراء: {totals['purchases']}  |  "
             f"المصاريف: {totals['expenses']}  |  سلف: {totals['advances']}  |  "
-            f"مسيّرات رواتب: {totals['runs']}"
+            f"مسيّرات رواتب: {totals['runs']}  |  دفعات تسوية: {totals['collections']}"
         )
         self.write_line(
             f"قيود اليومية: {JournalEntry.objects.count()}  |  "
             f"سطور القيود: {JournalLine.objects.count()}"
         )
+        self._print_channels(branches)
+
         self.write_line("")
         self.write_line("الشهر      |      المبيعات | تكلفة البضاعة |     المصاريف |      الرواتب |   صافي الربح")
         self.write_line("-" * 78)

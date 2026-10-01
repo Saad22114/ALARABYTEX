@@ -57,3 +57,40 @@ const AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'ما
 export function formatArabicDate(date: Date): string {
   return `${AR_DAYS[date.getDay()]}، ${date.getDate()} ${AR_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
+
+/**
+ * وقت آخر ظهور تحت الاسم.
+ *
+ * «الطلب: اكتب آخر ظهور الوقت، وإذا أكثر من يوم اكتب اليوم والتاريخ».
+ * فنصاغه بحسب البُعد الذي يهمّ السائل: اليوم نفسه فيكتفي بالوقت، ويومٌ
+ * سابق فيحتاج اليوم والتاريخ — لأن «٠٣:٤٠» بلا تاريخ توهم أن الموظف كان
+ * حاضراً اليوم بينما هو غائب منذ ثلاثة أيام.
+ */
+export function formatLastSeen(iso: string | null | undefined, now = new Date()): string {
+  if (!iso) return 'لم يسجّل دخولاً بعد';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+
+  const sameDay = at.toDateString() === now.toDateString();
+  if (sameDay) {
+    return `آخر ظهور الساعة ${at.toLocaleTimeString('ar-EG-u-nu-latn', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+  }
+
+  // «أمس» تُغني عن التاريخ، أما ما قبلها فيحتاج اليوم والتاريخ معاً.
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (at.toDateString() === yesterday.toDateString()) {
+    return `آخر ظهور أمس الساعة ${at.toLocaleTimeString('ar-EG-u-nu-latn', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+  }
+
+  return `آخر ظهور ${formatArabicDate(at)} الساعة ${at.toLocaleTimeString('ar-EG-u-nu-latn', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
+}

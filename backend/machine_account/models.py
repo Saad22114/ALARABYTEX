@@ -55,6 +55,15 @@ class MachineCollection(TimeStampedModel):
         max_length=100, blank=True, verbose_name="مرجع التحويل / رقم العملية"
     )
     notes = models.CharField(max_length=255, blank=True, verbose_name="ملاحظات")
+    supplier_payment = models.OneToOneField(
+        "suppliers.LedgerEntry",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="settlement_movement",
+        verbose_name="دفعة المورد التي سدّدتها",
+        help_text="يُملأ تلقائياً عند تسجيل دفعة لمورد من حساب الماكينة أو البنك، فتصير الدفعة مرئيةً في القسم الذي خُصمت منه",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

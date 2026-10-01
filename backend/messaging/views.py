@@ -34,6 +34,10 @@ def _employee_contact(emp):
         "role_label": emp.get_role_display(),
         "branch_name": emp.branch.name if emp.branch_id else "",
         "is_online": _is_online(emp),
+        # «متصل الآن» لا يكفي: من لم يدخل اليوم يحتاج أن يعرف **متى** كان
+        # آخر دخول، وإلا بدا غائباً بلا سبب معروف. فنرسل الوقت الخام
+        # ليتولّى العميل صياغته بلغته (اليوم / أمس / التاريخ الكامل).
+        "last_seen_at": emp.last_seen_at,
     }
 
 

@@ -232,9 +232,28 @@ class FabricViewSet(viewsets.ModelViewSet):
                 ]
                 for f in qs
             ]
+            # مجموع عمود «عدد الطاقات» بلا معنى — بطاقات قماشٍ واحد تُحسب
+            # بطاقتين. المجموع المعقول هو قيمة المخزون بالكلفة، وهي التي
+            # تُقارَن بقيمة البيع في نفس التقرير.
+            rows.append([
+                "الإجمالي", "", "", "", "", "",
+                "", "", "", "", "",
+                f"{len(rows)} قماش",
+                sum(r[12] for r in rows),
+                round(sum(r[13] for r in rows), 2),
+                round(sum(r[14] for r in rows), 2),
+                round(sum(r[15] for r in rows), 2),
+                "",
+            ])
             from reports.views import _export_generic_to_xlsx, _xlsx_response
 
-            wb = _export_generic_to_xlsx("الأقمشة", headers, rows)
+            wb = _export_generic_to_xlsx(
+                "الأقمشة", headers, rows,
+                types=["text", "text", "text", "text", "text", "text"]
+                + ["money"] * 5 + ["text"]
+                + ["number"] * 3 + ["money", "number", "text"],
+                subtitle=f"عدد الأقمشة: {len(rows) - 1}",
+            )
             if wb is not None:
                 return _xlsx_response(wb, "الأقمشة")
         return super().list(request, *args, **kwargs)
@@ -447,6 +466,8 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
         created = serializer.save()
         try:
             from accounting.services import post_supplier_entry
+            from .settlement import sync_settlement
+
             post_supplier_entry(created)
             if (
                 created.entry_type == LedgerEntry.EntryType.PURCHASE
@@ -465,6 +486,11 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
                 )
                 if payment:
                     post_supplier_entry(payment)
+                    sync_settlement(payment, user=request.user)
+            elif created.entry_type == LedgerEntry.EntryType.PAYMENT:
+                # الطلب: يُخصم من الحساب المختار ويُسجَّل في قسمه. فالسيولة
+                # هنا هي الفرق بين «سجّلنا الدفعة» و«خرجت من حساب الماكينة».
+                sync_settlement(created, user=request.user)
         except Exception:
             logger.exception("فشل ترحيل قيد مورد (id=%s)", created.pk)
         entry = next(
@@ -491,10 +517,13 @@ class SupplierLedgerViewSet(viewsets.GenericViewSet):
         try:
             from accounting.models import JournalEntry
             from accounting.services import unpost_source
+            from .settlement import drop_settlement
 
             unpost_source(JournalEntry.Source.PURCHASE, entry.pk)
+            drop_settlement(entry)
             if payment:
                 unpost_source(JournalEntry.Source.PURCHASE, payment.pk)
+                drop_settlement(payment)
         except Exception:
             logger.exception("فشل إلغاء قيد مورد (id=%s)", entry.pk)
         entry.delete()

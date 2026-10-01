@@ -103,6 +103,48 @@ class CustomerApiTests(TestCase):
         by_phone = self.client.get(self.list_url, {"search": "2222222"})
         self.assertEqual(by_phone.json()["count"], 1)
 
+    def _phones(self, term):
+        res = self.client.get(self.list_url, {"search": term, "page_size": 50})
+        self.assertEqual(res.status_code, 200)
+        return [row["phone"] for row in res.json()["results"]]
+
+    def test_partial_phone_search_shows_similar_numbers(self):
+        """الطلب: يظهر المتشابه فوراً على حسب البحث، بلا انتظار الرقم كاملاً.
+
+        الترتيب بالاسم كان يخلط المتشابهين، فيبدو البحث كأنه لا يستجيب
+        حتى يكتب المستخدم الرقم كله.
+        """
+        Customer.objects.create(name="أ", phone="0561000000")
+        Customer.objects.create(name="ب", phone="0562000000")
+        Customer.objects.create(name="ج", phone="0561000009")
+        Customer.objects.create(name="د", phone="971234567")
+
+        # أربعة أرقام من أصل ثمانية: يجب أن يُرى المتشابهان الآن.
+        self.assertEqual(self._phones("0561"), ["0561000000", "0561000009"])
+        # التطابق التام في الصدارة، لا في منتصف القائمة.
+        self.assertEqual(self._phones("0561000009"), ["0561000009"])
+        # ذيل الرقم: من يكتب آخر أربعة أرقام يعرف صاحبه بلا تردد.
+        self.assertEqual(self._phones("0009"), ["0561000009"])
+
+    def test_phone_search_ignores_separators_he_types(self):
+        """«0561 000009» و«0561000009» رقم واحد، والمستخدم يكتبه بالطريقة الأولى."""
+        Customer.objects.create(name="أ", phone="0561000009")
+        self.assertEqual(self._phones("0561 000009"), ["0561000009"])
+        self.assertEqual(self._phones("0561-000009"), ["0561000009"])
+
+    def test_search_by_name_still_finds_phone_matches(self):
+        Customer.objects.create(name="خالد", phone="0561111111")
+        Customer.objects.create(name="ماجد", phone="0562222222")
+        self.assertEqual(self._phones("خالد"), ["0561111111"])
+
+    def test_empty_search_stays_in_name_order(self):
+        for index, name in enumerate(("زينب", "أحمد", "سعيد")):
+            Customer.objects.create(name=name, phone=f"0561000{index:03d}")
+        res = self.client.get(self.list_url, {"page_size": 50})
+        self.assertEqual(
+            [row["name"] for row in res.json()["results"]], ["أحمد", "زينب", "سعيد"]
+        )
+
     def test_lookup_phone_found(self):
         c = Customer.objects.create(name="منى", phone="0565555555", branch=self.branch)
         res = self.client.get(reverse("customer-lookup"), {"phone": "0565555555"})

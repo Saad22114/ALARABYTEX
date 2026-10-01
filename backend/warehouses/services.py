@@ -1,12 +1,21 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import (
+    Count,
+    DecimalField,
+    ExpressionWrapper,
+    F,
+    Q,
+    Sum,
+)
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import serializers
 
 from sales.models import DailySale
 from branches.models import Branch
+from reports.cogs import fabric_average_costs
 from suppliers.models import Fabric
 
 from .models import (
@@ -359,6 +368,125 @@ def apply_adjustment(adjustment: StockAdjustment):
     return adjustment
 
 
+#: أدنى فرقٍ يُحرّك حركة مخزون. تحته فرقُ قصّ وطحنٍ لا معنى لإثقال السجل
+#: بحركاتٍ قيمتها صفر — لكنه يجب أن يكون رقماً واحداً معروفاً: العرض والنشر
+#: يتّفقان عليه، وإلا عرض النظام سطراً «عليه فرق» ثم لم يتحرّك للمخزون
+#: ياردةً واحدة عند النشر.
+VARIANCE_EPSILON = Decimal("0.005")
+
+def count_variance_expression():
+    """تعبير SQL للفرق بين الرصيدين، للتصفية والتجميع معاً.
+
+    ``counted_yards`` قد يكون ``NULL`` (صنفٌ لم يُعدّ)، وطرح ``NULL`` في SQL
+    يُبتلع الصفّ كلّه فيحسبه غيرَ مرصود. فنستبدله بالرصيد الدفتري، فيصير
+    الفرق صفراً — أي «لم يُعدّ بعد» لا «مطابق».
+    """
+    return ExpressionWrapper(
+        Coalesce(F("counted_yards"), F("system_yards")) - F("system_yards"),
+        output_field=DecimalField(max_digits=14, decimal_places=2),
+    )
+
+
+def count_summary(count, costs=None):
+    """ملخّص الجلسة: كم رُصد، وكم بقي، وكم فروق، وبكم ياردة وبكم قيمة.
+
+    ليس زينة: هذه الأرقام هي ما يقرّر مدير المخزن «هل انتهى الجرد» ومتى
+    يُنشر. وتُحسب في استعلامٍ واحدٍ على قاعدة البيانات لا بعدّ الصفوف في
+    بايثون، وتُقاس قيمة الفرق بخريطة التكلفة نفسها التي يستعملها
+    ``post_count`` — فلو اختلفت لأظهر التقرير فرقاً غير ما في الشاشة.
+
+    صنفٌ رُصد ولم يكن له رصيد دفتري — أي وُجد على الرفّ ولم يُسجّل — فرقُه
+    قيمةٌ كاملة، ويُحسب هنا كغيره.
+    """
+    # الفرق يُحسب مرّةً واحدة كـ«تسمية» على الاستعلام، ثم يُجمَّع ويُصفّى
+    # بتسمية لا بتعبير. خلطُ ``Sum(تعبير)`` مع ``Sum(عمود)`` في aggregate
+    # واحد يربك Django: الاسم يُسجَّل كتعليق قبل أن يُحلّ، فيحسب العمود
+    # تعليقاً على تعليق ويرفض الاستعلام كلّه.
+    annotated = count.items.all().annotate(variance=count_variance_expression())
+    stats = annotated.aggregate(
+        items=Count("id"),
+        counted=Count("counted_yards"),
+        net=Sum("variance"),
+    )
+    # الصنف غيرُ المرصود فرقُه صفرٌ بالقيمة لا بالرصيد: هو «لم يُعدّ»، لا
+    # «مطابق». وتصفيةُ الفروق على الصفر تطويباً تعبر المرصود فقط.
+    discrepant = annotated.filter(
+        Q(variance__gte=VARIANCE_EPSILON) | Q(variance__lte=-VARIANCE_EPSILON)
+    )
+    rows = list(discrepant.values_list("fabric_id", "variance"))
+    if costs is None:
+        costs = fabric_average_costs({fid for fid, _ in rows}) if rows else {}
+    # فرقُ ياردتين بلا سعرٍ لا يُراجَع ولا يُسجَّل، فقيمة الفرق محلّها.
+    value = sum(
+        (Decimal(str(amount)) * (costs.get(fid) or Decimal("0")))
+        for fid, amount in rows
+    )
+    total_items = stats["items"] or 0
+    counted_items = stats["counted"] or 0
+    return {
+        "items": total_items,
+        "counted": counted_items,
+        "pending": total_items - counted_items,
+        "variances": len(rows),
+        "net_yards": float(stats["net"] or Decimal("0")),
+        "value": float(value),
+        "complete": total_items > 0 and counted_items == total_items,
+    }
+
+
+def public_summary(count):
+    """الملخّص كما تُراه الشاشة، لا كما يُحسَب في الخدمة.
+
+    الجرد المغلق يخفي الرصيد الدفتري سطراً سطراً، فلا يجوز أن يفصح عنه
+    ملخّصٌ يجمعه: «فروقٌ في صنفين بـ‎-5‎ ياردة» هو الرصيدُ الدفتري
+    نفسُه، مُجموعاً ومُقرَّباً. فالتقدّم (كم رُصد وكم بقي) يبقى ظاهراً —
+    هو ما يحتاجه العدّاد ليرفع رأسه — أمّا الفروقُ فيُصفَّر حتى النشر.
+    """
+    summary = count_summary(count)
+    if count.hides_system_balance:
+        summary.update(variances=0, net_yards=0.0, value=0.0)
+    return summary
+
+
+def add_count_line(count, fabric):
+    """يضيف قماشاً إلى الجلسة حتى لو لم يكن له رصيد دفتري.
+
+    الجرد الفعلي يجد أقمشةً على الرفّ لا في الدفتر — وهذا أجمل ما يكتشفه
+    الجرد وأخطره. فحصرُ الأصناف فيما رصيده موجب يجعل اكتشاف «قماش بلا
+    دفتر» مستحيلاً بنيوياً، ويلغي أهمّ سببٍ لإتمام الجرد.
+    """
+    if count.status != StockCount.Status.OPEN:
+        raise serializers.ValidationError("لا يمكن تعديل جلسة منشورة أو ملغاة")
+    if count.items.filter(fabric=fabric).exists():
+        raise serializers.ValidationError("القماش مرصود في هذه الجلسة مسبقاً")
+    # رصيد الدفتر لهذا القماش في هذا المخزن لحظة الجرد، لا صفراً كسولاً:
+    # القماش الذي أُدخل بلا رصيدٍ مُقاس يُعامل كرصيده الفعلي الجديد.
+    system = (
+        FabricRoll.objects.filter(
+            warehouse=count.warehouse,
+            fabric=fabric,
+            status=FabricRoll.Status.AVAILABLE,
+        ).aggregate(total=Sum("remaining_yards"))["total"]
+        or Decimal("0")
+    )
+    return StockCountItem.objects.create(
+        count=count, fabric=fabric, system_yards=system,
+    )
+
+
+def remove_count_line(count, item):
+    """يحذف سطراً أُدخل بالخطأ — ما دامت الجلسة مفتوحة.
+
+    ما بعد النشر ليس خطأً يُصحَّح بحذف سطر: هو فارق جردٍ موثَّق، وصحّتُه
+    بتعديل حركة، لا بإخفاء سطرٍ كان قد وُثِق.
+    """
+    if count.status != StockCount.Status.OPEN:
+        raise serializers.ValidationError("لا يمكن تعديل جلسة منشورة أو ملغاة")
+    if item.count_id != count.pk:
+        raise serializers.ValidationError("الصنف لا ينتمي إلى هذه الجلسة")
+    item.delete()
+
+
 def build_count_snapshot(count: StockCount):
     """يرصد الأرصدة الدفترية لكل قماش بفروع الجلسة قبل الجرد."""
     if count.status in (StockCount.Status.POSTED, StockCount.Status.CANCELLED):
@@ -383,31 +511,46 @@ def post_count(count: StockCount):
         raise serializers.ValidationError("الجلسة منشورة مسبقاً")
     if not count.items.exists():
         raise serializers.ValidationError("جلسة الجرد فارغة")
+    pending = count.items.filter(counted_yards__isnull=True).count()
+    if pending:
+        raise serializers.ValidationError(
+            f"بقي {pending} صنفاً بلا رصد فعلي — أدخل الرصيد لكل صنف قبل النشر"
+        )
     with transaction.atomic():
         item_list = list(count.items.select_related("fabric"))
         for item in item_list:
-            if item.counted_yards is None:
-                raise serializers.ValidationError(
-                    f"أدخل الرصيد الفعلي لجميع الأصناف قبل النشر (قماش «{item.fabric.name}»)"
-                )
             diff = item.counted_yards - item.system_yards
-            if abs(diff) < Decimal("0.005"):
+            if abs(diff) < VARIANCE_EPSILON:
                 continue
             if diff > 0:
                 add_rolls(
                     count.warehouse, item.fabric, diff, movement_type=StockMovement.Type.COUNT,
                     reference=StockCount, reference_id=count.pk, reference_no=count.number,
-                    date=count.date, notes="فارق جرد (زيادة)", rolls_count=1,
+                    date=count.date, notes=_variance_note(item, "زيادة"),
+                    rolls_count=1,
                 )
             else:
                 consume_rolls(
                     count.warehouse, item.fabric, -diff, StockMovement.Type.COUNT,
                     reference=StockCount, reference_id=count.pk,
-                    reference_no=count.number, date=count.date, notes="فارق جرد (نقص)",
+                    reference_no=count.number, date=count.date,
+                    notes=_variance_note(item, "نقص"),
                 )
         count.status = StockCount.Status.POSTED
         count.save(update_fields=["status"])
     return count
+
+
+def _variance_note(item, direction):
+    """حركة الجرد تحمل سبب الفرق المكتوب، لا كلمةً عامةً عن كل حركة.
+
+    «فارق جرد (نقص) 12.5 ياردة» لا يقود قراراً. «فارق جرد (نقص) — هالك:
+    قصاصة في المخزن» يفعل. فالسبب المُدخَل مع العدّ هو ما يجعل الفرق قابلاً
+    للمعالجة بدل أن يكون مجهولاً في سطر حركة.
+    """
+    reason = (item.note or "").strip()
+    base = f"فارق جرد ({direction})"
+    return f"{base} — {reason}" if reason else base
 
 
 def post_opening(opening):

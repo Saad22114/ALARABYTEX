@@ -106,7 +106,22 @@ class PartnerViewSet(viewsets.ModelViewSet):
                 ]
                 for m in qs
             ]
-            wb = _export_generic_to_xlsx("حركات الشريك", headers, rows)
+            # «المبلغ» عمود واحد لحركتين متعاكستين: مجموع عموديه لا معنى له كعدد
+            # حركات، فالمحصّل فيه هو **الصافي** (دعم ناقص سحب) — والسحب
+            # سالبٌ أصلاً فيحسب طرحه جمعاً. و«الرصيد الجاري» لا يُجمع: آخر
+            # رصيد هو رصيد الإقفال، ف(sum الأرصدة) رقمٌ بلا معنى.
+            rows.append([
+                "الإجمالي", "", "", "",
+                round(total_support + total_withdraw, 2),
+                round(running, 2),
+                f"دعم: {total_support} / سحب: {abs(total_withdraw)}",
+                f"{len(rows)} حركة",
+            ])
+            wb = _export_generic_to_xlsx(
+                "حركات الشريك", headers, rows,
+                types=["date", "text", "text", "text", "money", "money", "text", "text"],
+                subtitle=f"الفترة: {date_from} إلى {date_to}  |  الشريك: {partner.name}",
+            )
             if wb is not None:
                 return _xlsx_response(wb, f"تقرير_حركات_{partner.name}")
 
@@ -218,8 +233,25 @@ class PartnerViewSet(viewsets.ModelViewSet):
                 ]
                 for it in items
             ]
+            # حصص الشركاء يجب أن totaled 100٪: مجموع عمود النسبة في الملف
+            # هو أسرع ما يكشف شراكةً نُسيت أو نُسخت مرّتين.
+            rows.append([
+                "الإجمالي",
+                round(sum(float(it["share_percent"]) for it in items), 2),
+                round(float(total_support), 2),
+                round(float(total_withdraw), 2),
+                round(sum(float(it["actual_net"]) for it in items), 2),
+                round(sum(float(it["theoretical_share"]) for it in items), 2),
+                round(sum(float(it["difference"]) for it in items), 2),
+                "",
+            ])
             wb = _export_generic_to_xlsx(
-                f"تقرير_حصص_الشركاء_{date_from or 'all'}_{date_to or 'all'}", headers, rows
+                "تقرير حصص الشركاء", headers, rows,
+                types=["text", "percent"] + ["money"] * 5 + ["text"],
+                subtitle=(
+                    f"الفترة: {date_from or 'الكل'} إلى {date_to or 'الكل'}"
+                    f"  |  عدد الشركاء: {len(items)}"
+                ),
             )
             if wb is not None:
                 return _xlsx_response(wb, "تقرير_حصص_الشركاء")
@@ -325,7 +357,15 @@ class PartnerOperationViewSet(viewsets.ModelViewSet):
                 ]
                 for op in qs
             ]
-            wb = _export_generic_to_xlsx("عمليات الشركاء", headers, rows)
+            rows.append([
+                "الإجمالي", f"{len(rows)} عملية", "", "", "",
+                round(sum(float(op.amount) for op in qs), 2), "", "",
+            ])
+            wb = _export_generic_to_xlsx(
+                "عمليات الشركاء", headers, rows,
+                types=["date", "text", "text", "text", "text", "money", "text", "text"],
+                subtitle=f"عدد العمليات: {len(rows) - 1}",
+            )
             if wb is not None:
                 return _xlsx_response(wb, "عمليات_الشركاء")
         return super().list(request, *args, **kwargs)

@@ -33,6 +33,11 @@ function entryDetails(e: LedgerEntry, settings: AppSettings | null): string {
   if (e.payment_method_label) {
     parts.push(`<span class="det">الدفع: <b>${esc(e.payment_method_label)}</b>${e.bank_reference ? ` (مرجع: ${esc(e.bank_reference)})` : ''}</span>`);
   }
+  // طريقة الدفع تقول **كيف** تحرّكت النقلة، وهذا يقول **من أي حساب** خرجت —
+  // الاثنان يبدوان واحداً في الجدول ويختلفان في الدفاتر.
+  if (e.settlement_account_label) {
+    parts.push(`<span class="det">خُصم من: <b>${esc(e.settlement_account_label)}</b></span>`);
+  }
   if (e.receiver_name) parts.push(`<span class="det">المستلم: <b>${esc(e.receiver_name)}</b></span>`);
   if (e.goods_receipt_number) parts.push(`<span class="det">تم الاستلام (${esc(e.goods_receipt_number)})</span>`);
   return parts.length ? `<div class="dets">${parts.join('')}</div>` : '';

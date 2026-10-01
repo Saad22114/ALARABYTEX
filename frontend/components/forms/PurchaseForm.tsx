@@ -7,7 +7,8 @@ import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import LedgerItemsFields, { newLedgerItemRow, ledgerItemsTotal, LedgerItemRow } from './LedgerItemsFields';
-import { Fabric, CreateLedgerEntry, SupplierPayMethod, Warehouse, Branch } from '@/types';
+import SettlementAccountPicker from '@/components/forms/SettlementAccountPicker';
+import { Fabric, CreateLedgerEntry, PaymentSettlementSource, SupplierPayMethod, Warehouse, Branch } from '@/types';
 import { listFabrics } from '@/services/fabrics';
 import { listWarehouses } from '@/services/warehouses';
 import { listBranches } from '@/services/branches';
@@ -34,6 +35,8 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
   const [paid, setPaid] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<SupplierPayMethod>('cash');
   const [paymentAmount, setPaymentAmount] = useState('');
+  // السداد الفوري قِيد دفعة، فيخضع لنفس الإلزام: لا يُحفظ بلا حساب خُصم منه.
+  const [settlement, setSettlement] = useState<PaymentSettlementSource | ''>('');
   const [bankReference, setBankReference] = useState('');
   const [receiverName, setReceiverName] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -63,6 +66,7 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
     }
     if (paid && !paymentMethod) e.payment_method = 'طريقة الدفع مطلوبة';
     if (paid && paymentMethod === 'bank_transfer' && !bankReference.trim()) e.bank_reference = 'رقم الحوالة مطلوب';
+    if (paid && !settlement) e.settlement_account = 'اختر الحساب الذي خُصم منه المبلغ';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -89,6 +93,7 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
     if (paid) {
       payload.payment_method = paymentMethod;
       payload.payment_amount = Number(paymentAmount) || total;
+      payload.settlement_account = settlement as PaymentSettlementSource;
       if (paymentMethod === 'bank_transfer') payload.bank_reference = bankReference.trim() || undefined;
       if (paymentMethod === 'cash' && receiverName.trim()) payload.receiver_name = receiverName.trim();
     }
@@ -197,6 +202,11 @@ export default function PurchaseForm({ onSubmit, onCancel }: PurchaseFormProps) 
                 placeholder="اسم من يستلم المبلغ"
               />
             )}
+            <SettlementAccountPicker
+              value={settlement}
+              onChange={setSettlement}
+              error={errors.settlement_account}
+            />
           </div>
         )}
       </div>

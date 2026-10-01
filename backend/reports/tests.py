@@ -9,7 +9,7 @@ from core.testsupport import authenticate_admin
 
 from branches.models import Branch
 from expenses.models import Expense, ExpenseBudget, ExpenseCategory
-from sale_sessions.models import Employee, SaleSession
+from sale_sessions.models import Employee, SaleSession, SaleSessionItem
 from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric, Supplier
 from warehouses.models import GoodsReceipt, GoodsReceiptItem, StockMovement, Warehouse
@@ -129,6 +129,81 @@ class ReportsAPITest(TestCase):
         r = self.c.get("/api/reports/commissions/", {"export": "xlsx"})
         self.assertEqual(r.status_code, 200)
         self.assertIn("spreadsheet", r["Content-Type"])
+
+    def _session_with_items(self, employee, **session_kwargs):
+        session = SaleSession.objects.create(
+            employee=employee,
+            branch=self.branch,
+            status=SaleSession.Status.CLOSED,
+            closed_at=timezone.now(),
+            **session_kwargs,
+        )
+        fabric, _ = Fabric.objects.get_or_create(
+            code="Q-TEST-1",
+            defaults={"name": "قماش", "purchase_price": Decimal("10")},
+        )
+        items = [
+            SaleSessionItem(
+                session=session, fabric=fabric, sale_date=self.today,
+                sale_type=SaleSessionItem.SaleType.YARD,
+                quantity=Decimal("70"), unit_price=Decimal("5"), total=Decimal("350"),
+            ),
+            SaleSessionItem(
+                session=session, fabric=fabric, sale_date=self.today,
+                sale_type=SaleSessionItem.SaleType.ROLL,
+                quantity=Decimal("4"), unit_price=Decimal("100"), total=Decimal("400"),
+            ),
+        ]
+        for item in items:
+            item.save()
+        return session, items
+
+    def test_commissions_report_counts_pieces_per_employee(self):
+        """الطلب: عدد القطع المباعة لكل موظف في توزيع المبيعات.
+
+        القطعة طرد من 3.5 ياردة. فمن باع 70 ياردة باع 20 قطعة، لا 70؛
+        ومن باع 4 طاقات باع 4 قطع لا 14. وجمع النوعين يعطي الرقم الذي
+        يقابله المخزن.
+        """
+        emp = Employee.objects.create(
+            name="بائع", branch=self.branch, commission_active=True, commission_percent=5,
+        )
+        self._session_with_items(emp)
+
+        r = self.c.get("/api/reports/commissions/")
+        self.assertEqual(r.status_code, 200)
+        row = r.data["items"][0]
+        self.assertEqual(row["total_yards"], 84.0)          # 70 + (4 × 3.5)
+        self.assertEqual(row["total_pieces"], 24.0)        # 20 + 4
+        self.assertEqual(r.data["totals"]["pieces"], 24.0)
+        self.assertEqual(r.data["totals"]["yards"], 84.0)
+
+    def test_commissions_report_excludes_returned_items(self):
+        emp = Employee.objects.create(
+            name="بائع", branch=self.branch, commission_active=True, commission_percent=5,
+        )
+        _, items = self._session_with_items(emp)
+        returned = items[0]
+        returned.is_returned = True
+        returned.returned_at = timezone.now()
+        returned.save()
+
+        r = self.c.get("/api/reports/commissions/")
+        row = r.data["items"][0]
+        self.assertEqual(row["returned_items"], 1)
+        # بقيت الطاقات وحدها: 4 قطع = 14 ياردة.
+        self.assertEqual(row["total_pieces"], 4.0)
+        self.assertEqual(row["total_yards"], 14.0)
+
+    def test_commissions_report_lists_the_top_seller_first(self):
+        quiet = Employee.objects.create(name="هادئ", branch=self.branch)
+        loud = Employee.objects.create(name="نشيط", branch=self.branch)
+        self._session_with_items(quiet)
+        self._session_with_items(loud)
+
+        r = self.c.get("/api/reports/commissions/")
+        self.assertEqual(len(r.data["items"]), 2)
+        self.assertEqual(r.data["items"][0]["employee_name"], "نشيط")
 
     def test_net_daily_report(self):
         r = self.c.get("/api/reports/net-daily/", {

@@ -314,7 +314,7 @@ export default function CustomersPage() {
                           <span dir="ltr" className="text-left">{c.phone || '-'}</span>
                           {c.phone ? (
                             <a
-                              href={`https://wa.me/${c.phone.replace(/[^\d]/g, '')}`}
+                              href={`https://wa.me/968${c.phone.replace(/[^\d]/g, '')}`}
                               target="_blank"
                               rel="noreferrer"
                               className="p-1 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors"

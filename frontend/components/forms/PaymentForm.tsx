@@ -4,7 +4,8 @@ import { useState } from 'react';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
-import { CreateLedgerEntry, SupplierPayMethod } from '@/types';
+import SettlementAccountPicker from '@/components/forms/SettlementAccountPicker';
+import { CreateLedgerEntry, PaymentSettlementSource, SupplierPayMethod } from '@/types';
 import { todayISO } from '@/lib/date';
 
 const PAYMENT_METHOD_OPTIONS = [
@@ -20,6 +21,8 @@ interface PaymentFormProps {
 export default function PaymentForm({ onSubmit, onCancel }: PaymentFormProps) {
   const [form, setForm] = useState({ date: todayISO(), amount: '', notes: '' });
   const [method, setMethod] = useState<SupplierPayMethod>('cash');
+  // يبدأ فارغاً لا على أول خيار — الخيار المحدَّد سلفاً لا يُقرأ اختياراً.
+  const [settlement, setSettlement] = useState<PaymentSettlementSource | ''>('');
   const [bankReference, setBankReference] = useState('');
   const [receiverName, setReceiverName] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -30,6 +33,7 @@ export default function PaymentForm({ onSubmit, onCancel }: PaymentFormProps) {
     if (!form.date) e.date = 'التاريخ مطلوب';
     if (!form.amount || Number(form.amount) <= 0) e.amount = 'أدخل مبلغًا صحيحًا';
     if (method === 'bank_transfer' && !bankReference.trim()) e.bank_reference = 'رقم الحوالة مطلوب';
+    if (!settlement) e.settlement_account = 'اختر الحساب الذي خُصم منه المبلغ';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -42,6 +46,7 @@ export default function PaymentForm({ onSubmit, onCancel }: PaymentFormProps) {
       date: form.date,
       amount: Number(form.amount),
       payment_method: method,
+      settlement_account: settlement as PaymentSettlementSource,
       notes: form.notes.trim() || undefined,
     };
     if (method === 'bank_transfer') payload.bank_reference = bankReference.trim() || undefined;
@@ -99,6 +104,11 @@ export default function PaymentForm({ onSubmit, onCancel }: PaymentFormProps) {
           placeholder="اسم من يستلم المبلغ"
         />
       )}
+      <SettlementAccountPicker
+        value={settlement}
+        onChange={setSettlement}
+        error={errors.settlement_account}
+      />
       <Input
         label="ملاحظات"
         value={form.notes}

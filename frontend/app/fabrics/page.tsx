@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import ExportButton from '@/components/ui/ExportButton';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
@@ -18,7 +19,7 @@ import StatCard from '@/components/ui/StatCard';
 import FabricForm from '@/components/forms/FabricForm';
 import {
   Plus, Pencil, Trash2, Eye, Package, AlertTriangle,
-  IndianRupee, Boxes, Download, Tags, TrendingUp, Percent,
+  IndianRupee, Boxes, Tags, TrendingUp, Percent,
 } from 'lucide-react';
 import { Fabric, FabricStockResult, FabricSummary, Paginated } from '@/types';
 import {
@@ -26,7 +27,6 @@ import {
   getFabricSummary, getFabricStock, bulkPriceUpdate,
 } from '@/services/fabrics';
 import { formatCurrency, formatNumber } from '@/lib/format';
-import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
@@ -207,19 +207,6 @@ export default function FabricsPage() {
     }
   };
 
-  const exportUrl = useMemo(() => {
-    const p = new URLSearchParams();
-    p.append('export', 'xlsx');
-    if (search) p.append('search', search);
-    if (fabricType) p.append('fabric_type', fabricType);
-    if (unit) p.append('unit', unit);
-    if (status === 'active') p.append('is_active', 'true');
-    if (status === 'inactive') p.append('is_active', 'false');
-    if (lowStock === 'low') p.append('low_stock', 'true');
-    if (lowStock === 'ok') p.append('low_stock', 'false');
-    return `${API_URL}/fabrics/?${p.toString()}`;
-  }, [search, fabricType, unit, status, lowStock]);
-
   return (
     <AppShell>
       <div className="space-y-6">
@@ -239,12 +226,17 @@ export default function FabricsPage() {
             <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} options={STATUS_FILTER_OPTIONS} />
           </div>
           <div className="flex items-center gap-2">
-            <a href={exportUrl} target="_blank" rel="noreferrer">
-              <Button variant="secondary" type="button">
-                <Download size={16} />
-                تصدير Excel
-              </Button>
-            </a>
+            <ExportButton
+              path="/fabrics/"
+              params={{
+                search,
+                fabric_type: fabricType,
+                unit,
+                is_active: status === 'active' ? 'true' : status === 'inactive' ? 'false' : undefined,
+                low_stock: lowStock === 'low' ? 'true' : lowStock === 'ok' ? 'false' : undefined,
+              }}
+              filename="الأقمشة.xlsx"
+            />
             <Button variant="secondary" type="button" onClick={() => setBulkOpen(true)}>
               <Percent size={16} />
               تعديل أسعار بالجملة

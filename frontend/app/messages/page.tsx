@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, ChevronUp, Copy, CornerUpLeft, Forward, Pencil,
 import { useAuth } from '@/components/providers/AuthProvider';
 import { getConversations, getMessageThread, sendMessage, editMessage, deleteMessage, searchMessages, EDIT_WINDOW_MINUTES } from '@/services/messages';
 import { ChatMessage, ChatContactSummary, MessagingContact, MessageSearchGroup } from '@/types';
+import { formatLastSeen } from '@/lib/format';
 import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
 import EmployeeInfoModal from '@/components/employees/EmployeeInfoModal';
@@ -77,6 +78,30 @@ function PresenceAvatar({
       )}
     </span>
   );
+}
+
+/**
+ * سطر آخر ظهور تحت اسم الشخص.
+ *
+ * الطلب: «اكتب آخر ظهور الوقت، وإذا أكثر من يوم اكتب اليوم والتاريخ». فالمتّصل
+ * الآن لا يحتاج سطراً — نقطته خضراء قدّامه — والغائب يحتاج أن يُقال **متى**
+ * غاب، وإلا بدا ثلاثة أيام من الغياب كأنها لحظة.
+ */
+function LastSeenLine({
+  online,
+  lastSeenAt,
+  className = '',
+}: {
+  online?: boolean;
+  lastSeenAt?: string | null;
+  className?: string;
+}) {
+  if (online) {
+    return <p className={`text-[11px] text-emerald-600 truncate ${className}`}>متصل الآن</p>;
+  }
+  const text = formatLastSeen(lastSeenAt);
+  if (!text) return null;
+  return <p className={`text-[11px] text-neutral-400 truncate ${className}`} title={text}>{text}</p>;
 }
 
 export default function MessagesPage() {
@@ -419,6 +444,11 @@ export default function MessagesPage() {
                       </span>
                     )}
                   </div>
+                  <LastSeenLine
+                    online={c.employee.is_online}
+                    lastSeenAt={c.employee.last_seen_at}
+                    className="mt-0.5"
+                  />
                   <div className="flex items-center justify-between gap-2 mt-0.5">
                     <p className={`text-xs truncate ${c.unread > 0 ? 'font-medium text-neutral-700' : 'text-neutral-400'}`}>
                       {c.last_message
@@ -455,6 +485,11 @@ export default function MessagesPage() {
                         <p className="font-medium text-sm truncate">
                           <Highlight text={c.employee.name} query={contactSearch} />
                         </p>
+                        <LastSeenLine
+                          online={c.employee.is_online}
+                          lastSeenAt={c.employee.last_seen_at}
+                          className="mt-0.5"
+                        />
                         <p className="text-xs text-neutral-400 truncate">
                           {c.last_message
                             ? `${c.last_message_from_me ? 'أنت: ' : ''}${c.last_message}`
@@ -478,6 +513,11 @@ export default function MessagesPage() {
                       <PresenceAvatar name={g.employee.name} avatar={g.employee.avatar} avatarImage={g.employee.avatar_image} online={g.employee.is_online} size="md" onClick={() => openInfo(g.employee)} title="معلومات الموظف" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">{g.employee.name}</p>
+                        <LastSeenLine
+                          online={g.employee.is_online}
+                          lastSeenAt={g.employee.last_seen_at}
+                          className="mt-0.5"
+                        />
                         <p className="text-xs text-neutral-600 truncate">
                           <Highlight text={g.matches[0]?.body || ''} query={contactSearch} />
                         </p>
@@ -526,6 +566,13 @@ export default function MessagesPage() {
 <PresenceAvatar name={activePartner?.name || ''} avatar={activePartner?.avatar} avatarImage={activePartner?.avatar_image} online={activePartner?.is_online} size="md" onClick={() => activePartner && openInfo(activePartner)} title="معلومات الموظف" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold truncate">{activePartner?.name}</p>
+                {/* آخر ظهور يأخذ سطره: اسم الفرع وحده يقول أين يعمل، ولا يقول
+                    متى كان حاضراً — وهو ما يُسأل عنه في رسالة متأخرة. */}
+                <LastSeenLine
+                  online={activePartner?.is_online}
+                  lastSeenAt={activePartner?.last_seen_at}
+                  className="mt-0.5"
+                />
                 {activePartner?.branch_name && (
                   <p className="text-xs text-neutral-400 truncate">{activePartner.branch_name}</p>
                 )}

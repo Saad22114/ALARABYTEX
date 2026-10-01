@@ -22,6 +22,32 @@ def account_by_key(key):
     return Account.objects.filter(source_key=key).first()
 
 
+def ensure_account(key, code, name, type_="asset", parent_code="11"):
+    """يجد حساباً بمفتاحه، وإن لم يكن موجوداً ينشئه.
+
+    استُعمل لمفاتيح أضيفت بعد شجرة الحسابات الأولى: ``seed_chart_of_accounts``
+    لا تعمل على قاعدة فيها حسابات، فالحساب الجديد يبقى مفقوداً ويرجع ``None``
+    فيفشل كل من يستدعيه — وما كان ذلك الاستدعاء اختيارياً.
+    """
+    existing = account_by_key(key)
+    if existing:
+        return existing
+    ensure_seeded()
+    with transaction.atomic():
+        # سباق بين طلبين متزامنين: نلتزم بالوحيد، ونقرأ من جديد لو خسرنا.
+        try:
+            return Account.objects.create(
+                code=code,
+                name=name,
+                type=type_,
+                parent=Account.objects.filter(code=parent_code).first(),
+                source_key=key,
+                is_system=True,
+            )
+        except IntegrityError:
+            return Account.objects.filter(source_key=key).first()
+
+
 def cash_account():
     return account_by_key("CASH")
 
@@ -73,6 +99,27 @@ def payment_account(payment_method):
     if payment_method == "cash":
         return cash_account()
     return bank_account()
+
+
+def settlement_account(key):
+    """حساب الطرف الآخر في قيد دفعة المورد، بحسب الحساب الذي خُصم منه.
+
+    ``machine`` و ``bank`` هما حسابا التسوية، فلولا حساب في شجرة الحسابات لهما
+    لانتقلت الدفعة إلى ``CASH`` أو ``BANK`` بحسب طريقة الدفع المذكورة — أي أن
+    الخصم من حساب الماكينة كان سينتهي منظوراً في الخزنة. فنضمن حسابين
+    (``1106`` ذمم شركة الماكينة، ``1107`` مستحقات البنك) يقبلان الدفع
+    عليهما.
+
+    و ``none`` — سداد من الخزنة أو من غير حسابَي التسوية — يعود إلى الخزنة
+    كسائر المدفوعات النقدية، وهو ما يجعل الفرق في الدفاتر صفراً.
+    """
+    from suppliers.models import LedgerEntry
+
+    if key == LedgerEntry.SettlementAccount.MACHINE:
+        return ensure_account("MACHINE_RECEIVABLE", "1106", "ذمم شركة الماكينة")
+    if key == LedgerEntry.SettlementAccount.BANK:
+        return ensure_account("BANK_RECEIVABLE", "1107", "مستحقات عند البنك")
+    return cash_account()
 
 
 def ensure_expense_account(category):
@@ -227,9 +274,17 @@ def post_supplier_entry(entry):
     entry_type = entry.entry_type
 
     if entry_type == LedgerEntry.EntryType.PAYMENT:
+        # الحساب الذي خُصم منه هو الدائن. وقيد الدفعات القديمة بلا هذا الحقل
+        # يبقى على الخزنة/البنك بحسب طريقة الدفع، كما كان، حتى لا يتحرّك
+        # رصيد حساب تسوية لم يختره أحد.
+        credit_account = (
+            settlement_account(entry.settlement_account)
+            if entry.settlement_account
+            else payment_account(entry.payment_method)
+        )
         lines = [
             (payable, abs_amount, Decimal("0"), ""),
-            (payment_account(entry.payment_method), Decimal("0"), abs_amount, ""),
+            (credit_account, Decimal("0"), abs_amount, ""),
         ]
     elif entry_type == LedgerEntry.EntryType.RETURN:
         lines = [

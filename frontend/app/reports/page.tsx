@@ -4,19 +4,18 @@ import { useState, useEffect, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import ExportButton from '@/components/ui/ExportButton';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Select from '@/components/ui/Select';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import Spinner from '@/components/ui/Spinner';
 import EmptyState from '@/components/ui/EmptyState';
-import { Download } from 'lucide-react';
 import { Branch, SalesReportData, ExpensesReportData, ExpenseBudgetReportRow, CommissionReportRow, NetDailyReportData, BranchesReportData, SuppliersReportData, InventoryReportRow, InventoryMovementReportRow, Warehouse, CogsReportRow, ProfitLossReportResult, ProfitLossComparison, JournalReportRow } from '@/types';
 import { listBranches } from '@/services/branches';
 import { listWarehouses } from '@/services/warehouses';
 import { getSalesReport, getExpensesReport, getExpensesBudgetReport, getCommissionsReport, getNetDailyReport, getSuppliersReport, getBranchesReport, getInventoryReport, getInventoryMovementsReport, getCogsReport, getProfitLossReport, getJournalReport } from '@/services/reports';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { PAYMENT_METHODS_MAP, ANALYTICS_REPORTS, REPORT_GROUPS } from '@/lib/constants';
-import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
 import { useAuth } from '@/components/providers/AuthProvider';
@@ -97,7 +96,14 @@ export default function ReportsPage() {
   const [budgetTotals, setBudgetTotals] = useState<{ budget: number; spent: number; remaining: number; rows: number } | null>(null);
   const [budgetMonth, setBudgetMonth] = useUrlState('budget_month', new Date().toISOString().slice(0, 7));
   const [commissionData, setCommissionData] = useState<CommissionReportRow[]>([]);
-  const [commissionTotals, setCommissionTotals] = useState<{ sessions: number; sales: number; commission: number; employees: number } | null>(null);
+  const [commissionTotals, setCommissionTotals] = useState<{
+    sessions: number;
+    sales: number;
+    commission: number;
+    employees: number;
+    pieces: number;
+    yards: number;
+  } | null>(null);
   const [commissionMonth, setCommissionMonth] = useUrlState('commission_month', new Date().toISOString().slice(0, 7));
   const [netData, setNetData] = useState<NetDailyReportData[]>([]);
   const [suppliersData, setSuppliersData] = useState<SuppliersReportData[]>([]);
@@ -145,15 +151,6 @@ export default function ReportsPage() {
     if (filterBranch) p.branch = filterBranch;
     return p;
   }, [dateFrom, dateTo, filterBranch]);
-
-  const buildExportUrl = (base: string) => {
-    const params = new URLSearchParams();
-    if (dateFrom) params.append('date_from', dateFrom);
-    if (dateTo) params.append('date_to', dateTo);
-    if (filterBranch) params.append('branch', filterBranch);
-    params.append('export', 'xlsx');
-    return `${API_URL}${base}?${params.toString()}`;
-  };
 
   const loadTab = useCallback(async (tab: Tab) => {
     setLoading(true);
@@ -247,44 +244,43 @@ export default function ReportsPage() {
     loadTab(activeTab);
   }, [activeTab, loadTab]);
 
-  const getExportUrl = () => {
+  /** مسار التصدير لكل تبويب، و ``undefined`` إن لم يكن له تصدير. */
+  const getExportPath = (): string | undefined => {
     switch (activeTab) {
-      case 'sales': return buildExportUrl('/reports/sales/');
-      case 'expenses': return buildExportUrl('/reports/expenses/');
-      case 'budget': {
-        const budParams = new URLSearchParams();
-        if (budgetMonth) budParams.append('month', budgetMonth);
-        if (filterBranch) budParams.append('branch', filterBranch);
-        budParams.append('export', 'xlsx');
-        return `${API_URL}/reports/expenses-budget/?${budParams.toString()}`;
-      }
-      case 'commissions': {
-        const comParams = new URLSearchParams();
-        if (commissionMonth) comParams.append('month', commissionMonth);
-        if (filterBranch) comParams.append('branch', filterBranch);
-        comParams.append('export', 'xlsx');
-        return `${API_URL}/reports/commissions/?${comParams.toString()}`;
-      }
-      case 'net': return buildExportUrl('/reports/net-daily/');
-      case 'suppliers': return buildExportUrl('/reports/suppliers/');
-      case 'branches': return buildExportUrl('/reports/branches/');
+      case 'sales': return '/reports/sales/';
+      case 'expenses': return '/reports/expenses/';
+      case 'budget': return '/reports/expenses-budget/';
+      case 'commissions': return '/reports/commissions/';
+      case 'net': return '/reports/net-daily/';
+      case 'suppliers': return '/reports/suppliers/';
+      case 'branches': return '/reports/branches/';
+      case 'inventory': return '/reports/inventory/';
+      case 'inventory-movements': return '/reports/inventory-movements/';
+      case 'profit-loss': return '/reports/profit-loss/';
+      case 'cogs': return '/reports/cogs/';
+      case 'journal': return '/reports/journal/';
+      default: return undefined;
+    }
+  };
+
+  /** معاملات التصدير، وهي تصفية التبويب نفسه. */
+  const getExportParams = (): Record<string, string | undefined> => {
+    switch (activeTab) {
+      case 'budget':
+        return { month: budgetMonth, branch: filterBranch };
+      case 'commissions':
+        return { month: commissionMonth, branch: filterBranch };
       case 'inventory':
-        const invParams = new URLSearchParams();
-        if (filterWarehouse) invParams.append('warehouse', filterWarehouse);
-        if (filterSearch) invParams.append('search', filterSearch);
-        invParams.append('export', 'xlsx');
-        return `${API_URL}/reports/inventory/?${invParams.toString()}`;
+        return { warehouse: filterWarehouse, search: filterSearch };
       case 'inventory-movements':
-        const movParams = new URLSearchParams();
-        if (filterWarehouse) movParams.append('warehouse', filterWarehouse);
-        if (filterMovementType) movParams.append('movement_type', filterMovementType);
-        if (dateFrom) movParams.append('date_from', dateFrom);
-        if (dateTo) movParams.append('date_to', dateTo);
-        movParams.append('export', 'xlsx');
-        return `${API_URL}/reports/inventory-movements/?${movParams.toString()}`;
-      case 'profit-loss': return buildExportUrl('/reports/profit-loss/');
-      case 'cogs': return buildExportUrl('/reports/cogs/');
-      case 'journal': return buildExportUrl('/reports/journal/');
+        return {
+          warehouse: filterWarehouse,
+          movement_type: filterMovementType,
+          date_from: dateFrom,
+          date_to: dateTo,
+        };
+      default:
+        return { date_from: dateFrom, date_to: dateTo, branch: filterBranch };
     }
   };
 
@@ -441,16 +437,11 @@ export default function ReportsPage() {
               </button>
             ))}
           </div>
-          <a
-            href={getExportUrl() || '#'}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button variant="secondary" size="sm">
-              <Download size={16} />
-              تصدير Excel
-            </Button>
-          </a>
+          <ExportButton
+            path={getExportPath()}
+            params={getExportParams()}
+            filename={`${tabs.find((t) => t.value === activeTab)?.label || 'تقرير'}.xlsx`}
+          />
         </div>
 
         {/* Content */}
@@ -623,6 +614,8 @@ export default function ReportsPage() {
                           <Th>الموظف</Th>
                           <Th>الفرع</Th>
                           <Th>عدد الورديات</Th>
+                          <Th>عدد القطع</Th>
+                          <Th>عدد الياردات</Th>
                           <Th>إجمالي المبيعات</Th>
                           <Th>العمولة</Th>
                         </tr>
@@ -633,6 +626,8 @@ export default function ReportsPage() {
                             <Td className="font-medium">{r.employee_name}</Td>
                             <Td>{r.branch_name}</Td>
                             <Td className="tabular-nums">{r.sessions_count}</Td>
+                            <Td className="tabular-nums font-medium">{formatNumber(r.total_pieces)}</Td>
+                            <Td className="tabular-nums">{formatNumber(r.total_yards)}</Td>
                             <Td className="tabular-nums">{formatCurrency(r.total_sales)}</Td>
                             <Td className={`tabular-nums font-medium ${r.total_commission > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-neutral-500'}`}>{formatCurrency(r.total_commission)}</Td>
                           </Tr>
@@ -643,6 +638,8 @@ export default function ReportsPage() {
                           <tr className="bg-sand-100 font-semibold">
                             <Td colSpan={2}>الإجمالي</Td>
                             <Td className="tabular-nums">{commissionTotals.sessions}</Td>
+                            <Td className="tabular-nums">{formatNumber(commissionTotals.pieces)}</Td>
+                            <Td className="tabular-nums">{formatNumber(commissionTotals.yards)}</Td>
                             <Td className="tabular-nums">{formatCurrency(commissionTotals.sales)}</Td>
                             <Td className="tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(commissionTotals.commission)}</Td>
                           </tr>

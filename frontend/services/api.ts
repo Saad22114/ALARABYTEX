@@ -118,10 +118,21 @@ export async function downloadBlob(url: string, fallbackFilename: string): Promi
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) {
     let detail = '';
+    let code = '';
     try {
       const data = await res.json();
       detail = data?.detail || '';
+      code = data?.code || '';
     } catch {}
+    // الرمز منتهٍ أو محذوف: النتيجة «لم يتم تزويد بيانات الدخول»، وهي رسالة
+    // عن العَرَض لا عن السبب. فنعيده إلى صفحة الدخول كما يفعل
+    // ``apiRequest``، وإلا بقي المستخدم أمام رسالة تظنّأن الخادم معطّل.
+    if (res.status === 401 && code !== 'must_change_password') {
+      redirectToLogin();
+    }
+    if (code === 'must_change_password') {
+      redirectToChangePassword();
+    }
     throw new Error(detail || 'تعذر تنزيل الملف');
   }
   const blob = await res.blob();

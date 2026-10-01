@@ -312,6 +312,17 @@ class StockAdjustmentItem(TimeStampedModel):
 
 
 class StockCount(TimeStampedModel):
+    """جلسة جرد مخزون.
+
+    الجرد المحترم يبدأ لسببٍ واحد: أن يرى الحسابُ نفسَه ما يراه الدفتر. أما
+    أن يرى العدّادُ الرصيد الدفتري أثناء العدّ فليس عدّاً: يعدّ ليطابق لا
+    ليقيس، فيمرّ الفارق كلّه صامتاً.
+
+    لذلك ``blind`` يخفي الرصيد الدفتري والفرق عن العدّاد حتى النشر، وهو
+    الوضع الافتراضي في شاشة بدء الجرد. و``counted_by`` يسجّل من عدّ، لأن
+    «الجرد بلا اسم» يعني عملياً «لا أحد مسؤول».
+    """
+
     class Status(models.TextChoices):
         OPEN = "open", "غير منشور"
         POSTED = "posted", "منشور"
@@ -324,6 +335,15 @@ class StockCount(TimeStampedModel):
     date = models.DateField(verbose_name="تاريخ الجرد", default=timezone.localdate)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN, verbose_name="الحالة")
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
+    blind = models.BooleanField(default=False, verbose_name="جرد مغلق (إخفاء الرصيد الدفتري)")
+    counted_by = models.ForeignKey(
+        "sale_sessions.Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stock_counts",
+        verbose_name="العدّاد",
+    )
 
     class Meta:
         verbose_name = "جلسة جرد"
@@ -333,12 +353,23 @@ class StockCount(TimeStampedModel):
     def __str__(self):
         return f"{self.number} - {self.warehouse.name}"
 
+    @property
+    def hides_system_balance(self):
+        """هل يُخفى الرصيد الدفتري عن العدّاد؟
+
+        الجلسة المنشورة لا تُخفى: لم يعد أحدٌ يعدّ، ومن يراجع الأثرَ بعد
+        النشر يجب أن يرى الرصيد والفرق معاً، وإلا لم يعدّ الجردُ حساباً.
+        والملغاة لا تُخفى لأنها لا تُقرأ أصلاً.
+        """
+        return bool(self.blind) and self.status == self.Status.OPEN
+
 
 class StockCountItem(TimeStampedModel):
     count = models.ForeignKey(StockCount, on_delete=models.CASCADE, related_name="items", verbose_name="الجلسة")
     fabric = models.ForeignKey("suppliers.Fabric", on_delete=models.PROTECT, verbose_name="القماش")
     system_yards = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="الرصيد الدفتري")
     counted_yards = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, verbose_name="الرصيد الفعلي")
+    note = models.TextField(blank=True, verbose_name="سبب الفرق")
 
     class Meta:
         verbose_name = "صنف جرد"
@@ -350,6 +381,18 @@ class StockCountItem(TimeStampedModel):
         if self.counted_yards is None:
             return Decimal("0")
         return self.counted_yards - self.system_yards
+
+    @property
+    def is_variance(self):
+        """هل الفرق هنا يُحرّك حركة مخزون فعلاً؟
+
+        ``post_count`` يتجاهل ما دون ``VARIANCE_EPSILON``، فالسطر الذي يعرضه
+        النظام «عليه فرق» وإن نشر الجرد لم يحرّك له ياردةً واحدة يجعل عدّاد
+        الجرد يظنّ أن الفارق ضاع. المقياس واحد، أو كذب العرض.
+        """
+        from .services import VARIANCE_EPSILON
+
+        return abs(self.difference) >= VARIANCE_EPSILON
 
 
 class StockOpening(TimeStampedModel):

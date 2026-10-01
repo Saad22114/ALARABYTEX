@@ -1,8 +1,9 @@
 from django.conf import settings
 import re
-from django.db.models import Count, Max, Sum
+from django.db.models import Case, Count, IntegerField, Max, Q, Sum, When
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 
 from core.daterange import resolve_range
@@ -13,6 +14,14 @@ from sale_sessions.models import SaleSessionItem
 from .models import Customer
 from .serializers import CustomerSerializer
 
+#: فواصل قد يتخلّلها رقم الهاتف في التسجيل ثم تُكتب في البحث بلا شيء.
+_SEPARATORS = re.compile(r"[\s\-_()]+")
+
+
+def normalize_phone(value):
+    """تجريد ما ليس رقماً: «٩٨ ١١-٠٠٠٩» و «98110009» رقم واحد."""
+    return _SEPARATORS.sub("", value or "")
+
 
 class CustomerViewSet(viewsets.ModelViewSet):
     permission_section = "customers"
@@ -20,6 +29,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
     search_fields = ["name", "phone", "email", "address"]
     ordering_fields = ["name", "phone", "created_at", "is_active"]
+    #: ما يريده المستخدم من البحث ليس «الاسم أبجدياً» بل «الأقرب إلى ما
+    #: كتبه». فنرتّب قرب المطابقة بأنفسنا في ``_search`` —迟早 يتطلّب ذلك
+    #: تجريد الرقم من فواصله، ولا يفعل ``SearchFilter`` ذلك — ونترك
+    #: ``OrderingFilter`` يعمل إن طلبه العميل صراحةً.
+    filter_backends = [OrderingFilter]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -39,7 +53,53 @@ class CustomerViewSet(viewsets.ModelViewSet):
         date_to = params.get("date_to")
         if date_to:
             qs = qs.filter(created_at__date__lte=date_to)
-        return qs
+        return self._search(qs, params.get("search"))
+
+    def _search(self, qs, term):
+        """يبحث بالاسم أو برقم الهاتف، ويرتّب من الأقرب إلى الأبعد.
+
+        ما يريده المستخدم من البحث ليس «الاسم أبجدياً» بل «الأقرب إلى ما
+        كتبه»: يكتب رقماً جزئياً فيبحث به عن صاحب الرقم، فيقرأ «هذا هو»
+        أولاً. والترتيب بالاسم يخلط المتشابهين في صفحات مختلفة، فيبدو
+        البحث كأنه لا يستجيب حتى يُكتب الرقم كاملاً.
+
+        الترتيب: رقم مطابق تماماً ← يبدأ بالرقم ← يحتوي الرقم ← الاسم يبدأ
+        بالكلمة ← الاسم يحتويها.
+        """
+        needle = normalize_phone(term)
+        if not needle:
+            return qs.order_by("name")
+
+        if needle.isdigit():
+            # الهاتف مخزَّن كما سُجّل، فقد يكون بمسافات. فنطابق على ما
+            # خُزّن وعلى تجريده معاً، وإلا اختفت نتيجة البحث بالكامل
+            # لمجرد أن المستخدم كتب الرقم بنفس الطريقة التي رآه.
+            qs = qs.filter(
+                Q(phone__icontains=term)
+                | Q(phone__icontains=needle)
+                | Q(name__icontains=needle)
+            )
+            steps = [
+                When(phone=needle, then=0),
+                When(phone__startswith=needle, then=1),
+                When(phone__contains=needle, then=2),
+            ]
+        else:
+            qs = qs.filter(
+                Q(name__icontains=needle)
+                | Q(phone__icontains=needle)
+                | Q(email__icontains=needle)
+                | Q(address__icontains=needle)
+            )
+            steps = []
+
+        base = len(steps)
+        steps += [
+            When(name__istartswith=needle, then=base),
+            When(name__icontains=needle, then=base + 1),
+        ]
+        rank = Case(*steps, default=99, output_field=IntegerField())
+        return qs.annotate(_match_rank=rank).order_by("_match_rank", "name")
 
     def _phone_variants(self, phones):
         out = set()

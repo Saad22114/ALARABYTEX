@@ -283,6 +283,14 @@ export interface LedgerItem {
   destination_name?: string | null;
 }
 
+/**
+ * من أي حساب خرجت دفعة المورد: حساب تسوية، أو لا خصم منهما.
+ *
+ * ``machine`` و ``bank`` هما الحسابان اللذان تنقص حركتهما؛ و ``none`` سداد
+ * من الخزنة أو من غيرهما فلا يمسّ حسابَي التسوية.
+ */
+export type PaymentSettlementSource = SettlementAccountKey | 'none';
+
 export interface LedgerEntry {
   id: number;
   date: string;
@@ -296,6 +304,9 @@ export interface LedgerEntry {
   receipt_no: string;
   payment_method: string | null;
   payment_method_label: string | null;
+  /** إلزامي عند الدفع: يحدّد أي حساب تسوية تنقص حركته. */
+  settlement_account: PaymentSettlementSource | '';
+  settlement_account_label: string | null;
   bank_reference: string;
   receiver_name: string;
   notes: string;
@@ -327,6 +338,8 @@ export interface CreateLedgerEntry {
   date: string;
   amount?: number;
   payment_method?: SupplierPayMethod;
+  /** إلزامي مع أي دفعة؛ الخادم يرفض القيد بلاه. */
+  settlement_account?: PaymentSettlementSource;
   payment_amount?: number;
   bank_reference?: string;
   receiver_name?: string;
@@ -560,6 +573,11 @@ export interface CommissionReportRow {
   sessions_count: number;
   total_sales: number;
   total_commission: number;
+  /** القطع (طرد من 3.5 ياردة) التي باعها الموظف. */
+  total_pieces: number;
+  /** الياردات المباعة، وهي ما يقيسه المخزن فعلياً. */
+  total_yards: number;
+  returned_items: number;
 }
 
 export interface NetDailyReportData {
@@ -854,12 +872,39 @@ export interface CountItem {
   id: number;
   fabric: number;
   fabric_name: string;
-  system_yards: number;
+  fabric_code: string;
   counted_yards: number | null;
-  difference: number;
+  counted: boolean;
+  note: string;
+  /**
+   * الرصيد الدفتري والفرق: حقلٌ ناقص معناه «مخفيّ»، لا «رصيده صفر».
+   *
+   * في الجرد المغلق المفتوح يُسقطهما الخادم من الردّ. والخلط بين ناقص
+   * وصفر يجعل الشاشة تعرض الصنفَ الذي لم يُعدّ على أنه جردٌ مطابق.
+   */
+  system_yards?: number;
+  difference?: number;
+  is_variance?: boolean;
 }
 
-export interface StockCount {
+export interface CountSummary {
+  /** كل أصناف الجلسة */
+  items: number;
+  /** ما رُصد منها */
+  counted: number;
+  /** ما بقي */
+  pending: number;
+  /** عدد الأصناف التي فروقها فوق حدّ الحركة */
+  variances: number;
+  /** مجموع الفروق بالياردة */
+  net_yards: number;
+  /** قيمة الفروق بمتوسط التكلفة */
+  value: number;
+  /** اكتمل الرصد: لا صنف واحد معلَّق */
+  complete: boolean;
+}
+
+interface CountBase {
   id: number;
   number: string;
   warehouse: number;
@@ -868,8 +913,22 @@ export interface StockCount {
   status: CountStatus;
   status_label: string;
   notes: string;
-  items: CountItem[];
+  /** جرد مغلق: أُريد أن يعدّ ولا يطابق */
+  blind: boolean;
+  /** هل يُخفى الرصيد الدفتري الآن (مغلقٌ ومفتوحٌ معاً) */
+  hides_system: boolean;
+  counted_by: number | null;
+  counted_by_name: string;
+  summary: CountSummary;
   created_at: string;
+}
+
+/** صفٌّ في قائمة الجلسات: بلا أصناف، فالملخّص يجيب ما تسأل عنه القائمة. */
+export type StockCountListItem = CountBase;
+
+/** جلسةٌ كاملة، بأصنافها. */
+export interface StockCount extends CountBase {
+  items: CountItem[];
 }
 
 export interface StockWarehouseBalance {
@@ -1546,6 +1605,13 @@ export interface ChatMessage {
   created_at: string;
 }
 
+/** حضور موظف: متصل الآن، ومتى كان آخر ظهور إن لم يكن متصلاً. */
+export interface EmployeePresence {
+  is_online: boolean;
+  /** وقت آخر ظهور خام؛ `null` إن لم يسجّل دخولاً قط. صياغته للعميل. */
+  last_seen_at: string | null;
+}
+
 export interface ChatContactSummary {
   employee: {
     id: number;
@@ -1555,8 +1621,7 @@ export interface ChatContactSummary {
     phone: string;
     role_label: string;
     branch_name: string;
-    is_online: boolean;
-  };
+  } & EmployeePresence;
   last_message: string;
   last_message_from_me: boolean;
   last_at: string;
@@ -1578,12 +1643,11 @@ export interface MessageThreadResult {
     avatar_image: string;
     branch_name: string;
     role_label: string;
-    is_online: boolean;
-  };
+  } & EmployeePresence;
   messages: ChatMessage[];
 }
 
-export interface MessagingContact {
+export interface MessagingContact extends EmployeePresence {
   id: number;
   name: string;
   avatar: string;
@@ -1591,7 +1655,6 @@ export interface MessagingContact {
   phone: string;
   role_label: string;
   branch_name: string;
-  is_online: boolean;
 }
 
 export interface MessageContactListResult {
@@ -2050,4 +2113,102 @@ export interface AnalyticsReportDef {
   supportsGroupBy: boolean;
   supportsIdleDays: boolean;
   description: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* الحضور والانصراف                                                    */
+/* ------------------------------------------------------------------ */
+
+export type AttendanceStatus =
+  | 'present'
+  | 'late'
+  | 'early_leave'
+  | 'absent'
+  | 'excused'
+  | 'inside'
+  | 'off';
+
+export type AttendanceExcuse = 'none' | 'sick' | 'leave' | 'official' | 'other';
+
+export type AttendanceSource = 'auto' | 'manual';
+
+export interface AttendanceRecord {
+  id: number;
+  employee: Employee;
+  date: string;
+  login_at: string | null;
+  logout_at: string | null;
+  /**
+   * دقائق العمل. `null` تعني «لم يخرج بعد» لا «عمل صفر دقيقة» — الفرقُ
+   * بين موظفٍ داخل الدوام منذ الفجر وموظفٍ غائب. تُترك فارغة عمداً ما دام
+   * السطر مفتوحاً، فلا يُحتسب الغيابُ قبل أن يُغلق أحدٌ يومه بنفسه.
+   */
+  worked_minutes: number | null;
+  late_minutes: number;
+  early_leave_minutes: number;
+  overtime_minutes: number;
+  status: AttendanceStatus;
+  excuse: AttendanceExcuse;
+  working_day: boolean;
+  source: AttendanceSource;
+  note: string;
+}
+
+export interface AttendanceSummary {
+  /** عدد الأيام التي ظهرت فيها سجلات */
+  days: number;
+  /** الأيام التي فيها حضور: حاضر أو متأخر أو انصراف مبكر أو داخل الدوام */
+  present: number;
+  absent: number;
+  excused: number;
+  late_count: number;
+  late_minutes: number;
+  early_count: number;
+  early_minutes: number;
+  worked_minutes: number;
+  overtime_minutes: number;
+  /** سطور مفتوحة: دخل ولم يخرج بعد */
+  open_sessions: number;
+  /** ما كان على الموظف أن يعمله، أيام العمل وحدها */
+  expected_minutes: number;
+}
+
+/** ورقة يوم: صفٌّ لكل موظف، حاضراً كان أو غائباً. */
+export interface AttendanceDaySheet {
+  date: string;
+  /** هل هذا اليوم من أيام العمل؟ عطلة الأسبوع ليست غياباً */
+  working_day: boolean;
+  summary: AttendanceSummary;
+  /** من أكمل يومه: سطرٌ مغلق بدقائق عمل */
+  worked: number;
+  rows: AttendanceRecord[];
+}
+
+export interface AttendanceSummaryResult {
+  start: string;
+  end: string;
+  summary: AttendanceSummary;
+}
+
+export interface AttendancePolicy {
+  enabled: boolean;
+  login_window_start: string;
+  login_window_end: string;
+  logout_window_start: string;
+  logout_window_end: string;
+  workday_minutes: number;
+  grace_minutes: number;
+  day_cutoff_hour: number;
+  /**
+   * أرقام الأيام بترتيب `date.weekday()`: 0 الاثنين .. 4 الجمعة .. 6 الأحد.
+   * القائمة الفارغة تعني «لا عطلة أسبوعية»، لا «كل الأيام عطلة».
+   */
+  weekend_days: number[];
+  notes: string;
+}
+
+export interface AttendanceWindow {
+  label: string;
+  start: string;
+  end: string;
 }

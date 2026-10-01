@@ -9,6 +9,7 @@ import {
   StockTransfer,
   StockAdjustment,
   StockCount,
+  StockCountListItem,
   CountItem,
   StockBalanceResult,
   StockOpening,
@@ -129,11 +130,20 @@ export async function createAdjustment(data: AdjustmentWrite): Promise<StockAdju
 }
 
 // الجرد
-export async function listCounts(params?: Record<string, string | number | undefined | null>): Promise<Paginated<StockCount>> {
-  return apiRequest<Paginated<StockCount>>(`/warehouses/counts/${buildQuery(params || {})}`);
+export async function listCounts(params?: Record<string, string | number | undefined | null>): Promise<Paginated<StockCountListItem>> {
+  return apiRequest<Paginated<StockCountListItem>>(`/warehouses/counts/${buildQuery(params || {})}`);
 }
 
-export async function createCount(data: { warehouse: number; date: string; notes?: string }): Promise<StockCount> {
+export interface CountWrite {
+  warehouse: number;
+  date: string;
+  notes?: string;
+  /** جرد مغلق: يعدّ ولا يطابق. الشاشة ترسله صريحاً دائماً. */
+  blind?: boolean;
+  counted_by?: number | null;
+}
+
+export async function createCount(data: CountWrite): Promise<StockCount> {
   return apiRequest<StockCount>('/warehouses/counts/', { method: 'POST', body: JSON.stringify(data) });
 }
 
@@ -141,11 +151,23 @@ export async function getCount(id: number): Promise<StockCount> {
   return apiRequest<StockCount>(`/warehouses/counts/${id}/`);
 }
 
-export async function updateCountItems(id: number, items: Array<{ fabric: number; counted_yards: number | null }>): Promise<CountItem[]> {
+export async function updateCountItems(id: number, items: Array<{ fabric: number; counted_yards: number | null; note?: string }>): Promise<CountItem[]> {
   return apiRequest<CountItem[]>(`/warehouses/counts/${id}/items/`, {
     method: 'PATCH',
     body: JSON.stringify({ items }),
   });
+}
+
+/** قماشٌ وُجد على الرفّ وله سطرٌ لا يشمله الجرد أصلاً. */
+export async function addCountFabric(id: number, fabric: number): Promise<StockCount> {
+  return apiRequest<StockCount>(`/warehouses/counts/${id}/add_fabric/`, {
+    method: 'POST',
+    body: JSON.stringify({ fabric }),
+  });
+}
+
+export async function removeCountItem(id: number, itemId: number): Promise<StockCount> {
+  return apiRequest<StockCount>(`/warehouses/counts/${id}/items/${itemId}/remove/`, { method: 'POST' });
 }
 
 export async function postCount(id: number): Promise<StockCount> {

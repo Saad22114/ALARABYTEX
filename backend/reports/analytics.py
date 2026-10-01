@@ -185,23 +185,37 @@ def envelope(
     return payload
 
 
-def xlsx_rows(columns, rows, totals=None):
-    """يحوّل المظروف إلى صفوف جاهزة لـExcel."""
-    def fmt(col, value):
-        if col["type"] == "money":
-            return float(q2(value))
-        if col["type"] == "number":
-            return float(value or 0)
-        if col["type"] == "percent":
-            return round(float(value or 0), 1)
-        return value
+def xlsx_value(col, value):
+    """قيمة خلية واحدة كما تُكتب في Excel.
 
+    النقود تُقرَّب بمنزلتين قبل أن تُكتب، لا بعد: Excel يعرض ما خلاّته
+    الخلية بلا تقريب، فتبقى قيمة ``1234.5678`` ظاهرة بأربع منازل في ملف
+    نُحذف منه الكسور في كل مكانٍ آخر. والنسبة تُقرَّب لمنزلة واحدة لأن
+    ``85.00001``٪ رقمٌ زائفُ دقّة.
+    """
+    type_ = (col or {}).get("type") or "text"
+    if type_ == "money":
+        return float(q2(value))
+    if type_ == "number":
+        return float(value or 0)
+    if type_ == "percent":
+        return round(float(value or 0), 1)
+    return value
+
+
+def xlsx_rows(columns, rows, totals=None):
+    """يحوّل المظروف إلى صفوف جاهزة لـExcel.
+
+    kept for callers that want a plain list of lists; the export path in
+    ``analytics_views`` uses :func:`xlsx_value` with the column specs so the
+    workbook keeps real types and formats.
+    """
     out = [[c["label"] for c in columns]]
     for row in rows:
-        out.append([fmt(c, row.get(c["key"])) for c in columns])
+        out.append([xlsx_value(c, row.get(c["key"])) for c in columns])
     if totals:
         out.append(["الإجمالي"] + [
-            fmt(col, totals.get(col["key"], 0)) if col.get("total") else ""
+            xlsx_value(col, totals.get(col["key"], 0)) if col.get("total") else ""
             for col in columns[1:]
         ])
     return out

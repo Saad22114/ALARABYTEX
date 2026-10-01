@@ -1,5 +1,4 @@
-﻿from django.http import HttpResponse
-from django.utils import timezone
+﻿from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -7,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from audit.services import log_activity
+from core import excel
 
 from .services import ImportError_, build_rows, build_template, commit_rows, read_sheet
 from .specs import ENTITIES
@@ -193,10 +193,4 @@ class ImportTemplateView(EntityImportView):
 
     def get(self, request, entity):
         spec = self.entity_spec
-        workbook = build_template(spec.key)
-        response = HttpResponse(
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        response["Content-Disposition"] = f'attachment; filename="{spec.key}-template.xlsx"'
-        workbook.save(response)
-        return response
+        return excel.xlsx_response(build_template(spec.key), f"قالب-استيراد-{spec.key}")

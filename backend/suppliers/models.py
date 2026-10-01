@@ -143,6 +143,25 @@ class LedgerEntry(TimeStampedModel):
         CASH = "cash", "كاش"
         BANK = "bank_transfer", "تحويل بنكي"
 
+    class SettlementAccount(models.TextChoices):
+        """من أي حساب خرجت الدفعة للمورد.
+
+        ``payment_method`` يصف **كيف** تحرّكت النقلة (نقداً أو تحويلاً)، وهذا
+        يصف **أي حساب** حمّلها. الفرق ليس لفظياً: الدفع من حساب الماكينة يعني
+        أن ما سدّدنا به كان مال شركة البطاقة لا مالنا، فينقص من رصيد التسوية
+        معها ويظهر في قسمها؛ والدفع من البنك ينقص رصيد البنك؛ و«لا خصم من
+        الاثنين» يعني سداداً من الخزنة أو من غيرهما، فلا يمسّ حسابَي التسوية
+        أصلاً — وإلا صار قسم التسوية يعرض حركة لم تحدث.
+        """
+
+        MACHINE = "machine", "حساب الماكينة"
+        BANK = "bank", "الحساب البنكي"
+        NONE = "none", "لا يخصم من الماكينة ولا البنك"
+
+    #: حسابات التسوية التي تنقص حركتها قيمة الدفعة — بلا ``NONE``، فهو
+    #: بالضبط ما لا يُنقص حساباً.
+    SETTLEMENT_CHOICES = [SettlementAccount.MACHINE, SettlementAccount.BANK]
+
     supplier = models.ForeignKey(
         "suppliers.Supplier",
         on_delete=models.CASCADE,
@@ -164,6 +183,14 @@ class LedgerEntry(TimeStampedModel):
         verbose_name="طريقة الدفع",
     )
     bank_reference = models.CharField(max_length=100, blank=True, verbose_name="رقم الحوالة/المرجع البنكي")
+    settlement_account = models.CharField(
+        max_length=10,
+        choices=SettlementAccount.choices,
+        blank=True,
+        default="",
+        verbose_name="الحساب الذي خُصم منه",
+        help_text="إلزامي عند تسجيل دفعة: حساب الماكينة، أو الحساب البنكي، أو لا خصم منهما. يحدّد أي حساب تسوية تنقص حركته قيمة الدفعة",
+    )
     receiver_name = models.CharField(max_length=150, blank=True, verbose_name="اسم المستلم")
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
     warehouse = models.ForeignKey(

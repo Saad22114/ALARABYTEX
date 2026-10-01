@@ -12,9 +12,10 @@ import Pagination from '@/components/ui/Pagination';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import ExpenseForm from '@/components/forms/ExpenseForm';
+import CategoriesPanel from '@/components/expenses/CategoriesPanel';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, Pencil, Trash2, RefreshCw, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, Download, Receipt, Tags } from 'lucide-react';
 import { Expense, Branch, ExpenseCategory, Paginated } from '@/types';
 import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
@@ -24,6 +25,12 @@ import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
+
+/** تبويبا القسم: المصاريف نفسها، وتصنيفاتها التي وُلدت منها. */
+const TABS = [
+  { key: 'list' as const, label: 'المصاريف', icon: Receipt },
+  { key: 'categories' as const, label: 'التصنيفات', icon: Tags },
+];
 
 export default function ExpensesPage() {
   const { toast } = useToast();
@@ -36,6 +43,7 @@ export default function ExpensesPage() {
   const [search, setSearch] = useUrlState('q', '');
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
   const [filterCategory, setFilterCategory] = useUrlState('category', '');
+  const [tab, setTab] = useUrlState<'list' | 'categories'>('wtab', 'list');
   const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
   const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
   const [page, setPage] = useUrlState('page', 1);
@@ -195,8 +203,28 @@ export default function ExpensesPage() {
               ترحيل المتكررة
             </Button>
           </div>
+          <div className="flex items-center gap-1 rounded-xl border border-sand-200 bg-surface p-1">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  tab === t.key
+                    ? 'bg-brand-600 text-white shadow-sm'
+                    : 'text-neutral-600 hover:bg-sand-50'
+                }`}
+              >
+                <t.icon size={15} />
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
+        {tab === 'categories' ? (
+          <CategoriesPanel />
+        ) : (
+          <>
         <Card className="!p-4">
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]">
@@ -238,6 +266,7 @@ export default function ExpensesPage() {
                     <Th>المبلغ</Th>
                     <Th>طريقة الدفع</Th>
                     <Th>الوصف</Th>
+                    <Th>ملاحظات</Th>
                     <Th>التكرار</Th>
                     <Th>إجراءات</Th>
                   </tr>
@@ -250,7 +279,10 @@ export default function ExpensesPage() {
                       <Td>{e.category_name}</Td>
                       <Td className="tabular-nums font-medium">{formatCurrency(e.amount)}</Td>
                       <Td>{PAYMENT_METHODS_MAP[e.payment_method] || e.payment_method}</Td>
-                      <Td className="max-w-[200px] truncate">{e.description || '-'}</Td>
+                      <Td className="max-w-[200px] truncate" title={e.description || undefined}>{e.description || '-'}</Td>
+                      <Td className="max-w-[180px] truncate text-neutral-500" title={e.notes || undefined}>
+                        {e.notes || '-'}
+                      </Td>
                       <Td>
                         {e.is_recurring ? (
                           <div className="flex flex-col gap-0.5">
@@ -286,6 +318,8 @@ export default function ExpensesPage() {
             </>
           )}
         </Card>
+          </>
+        )}
 
         <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="تسجيل مصروف جديد" maxWidth="max-w-2xl">
           <ExpenseForm branches={branches} categories={categories} onSubmit={handleCreate} onCancel={() => setModalOpen(false)} />

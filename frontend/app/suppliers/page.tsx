@@ -18,7 +18,7 @@ import Badge from '@/components/ui/Badge';
 import Select from '@/components/ui/Select';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import { Plus, Eye, Pencil, Trash2, BookOpen, Users, ShoppingBag, Wallet, Undo2, Scale, ChevronLeft, Printer, Share2, HandCoins } from 'lucide-react';
-import { Supplier, Paginated, SuppliersOverview, Warehouse, Branch } from '@/types';
+import { Supplier, Paginated, SuppliersOverview, Warehouse, Branch, PaymentSettlementSource } from '@/types';
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier, getSuppliersOverview, createLedgerEntry } from '@/services/suppliers';
 import { listWarehouses } from '@/services/warehouses';
 import { listBranches } from '@/services/branches';
@@ -28,6 +28,9 @@ import { openSuppliersOverviewReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
+import SettlementAccountPicker, {
+  SETTLEMENT_LABELS,
+} from '@/components/forms/SettlementAccountPicker';
 
 export default function SuppliersPage() {
   const { toast } = useToast();
@@ -53,6 +56,9 @@ export default function SuppliersPage() {
   const [payAmount, setPayAmount] = useState('');
   const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
   const [payMethod, setPayMethod] = useState<'cash' | 'bank_transfer'>('cash');
+  // الطلب: خيار إجباري — من أي حساب خرجت الدفعة. يبدأ فارغاً لا على أول
+  // خيار، لأن اختياراً جاهزاً يُقرأ affirmatively وهو إجابة لم يُنظر فيها.
+  const [paySettlement, setPaySettlement] = useState<PaymentSettlementSource | ''>('');
   const [payLoading, setPayLoading] = useState(false);
 
   const openReport = async (autoPrint: boolean) => {
@@ -141,6 +147,10 @@ export default function SuppliersPage() {
       toast('error', 'أدخل مبلغاً صحيحاً أكبر من صفر');
       return;
     }
+    if (!paySettlement) {
+      toast('error', 'اختر الحساب الذي خُصم منه المبلغ');
+      return;
+    }
     setPayLoading(true);
     try {
       await createLedgerEntry(payTarget.id, {
@@ -148,11 +158,18 @@ export default function SuppliersPage() {
         date: payDate,
         amount,
         payment_method: payMethod,
+        settlement_account: paySettlement,
         description: 'دفعة سريعة',
       });
-      toast('success', 'تم تسجيل الدفعة بنجاح');
+      toast(
+        'success',
+        paySettlement === 'none'
+          ? 'تم تسجيل الدفعة (دون خصم من حسابَي التسوية)'
+          : `تم تسجيل الدفعة وخصمها من ${SETTLEMENT_LABELS[paySettlement]}`
+      );
       setPayTarget(null);
       setPayAmount('');
+      setPaySettlement('');
       fetchData();
       getSuppliersOverview({
         date_from: dateFrom || undefined,
@@ -381,6 +398,10 @@ export default function SuppliersPage() {
                 { value: 'cash', label: 'كاش' },
                 { value: 'bank_transfer', label: 'تحويل بنكي' },
               ]}
+            />
+            <SettlementAccountPicker
+              value={paySettlement}
+              onChange={setPaySettlement}
             />
             <div className="flex justify-start gap-3 pt-2">
               <Button onClick={handleQuickPay} loading={payLoading}>

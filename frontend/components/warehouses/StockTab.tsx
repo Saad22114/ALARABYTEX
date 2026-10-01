@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import ExportButton from '@/components/ui/ExportButton';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
@@ -12,7 +13,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, X, ChevronDown, AlertTriangle, Pencil, Trash2, Warehouse as WarehouseIcon, PackagePlus, Download } from 'lucide-react';
+import { Plus, X, ChevronDown, AlertTriangle, Pencil, Trash2, Warehouse as WarehouseIcon, PackagePlus } from 'lucide-react';
 import {
   StockBalanceResult,
   StockBalanceItem,
@@ -22,7 +23,6 @@ import {
 } from '@/types';
 import { getStockBalances, listOpenings, createOpening, listWarehouses, setStockBalance } from '@/services/warehouses';
 import { listFabrics } from '@/services/fabrics';
-import { API_URL } from '@/services/api';
 import { formatNumber } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import Link from 'next/link';
@@ -268,12 +268,11 @@ export default function StockTab() {
             <AlertTriangle size={14} />
             المنخفض فقط
           </button>
-          <a href={`${API_URL}/warehouses/stock/?export=xlsx${warehouse ? `&warehouse=${warehouse}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}${lowStockOnly ? '&low_stock=true' : ''}`} target="_blank" rel="noreferrer">
-            <Button variant="secondary" type="button">
-              <Download size={14} />
-              تصدير Excel
-            </Button>
-          </a>
+          <ExportButton
+            path="/warehouses/stock/"
+            params={{ warehouse, search, low_stock: lowStockOnly ? 'true' : undefined }}
+            filename="أرصدة المخزون.xlsx"
+          />
         </div>
       </Card>
 

@@ -1,5 +1,7 @@
 """نقاط تسجيل الدخول والخروج والجلسة الحالية + الحصول على الأقسام والأدوار."""
 
+import logging
+
 from django.contrib.auth import authenticate
 from rest_framework import status
 from rest_framework.authtoken.models import Token
@@ -16,6 +18,8 @@ from sale_sessions.avatars import (
 )
 from sale_sessions.models import Employee
 from sale_sessions.sections import ROLE_PRESETS, SECTIONS
+
+logger = logging.getLogger(__name__)
 
 
 def employee_payload(emp):
@@ -94,6 +98,18 @@ class LoginView(APIView):
         user.save(update_fields=["last_login"])
         from audit.services import log_audit_login
         log_audit_login(employee, request)
+
+        # حضور الموظف يُفتح مع دخوله. مغطّى بـ try/except لأن فشل قياس
+        # الحضور لا يجوز أن يُبطل دخولاً صحيحاً: المستخدم لو مُنع من الدخول
+        # بسبب خطأ في سجلّ الحضور، يكون النظام قد أوقف الناس عن عملهم
+        # بسبب ميزةٍ ثانوية.
+        try:
+            from attendance.services import record_login
+
+            record_login(employee, when=dj_timezone.now())
+        except Exception:
+            logger.exception("attendance login hook failed for %s", employee)
+
         return Response(
             {
                 "token": token.key,
@@ -118,6 +134,16 @@ class LogoutView(APIView):
         from audit.services import log_audit_logout
         employee = request.user.employee
         log_audit_logout(employee, request)
+
+        # حضور الموظف يُغلق قبل حذف التوكن: بعد الحذف لا يصل الطلب إلى هنا
+        # مرةً ثانية، فترتيب السطرين ليس تفصيلاً.
+        try:
+            from attendance.services import record_logout
+
+            record_logout(employee)
+        except Exception:
+            logger.exception("attendance logout hook failed for %s", employee)
+
         Token.objects.filter(user=request.user).delete()
         return Response({"detail": "تم تسجيل الخروج بنجاح"})
 

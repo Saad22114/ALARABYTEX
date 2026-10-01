@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import ExportButton from '@/components/ui/ExportButton';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -19,7 +20,7 @@ import DateRangeToolbar, { currentMonthRange, toISODate } from '@/components/ui/
 import BranchPricingPanel from '@/components/branches/BranchPricingPanel';
 import {
   ArrowRight, Pencil, Store, Power, PowerOff, LayoutDashboard, Boxes, Users,
-  Receipt, CalendarDays, BarChart3, AlertTriangle, Download, Printer, TrendingUp,
+  Receipt, CalendarDays, BarChart3, AlertTriangle, Printer, TrendingUp,
   TrendingDown, CalendarCheck, CalendarX2, Sparkles, ArrowUpDown, ArrowDownToLine, ArrowUpFromLine, Tags,
 } from 'lucide-react';
 import { Branch, DailySale, Expense, Employee, SaleStockResult, DashboardSummary, SalesReportData, InventoryReportRow, StockBalanceResult, InventoryMovementReportRow, SalesByEmployeeResult } from '@/types';
@@ -32,7 +33,6 @@ import { getSalesByEmployee } from '@/services/sales';
 import { getDashboardSummary } from '@/services/dashboard';
 import { getSalesReport, getInventoryReport, getInventoryMovementsReport } from '@/services/reports';
 import { getStockBalances } from '@/services/warehouses';
-import { API_URL } from '@/services/api';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
@@ -765,18 +765,15 @@ export default function BranchDetailPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <DateRangeToolbar from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
                 <div className="flex gap-2">
-                  <a
-                    href={`${API_URL}/reports/inventory-movements/?${new URLSearchParams({
-                      warehouse: String(saleStock?.warehouse || ''),
+                  <ExportButton
+                    path="/reports/inventory-movements/"
+                    params={{
+                      warehouse: saleStock?.warehouse ? String(saleStock.warehouse) : undefined,
                       date_from: dateFrom,
                       date_to: dateTo,
-                      export: 'xlsx',
-                    }).toString()}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <Button variant="secondary" size="sm" type="button"><Download size={16} /> تصدير Excel</Button>
-                  </a>
+                    }}
+                    filename="حركة المخزون.xlsx"
+                  />
                   <Button variant="secondary" size="sm" type="button" onClick={() => window.print()}><Printer size={16} /> طباعة PDF</Button>
                 </div>
               </div>
@@ -839,41 +836,25 @@ export default function BranchDetailPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <DateRangeToolbar from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
                 <div className="flex gap-2">
-                  <a
-                    href={`${API_URL}/reports/sales/?${new URLSearchParams({
-                      branch: String(id),
-                      date_from: dateFrom,
-                      date_to: dateTo,
-                      export: 'xlsx',
-                    }).toString()}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <Button variant="secondary" size="sm" type="button"><Download size={16} /> مبيعات Excel</Button>
-                  </a>
-                  <a
-                    href={`${API_URL}/reports/expenses/?${new URLSearchParams({
-                      branch: String(id),
-                      date_from: dateFrom,
-                      date_to: dateTo,
-                      export: 'xlsx',
-                    }).toString()}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <Button variant="secondary" size="sm" type="button"><Download size={16} /> مصاريف Excel</Button>
-                  </a>
+                  <ExportButton
+                    path="/reports/sales/"
+                    params={{ branch: String(id), date_from: dateFrom, date_to: dateTo }}
+                    filename="مبيعات الفرع.xlsx"
+                    label="مبيعات Excel"
+                  />
+                  <ExportButton
+                    path="/reports/expenses/"
+                    params={{ branch: String(id), date_from: dateFrom, date_to: dateTo }}
+                    filename="مصاريف الفرع.xlsx"
+                    label="مصاريف Excel"
+                  />
                   {saleStock?.warehouse != null && (
-                    <a
-                      href={`${API_URL}/reports/inventory/?${new URLSearchParams({
-                        warehouse: String(saleStock.warehouse),
-                        export: 'xlsx',
-                      }).toString()}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <Button variant="secondary" size="sm" type="button"><Download size={16} /> مخزون Excel</Button>
-                    </a>
+                    <ExportButton
+                      path="/reports/inventory/"
+                      params={{ warehouse: String(saleStock.warehouse) }}
+                      filename="مخزون الفرع.xlsx"
+                      label="مخزون Excel"
+                    />
                   )}
                   <Button variant="secondary" size="sm" type="button" onClick={() => window.print()}><Printer size={16} /> طباعة PDF</Button>
                 </div>

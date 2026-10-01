@@ -160,6 +160,7 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
 class LedgerEntrySerializer(serializers.ModelSerializer):
     entry_type_label = serializers.CharField(source="get_entry_type_display", read_only=True)
     payment_method_label = serializers.SerializerMethodField()
+    settlement_account_label = serializers.SerializerMethodField()
     debit = serializers.SerializerMethodField()
     credit = serializers.SerializerMethodField()
     running_balance = serializers.SerializerMethodField()
@@ -177,7 +178,8 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
             "id", "date", "entry_type", "entry_type_label",
             "amount", "debit", "credit", "running_balance",
             "description", "receipt_no", "payment_method",
-            "payment_method_label", "bank_reference", "receiver_name", "notes",
+            "payment_method_label", "settlement_account",
+            "settlement_account_label", "bank_reference", "receiver_name", "notes",
             "items", "created_at",
             "warehouse", "warehouse_name", "branch", "branch_name",
             "destination_type", "destination_name",
@@ -194,6 +196,11 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
     def get_payment_method_label(self, obj):
         if obj.payment_method:
             return obj.get_payment_method_display()
+        return None
+
+    def get_settlement_account_label(self, obj):
+        if obj.settlement_account:
+            return obj.get_settlement_account_display()
         return None
 
     def get_running_balance(self, obj):
@@ -278,6 +285,13 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
         choices=LedgerEntry.PaymentMethod.choices, required=False
     )
     bank_reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    settlement_account = serializers.ChoiceField(
+        choices=LedgerEntry.SettlementAccount.choices,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="إلزامي عند الدفع: حساب الماكينة، أو الحساب البنكي، أو لا خصم منهما",
+    )
     receiver_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     payment_amount = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
@@ -330,6 +344,10 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
             if payment_amount is not None and payment_amount > 0:
                 if not data.get("payment_method"):
                     raise serializers.ValidationError("طريقة الدفع مطلوبة لسداد فوري")
+                if not data.get("settlement_account"):
+                    raise serializers.ValidationError(
+                        "اختر الحساب الذي خُصم منه السداد الفوري"
+                    )
                 if payment_amount > total:
                     raise serializers.ValidationError("مبلغ السداد الفوري أكبر من إجمالي الشراء")
                 immediate_payment = payment_amount
@@ -338,6 +356,13 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("مبلغ الدفع يجب أن يكون أكبر من صفر")
             if not data.get("payment_method"):
                 raise serializers.ValidationError("طريقة الدفع مطلوبة")
+            # الطلب: خيار إجباري يخبر من أي حساب تُخصم الدفعة. وبلا إجابة
+            # لا نعرف أي حساب تسوية ننقصه، فيبقى الرصيد يخالف دفتر المورد.
+            if not data.get("settlement_account"):
+                raise serializers.ValidationError(
+                    "اختر الحساب الذي خُصم منه المبلغ: حساب الماكينة، أو الحساب "
+                    "البنكي، أو لا خصم من الماكينة ولا البنك"
+                )
             computed_amount = -amount
         elif entry_type == LedgerEntry.EntryType.RETURN:
             if items:
@@ -397,7 +422,10 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
                 branch = None
 
             entry = LedgerEntry.objects.create(
-                supplier=supplier, warehouse=warehouse, branch=branch, **validated_data
+                supplier=supplier,
+                warehouse=warehouse,
+                branch=branch,
+                **validated_data,
             )
 
             for item in items:
@@ -438,6 +466,7 @@ class LedgerEntryCreateSerializer(serializers.Serializer):
                     receipt_no=receipt_no,
                     description=f"سداد فوري - {receipt_no or ''}",
                     payment_method=validated_data["payment_method"],
+                    settlement_account=validated_data.get("settlement_account", ""),
                     bank_reference=validated_data.get("bank_reference", ""),
                     receiver_name=validated_data.get("receiver_name", ""),
                 )

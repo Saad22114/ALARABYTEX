@@ -404,6 +404,11 @@ export default function SupplierDetailPage() {
                                     {e.payment_method_label && (
                                       <span className="text-xs text-neutral-400">({e.payment_method_label})</span>
                                     )}
+                                    {e.settlement_account_label && (
+                                      <span className="text-xs text-neutral-400" title="الحساب الذي خُصمت منه الدفعة">
+                                        خُصم من: {e.settlement_account_label}
+                                      </span>
+                                    )}
                                     {e.receiver_name && (
                                       <span className="text-xs text-neutral-400">استلم: {e.receiver_name}</span>
                                     )}
@@ -529,12 +534,25 @@ export default function SupplierDetailPage() {
                             <span className="text-sm text-neutral-500">الإجمالي:</span>
                             <span className="text-lg font-bold tabular-nums text-neutral-800">{formatCurrency(e.debit)}</span>
                           </div>
-                          {e.payment_method_label && (
-                            <div className="flex items-center gap-2 text-sm text-neutral-500">
-                              <span>طريقة الدفع:</span>
-                              <Badge variant="success">{e.payment_method_label}</Badge>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-4 flex-wrap text-sm text-neutral-500">
+                            {e.payment_method_label && (
+                              <div className="flex items-center gap-2">
+                                <span>طريقة الدفع:</span>
+                                <Badge variant="success">{e.payment_method_label}</Badge>
+                              </div>
+                            )}
+                            {e.settlement_account_label && (
+                              <div className="flex items-center gap-2">
+                                <span>خُصم من:</span>
+                                <Badge variant={
+                                  e.settlement_account === 'machine' ? 'success' :
+                                  e.settlement_account === 'bank' ? 'warning' : 'neutral'
+                                }>
+                                  {e.settlement_account_label}
+                                </Badge>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         {e.destination_name && (
                           <div className="flex items-center gap-3 text-sm pt-2">

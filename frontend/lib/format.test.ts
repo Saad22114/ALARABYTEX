@@ -6,6 +6,7 @@ import {
   formatCurrency,
   formatDate,
   formatArabicDate,
+  formatLastSeen,
 } from './format';
 
 describe('formatCurrency', () => {
@@ -59,5 +60,55 @@ describe('formatArabicDate', () => {
     const b = formatArabicDate(new Date(2026, 8, 15));
     expect(a).toBe('الثلاثاء، 15 سبتمبر 2026');
     expect(a).toBe(b);
+  });
+});
+
+describe('formatLastSeen', () => {
+  // «الطلب: اكتب آخر ظهور الوقت، وإذا أكثر من يوم اكتب اليوم والتاريخ».
+  const now = new Date(2026, 8, 30, 14, 5); // الأربعاء 30 سبتمبر 2026
+
+  // ساعة النظام الـ12/24 وصيغة «ص/م» تختلفان بين بيئات Node حسب بيانات
+  // ICU، فنقارن بالمُخرِج المرجعي نفسه بدل تثبيت نصّ الساعة حرفياً.
+  // ما نتحقّق منه هنا هو **البُعد** الذي يهمّ: وقتٌ بلا تاريخ، أو «أمس»،
+  // أو يومٌ وتاريخ — لا شكل الساعة.
+  const clock = (d: Date) =>
+    d.toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
+
+  it('says the person never signed in when there is no timestamp', () => {
+    expect(formatLastSeen(null, now)).toBe('لم يسجّل دخولاً بعد');
+    expect(formatLastSeen(undefined, now)).toBe('لم يسجّل دخولاً بعد');
+  });
+
+  it('shows only the time for a sign-in earlier today', () => {
+    const at = new Date(2026, 8, 30, 9, 12);
+    const out = formatLastSeen(at.toISOString(), now);
+    expect(out).toBe(`آخر ظهور الساعة ${clock(at)}`);
+    // بلا تاريخ: لو أُهمل هنا لبان الغائب منذ ثلاثة أيام حاضراً اليوم.
+    expect(out).not.toContain('سبتمبر');
+    expect(out).not.toContain('أمس');
+  });
+
+  it('names yesterday as «أمس» so no date is needed', () => {
+    const at = new Date(2026, 8, 29, 22, 40);
+    const out = formatLastSeen(at.toISOString(), now);
+    expect(out).toBe(`آخر ظهور أمس الساعة ${clock(at)}`);
+    expect(out).not.toContain('سبتمبر');
+  });
+
+  it('writes the day and the date once it is older than a day', () => {
+    const at = new Date(2026, 8, 27, 16, 5);
+    const out = formatLastSeen(at.toISOString(), now);
+    expect(out).toBe(`آخر ظهور ${formatArabicDate(at)} الساعة ${clock(at)}`);
+  });
+
+  it('crosses the month boundary without losing the day', () => {
+    const at = new Date(2026, 7, 31, 8, 0);
+    const out = formatLastSeen(at.toISOString(), now);
+    expect(out).toContain('31 أغسطس 2026');
+    expect(out).toContain(formatArabicDate(at));
+  });
+
+  it('stays silent on garbage instead of printing «Invalid Date»', () => {
+    expect(formatLastSeen('not-a-date', now)).toBe('');
   });
 });

@@ -4,20 +4,15 @@ import { useState, useEffect, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
-import Badge from '@/components/ui/Badge';
 import Spinner from '@/components/ui/Spinner';
-import EmptyState from '@/components/ui/EmptyState';
-import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Switch from '@/components/ui/Switch';
 import {
-  Plus, Trash2, Check, Sun, Moon, Palette, Printer, Tags, ImagePlus,
+  Check, Sun, Moon, Palette, Printer, ImagePlus,
 } from 'lucide-react';
-import { ExpenseCategory, ThemesControl } from '@/types';
-import { listExpenseCategories, createExpenseCategory, deleteExpenseCategory } from '@/services/expenses';
+import { ThemesControl } from '@/types';
 import { getThemesControl, updateThemesControl, logoUrl, uploadLogo, removeLogo } from '@/services/settings';
 import { useToast } from '@/components/ui/Toast';
 import { useTheme } from '@/components/providers/ThemeProvider';
@@ -29,7 +24,6 @@ const DEFAULT_THEME_OPTIONS = THEME_PRESETS.map((p) => ({ value: p.id, label: p.
 const TABS = [
   { key: 'appearance', label: 'المظهر', icon: Palette },
   { key: 'print', label: 'الطباعة', icon: Printer },
-  { key: 'categories', label: 'تصنيفات المصاريف', icon: Tags },
 ];
 
 export default function ThemesPage() {
@@ -45,15 +39,6 @@ export default function ThemesPage() {
 
   const [printForm, setPrintForm] = useState({ receipt_footer: '', invoice_notes: '', receipt_show_tax: false, receipt_show_phone: true });
   const [savingPrint, setSavingPrint] = useState(false);
-
-  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [addOpen, setAddOpen] = useState(false);
-  const [catName, setCatName] = useState('');
-  const [catCode, setCatCode] = useState('');
-  const [catLoading, setCatLoading] = useState(false);
-  const [deletingCat, setDeletingCat] = useState<ExpenseCategory | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
 
   useEffect(() => {
@@ -77,18 +62,6 @@ export default function ThemesPage() {
       });
     return () => { cancelled = true; };
   }, []);
-
-  const fetchCategories = useCallback(() => {
-    let cancelled = false;
-    setCategoriesLoading(true);
-    listExpenseCategories({ page_size: 200 })
-      .then((res) => { if (!cancelled) setCategories(res.results); })
-      .catch((err) => { if (!cancelled) toast('error', err.message); })
-      .finally(() => { if (!cancelled) setCategoriesLoading(false); });
-    return () => { cancelled = true; };
-  }, [toast]);
-
-  useEffect(() => fetchCategories(), [fetchCategories]);
 
   const handleThemeSelect = (id: string) => {
     setTheme(id);
@@ -155,41 +128,6 @@ export default function ThemesPage() {
       toast('error', err.message);
     } finally {
       setSavingPrint(false);
-    }
-  };
-
-  const handleAdd = async () => {
-    if (!catName.trim()) {
-      toast('error', 'اسم التصنيف مطلوب');
-      return;
-    }
-    setCatLoading(true);
-    try {
-      await createExpenseCategory({ name: catName, code: catCode });
-      toast('success', 'تمت إضافة التصنيف بنجاح');
-      setCatName('');
-      setCatCode('');
-      setAddOpen(false);
-      fetchCategories();
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setCatLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deletingCat) return;
-    setDeleteLoading(true);
-    try {
-      await deleteExpenseCategory(deletingCat.id);
-      toast('success', 'تم حذف التصنيف بنجاح');
-      setDeletingCat(null);
-      fetchCategories();
-    } catch (err: any) {
-      toast('error', err.message);
-    } finally {
-      setDeleteLoading(false);
     }
   };
 
@@ -468,85 +406,6 @@ export default function ThemesPage() {
           </Card>
         )}
 
-        {tab === 'categories' && (
-          <Card
-            title="تصنيفات المصاريف"
-            action={
-              <Button size="sm" onClick={() => setAddOpen(true)}>
-                <Plus size={16} />
-                إضافة تصنيف
-              </Button>
-            }
-          >
-            {categoriesLoading ? (
-              <div className="flex justify-center py-8"><Spinner size={28} /></div>
-            ) : categories.length === 0 ? (
-              <EmptyState title="لا توجد تصنيفات" />
-            ) : (
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>الاسم</Th>
-                    <Th>الكود</Th>
-                    <Th>النوع</Th>
-                    <Th>عدد المصاريف</Th>
-                    <Th>إجراءات</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {categories.map((c) => (
-                    <Tr key={c.id}>
-                      <Td className="font-medium">{c.name}</Td>
-                      <Td><span className="font-mono text-xs bg-sand-100 px-2 py-1 rounded">{c.code || '-'}</span></Td>
-                      <Td>
-                        <Badge variant={c.is_system ? 'neutral' : 'success'}>
-                          {c.is_system ? 'نظامي' : 'مخصص'}
-                        </Badge>
-                      </Td>
-                      <Td className="tabular-nums">{c.expense_count}</Td>
-                      <Td>
-                        {!c.is_system && (
-                          <button onClick={() => setDeletingCat(c)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 dark:hover:bg-red-500/15 dark:text-red-400 transition-colors">
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
-            )}
-          </Card>
-        )}
-
-        <Modal open={addOpen} onClose={() => setAddOpen(false)} title="إضافة تصنيف جديد">
-          <div className="space-y-4">
-            <Input
-              label="اسم التصنيف"
-              value={catName}
-              onChange={(e) => setCatName(e.target.value)}
-              placeholder="اسم التصنيف"
-            />
-            <Input
-              label="الكود (اختياري)"
-              value={catCode}
-              onChange={(e) => setCatCode(e.target.value)}
-              placeholder="مثال: CAT-001"
-            />
-            <div className="flex justify-start gap-3 pt-2">
-              <Button onClick={handleAdd} loading={catLoading}>إضافة</Button>
-              <Button variant="secondary" onClick={() => setAddOpen(false)}>إلغاء</Button>
-            </div>
-          </div>
-        </Modal>
-
-        <ConfirmDialog
-          open={!!deletingCat}
-          onClose={() => setDeletingCat(null)}
-          onConfirm={handleDelete}
-          loading={deleteLoading}
-          message={`هل أنت متأكد من حذف تصنيف "${deletingCat?.name}"؟`}
-        />
       </div>
     </AppShell>
   );

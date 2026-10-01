@@ -50,8 +50,33 @@ class DailySaleViewSet(viewsets.ModelViewSet):
                     float(s.payment_total),
                     "متوازن" if s.is_balanced else "غير متوازن",
                 ])
+            # «الأصناف» نصٌّ بشري يجمع كل قطعة في سطر — لا يُجمع. والمجموع
+            # يُقارن عمود «إجمالي المبيعات» بـ«إجمالي الدفع»: الفرق بينهما
+            # هو ما يجب أن يقود مراجعة اليوم. و«إجمالي الدفع» خاصيةٌ محسوبة
+            # في النموذج لا حقلٌ في قاعدة البيانات، فلا تُجمَّع في SQL —
+            # تُجمع أطرافها الأربعة، وهي أطرافها بعينها.
+            totals = qs.aggregate(
+                sales=Sum("total_sales"),
+                cash=Sum("cash_amount"),
+                transfer=Sum("transfer_amount"),
+                card=Sum("card_amount"),
+                other=Sum("other_amount"),
+            )
+            cash, transfer = float(totals["cash"] or 0), float(totals["transfer"] or 0)
+            card, other = float(totals["card"] or 0), float(totals["other"] or 0)
+            rows.append([
+                "الإجمالي", f"{len(rows)} يوم بيع", "", "",
+                round(float(totals["sales"] or 0), 2),
+                round(cash, 2), round(transfer, 2), round(card, 2), round(other, 2),
+                round(cash + transfer + card + other, 2),
+                "",
+            ])
             from reports.views import _export_generic_to_xlsx, _xlsx_response
-            wb = _export_generic_to_xlsx("المبيعات", headers, rows)
+            wb = _export_generic_to_xlsx(
+                "المبيعات", headers, rows,
+                types=["date", "text", "text", "text"] + ["money"] * 6 + ["text"],
+                subtitle=f"عدد السجلات: {len(rows) - 1}",
+            )
             if wb is not None:
                 return _xlsx_response(wb, "المبيعات")
         return super().list(request, *args, **kwargs)

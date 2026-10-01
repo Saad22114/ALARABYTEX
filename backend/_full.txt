@@ -1,0 +1,171 @@
+﻿python : Creating test database for alias 'default'...
+At line:1 char:32
++ ... NG="utf-8"; python manage.py test --noinput --parallel 4 2>&1 | Out-F ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...as 'default'...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Cloning test database for alias 'default'...
+
+Cloning test database for alias 'default'...
+
+Cloning test database for alias 'default'...
+
+Cloning test database for alias 'default'...
+
+.......................................................................................................................
+.......................................................................................................................
+............................................................................................C:\Users\saada\AppData\Loca
+l\Programs\Python\Python314\Lib\site-packages\django\db\models\fields\__init__.py:1653: RuntimeWarning: DateTimeField 
+SaleSession.opened_at received a naive datetime (2026-09-29 00:00:00) while time zone support is active.
+  warnings.warn(
+......Destroying test database for alias 'default'...
+
+Destroying test database for alias 'default'...
+
+Destroying test database for alias 'default'...
+
+Destroying test database for alias 'default'...
+
+Destroying test database for alias 'default'...
+
+Found 1121 test(s).
+System check identified no issues (0 silenced).
+multiprocessing.pool.RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 58, in testPartExecutor
+    yield
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 669, in run
+    self._callTestMethod(testMethod)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 615, in _callTestMethod
+    result = method()
+  File "D:\QOMASH\site working\site 3 open code\backend\core\tests_seed_showcase.py", line 509, in 
+test_profit_loss_has_profit_in_every_month
+    self.assertGreater(
+    ~~~~~~~~~~~~~~~~~~^
+        totals["net_profit"], 0, f"╪«╪│╪º╪▒╪⌐ ┘ü┘è {first:%Y-%m}"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 1309, in assertGreater
+    self.fail(self._formatMessage(msg, standardMsg))
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 750, in fail
+    raise self.failureException(msg)
+AssertionError: -6395.576503422546 not greater than 0 : ╪«╪│╪º╪▒╪⌐ ┘ü┘è 2026-10
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\multiprocessing\pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+                    ~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 496, in 
+_run_subsuite
+    result = runner.run(subsuite)
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 387, in 
+run
+    test(result)
+    ~~~~^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+           ~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\suite.py", line 122, in run
+    test(result)
+    ~~~~^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\testcases.py", line 314, 
+in __call__
+    self._setup_and_call(result)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\testcases.py", line 369, 
+in _setup_and_call
+    super().__call__(result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 725, in __call__
+    return self.run(*args, **kwds)
+           ~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 668, in run
+    with outcome.testPartExecutor(self):
+         ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 75, in testPartExecutor
+    _addError(self.result, test_case, exc_info)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\case.py", line 98, in _addError
+    result.addFailure(test, exc_info)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 317, in 
+addFailure
+    self.check_picklable(test, err)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 233, in 
+check_picklable
+    self._confirm_picklable(err)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 207, in 
+_confirm_picklable
+    pickle.loads(pickle.dumps(obj))
+                 ~~~~~~~~~~~~^^^^^
+TypeError: cannot pickle 'traceback' object
+when serializing tuple item 2
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\QOMASH\site working\site 3 open code\backend\manage.py", line 31, in <module>
+    main()
+    ~~~~^^
+  File "D:\QOMASH\site working\site 3 open code\backend\manage.py", line 27, in main
+    execute_from_command_line(sys.argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\core\management\__init__.py", 
+line 443, in execute_from_command_line
+    utility.execute()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\core\management\__init__.py", 
+line 437, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File 
+"C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\core\management\commands\test.py", 
+line 24, in run_from_argv
+    super().run_from_argv(argv)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\core\management\base.py", line 
+422, in run_from_argv
+    self.execute(*args, **cmd_options)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\core\management\base.py", line 
+466, in execute
+    output = self.handle(*args, **options)
+  File 
+"C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\core\management\commands\test.py", 
+line 63, in handle
+    failures = test_runner.run_tests(test_labels)
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 1133, in 
+run_tests
+    result = self.run_suite(suite)
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 1060, in 
+run_suite
+    return runner.run(suite)
+           ~~~~~~~~~~^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\runner.py", line 257, in run
+    test(result)
+    ~~~~^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\unittest\suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+           ~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\site-packages\django\test\runner.py", line 586, in 
+run
+    subsuite_index, events = test_results.next(timeout=0.1)
+                             ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\saada\AppData\Local\Programs\Python\Python314\Lib\multiprocessing\pool.py", line 873, in next
+    raise value
+TypeError: cannot pickle 'traceback' object
+when serializing tuple item 2

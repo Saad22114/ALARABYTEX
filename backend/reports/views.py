@@ -3,7 +3,6 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, Q, Sum
-from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,7 +13,8 @@ from expenses.models import Expense, ExpenseBudget, ExpenseCategory
 from partners.models import PartnerOperation
 from sales.models import DailySale
 from suppliers.models import Fabric, Supplier
-from sale_sessions.models import SaleSession
+from sale_sessions.models import SaleSession, SaleSessionItem
+from suppliers.serializers import PIECE_YARDS
 from warehouses.models import (
     FabricRoll,
     GoodsReceiptItem,
@@ -22,6 +22,7 @@ from warehouses.models import (
     Warehouse,
 )
 
+from core import excel
 from .cogs import (
     cogs_by_day_branch,
     cogs_by_fabric,
@@ -30,88 +31,99 @@ from .cogs import (
 )
 
 
-def _generate_excel(workbook, sheet_name, headers, rows):
-    ws = workbook.create_sheet(title=sheet_name)
-    ws.append(headers)
-    for row in rows:
-        ws.append(row)
-    return ws
+def _period_label(request, default=""):
+    """سطر يوضّح الفترة المصدَّرة — وإلا خرج الملف بلا تاريخ يُرجَع إليه.
+
+    تاريخٌ واحد بلا counterpart يجعل القارئ يسأل: «أي شهر هذا؟» — وتلك
+    أغلى ثانية في قراءة أي تقرير.
+    """
+    start = request.query_params.get("date_from") or ""
+    end = request.query_params.get("date_to") or ""
+    parts = []
+    if start or end:
+        parts.append(f"الفترة: {start or '—'} إلى {end or '—'}")
+    branch = request.query_params.get("branch")
+    if branch:
+        parts.append(f"الفرع: {branch}")
+    if not parts:
+        return default
+    return "  |  ".join(parts)
 
 
-def _export_sales_to_xlsx(sales_data):
-    try:
-        import openpyxl
-    except ImportError:
-        return None
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "المبيعات"
+def _export_sales_to_xlsx(sales_data, subtitle=""):
     headers = [
         "الفرع", "التاريخ", "إجمالي المبيعات", "نقدي", "تحويل", "بطاقة", "أخرى",
         "إجمالي الدفع", "ملاحظات",
     ]
-    ws.append(headers)
-    for s in sales_data:
-        ws.append([
+    rows = [
+        [
             s["branch_name"],
             str(s["date"]),
-            float(s["total_sales"]),
-            float(s["cash_amount"]),
-            float(s["transfer_amount"]),
-            float(s["card_amount"]),
-            float(s["other_amount"]),
-            float(s["payment_total"]),
+            s["total_sales"],
+            s["cash_amount"],
+            s["transfer_amount"],
+            s["card_amount"],
+            s["other_amount"],
+            s["payment_total"],
             s.get("notes", ""),
-        ])
-    return wb
+        ]
+        for s in sales_data
+    ]
+    return excel.build_workbook([{
+        "title": "المبيعات",
+        "columns": excel.infer_columns(headers, rows),
+        "rows": rows,
+        "heading": "تقرير المبيعات",
+        "subtitle": subtitle,
+    }])
 
 
-def _export_expenses_to_xlsx(expenses_data):
-    try:
-        import openpyxl
-    except ImportError:
-        return None
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "المصاريف"
+def _export_expenses_to_xlsx(expenses_data, subtitle=""):
     headers = [
         "الفرع", "التصنيف", "التاريخ", "المبلغ", "طريقة الدفع", "الوصف", "ملاحظات",
     ]
-    ws.append(headers)
-    for e in expenses_data:
-        ws.append([
+    rows = [
+        [
             e["branch_name"],
             e["category_name"],
             str(e["date"]),
-            float(e["amount"]),
+            e["amount"],
             e["payment_method"],
             e.get("description", ""),
             e.get("notes", ""),
-        ])
-    return wb
+        ]
+        for e in expenses_data
+    ]
+    return excel.build_workbook([{
+        "title": "المصاريف",
+        "columns": excel.infer_columns(headers, rows),
+        "rows": rows,
+        "heading": "تقرير المصاريف",
+        "subtitle": subtitle,
+    }])
 
 
-def _export_generic_to_xlsx(sheet_title, headers, rows):
-    try:
-        import openpyxl
-    except ImportError:
-        return None
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = sheet_title
-    ws.append(headers)
-    for row in rows:
-        ws.append(row)
-    return wb
+def _export_generic_to_xlsx(sheet_title, headers, rows, types=None, subtitle=""):
+    """ورقة واحدة مُنسَّقة — الطريق الموحّد لكل الشاشات البسيطة.
+
+    يُرجع ``None`` إن لم يكن ``openpyxl`` مثبَّتاً، فيردّ كل موضع رسالة
+    500 صريحة بدل انهيارٍ obscures سببه.
+    """
+    return excel.build_workbook([{
+        "title": sheet_title,
+        "columns": excel.infer_columns(headers, rows, types),
+        "rows": rows,
+        "heading": sheet_title,
+        "subtitle": subtitle,
+    }])
 
 
 def _xlsx_response(workbook, filename):
-    response = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
-    workbook.save(response)
-    return response
+    if workbook is None:
+        return Response(
+            {"detail": "مكتبة openpyxl غير مثبتة"}, status=500
+        )
+    return excel.xlsx_response(workbook, filename)
 
 
 class SalesReportView(APIView):
@@ -154,7 +166,7 @@ class SalesReportView(APIView):
         )
 
         if request.query_params.get("export") == "xlsx":
-            wb = _export_sales_to_xlsx(sales_data)
+            wb = _export_sales_to_xlsx(sales_data, _period_label(request))
             if wb is None:
                 return Response(
                     {"detail": "مكتبة openpyxl غير مثبتة"},
@@ -210,7 +222,10 @@ class ExpensesReportView(APIView):
         totals = qs.aggregate(total_amount=Sum("amount"))
 
         if request.query_params.get("export") == "xlsx":
-            wb = _export_expenses_to_xlsx(expenses_data)
+            wb = _export_expenses_to_xlsx(
+                expenses_data,
+                _period_label(request, f"عدد السجلات: {len(expenses_data)}"),
+            )
             if wb is None:
                 return Response(
                     {"detail": "مكتبة openpyxl غير مثبتة"},
@@ -365,7 +380,18 @@ class NetDailyReportView(APIView):
         if request.query_params.get("export") == "xlsx":
             headers = ["التاريخ", "المبيعات", "المصاريف", "صافي"]
             rows = [[d["date"], d["sales"], d["expenses"], d["net"]] for d in chart_data]
-            wb = _export_generic_to_xlsx("صافي يومي", headers, rows)
+            # صفّ الإجمالي: يُجمع في Excel بضغطة، لكن من يكتب التقرير لا
+            # يعرف أيّ خانة خاطئة أفسدته — والمجموع المكتوب يبيّنها.
+            rows.append([
+                "الإجمالي",
+                round(sum(d["sales"] for d in chart_data), 2),
+                round(sum(d["expenses"] for d in chart_data), 2),
+                round(sum(d["net"] for d in chart_data), 2),
+            ])
+            wb = _export_generic_to_xlsx(
+                "صافي يومي", headers, rows,
+                subtitle=f"الفترة: {date_from.isoformat()} إلى {date_to.isoformat()}",
+            )
             if wb is None:
                 return Response(
                     {"detail": "مكتبة openpyxl غير مثبتة"},
@@ -399,7 +425,10 @@ class SupplierReportView(APIView):
         if request.query_params.get("export") == "xlsx":
             headers = ["الاسم", "الشركة", "الهاتف", "البريد", "المدينة", "الدولة"]
             rows = [[d["name"], d["company_name"], d["phone"], d["email"], d["city"], d["country"]] for d in data]
-            wb = _export_generic_to_xlsx("الموردون", headers, rows)
+            wb = _export_generic_to_xlsx(
+                "الموردون", headers, rows,
+                subtitle=f"عدد الموردين: {len(data)}",
+            )
             if wb is None:
                 return Response(
                     {"detail": "مكتبة openpyxl غير مثبتة"},
@@ -431,7 +460,15 @@ class BranchReportView(APIView):
         if request.query_params.get("export") == "xlsx":
             headers = ["الاسم", "الكود", "الهاتف", "المدينة", "عدد المبيعات", "عدد المصاريف"]
             rows = [[d["name"], d["code"], d["phone"], d["city"], d["sales_count"], d["expenses_count"]] for d in data]
-            wb = _export_generic_to_xlsx("الفروع", headers, rows)
+            rows.append([
+                "الإجمالي", "", "", "",
+                sum(d["sales_count"] for d in data),
+                sum(d["expenses_count"] for d in data),
+            ])
+            wb = _export_generic_to_xlsx(
+                "الفروع", headers, rows,
+                subtitle=f"عدد الفروع: {len(data)}",
+            )
             if wb is None:
                 return Response(
                     {"detail": "مكتبة openpyxl غير مثبتة"},
@@ -505,7 +542,18 @@ class InventoryReportView(APIView):
             headers = ["القماش", "الكود", "الرصيد الكلي", "الحد الأدنى", "الحالة"]
             rows_x = [[d["fabric_name"], d["fabric_code"], float(d["total_yards"]), float(d["min_stock"]),
                        "نقص" if d["low_stock"] else "مناسب"] for d in data]
-            wb = _export_generic_to_xlsx("المخزون", headers, rows_x)
+            rows_x.append([
+                "الإجمالي", "",
+                round(sum(float(d["total_yards"]) for d in data), 2),
+                round(sum(float(d["min_stock"]) for d in data), 2),
+                "",
+            ])
+            low = sum(1 for d in data if d["low_stock"])
+            wb = _export_generic_to_xlsx(
+                "المخزون", headers, rows_x,
+                types=["text", "text", "number", "number", "text"],
+                subtitle=f"عدد الأقمشة: {len(data)}  |  تحت الحد الأدنى: {low}",
+            )
             if wb is None:
                 return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
             return _xlsx_response(wb, "تقرير_المخزون")
@@ -575,7 +623,15 @@ class InventoryMovementsReportView(APIView):
                        float(d["balance_before"]) if d["balance_before"] is not None else "",
                        float(d["balance_after"]) if d["balance_after"] is not None else "",
                        d["reference_no"]] for d in data]
-            wb = _export_generic_to_xlsx("حركات المخزون", headers, rows_x)
+            rows_x.append([
+                "الإجمالي", "", "", f"وارد: {float(totals['in'])} / منصرف: {float(totals['out'])}",
+                "", "", "", f"{len(data)} حركة",
+            ])
+            wb = _export_generic_to_xlsx(
+                "حركات المخزون", headers, rows_x,
+                types=["date", "text", "text", "text", "number", "number", "number", "text"],
+                subtitle=_period_label(request, f"عدد الحركات: {len(data)}"),
+            )
             if wb is None:
                 return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
             return _xlsx_response(wb, "تقرير_حركات_المخزون")
@@ -684,7 +740,21 @@ class CogsReportView(APIView):
             headers = ["القماش", "الكود", "المباع", "متوسط التكلفة", "الإيراد (تقريبي)", "التكلفة", "الربح"]
             rows_x = [[d["fabric_name"], d["fabric_code"], d["yards_sold"],
                        d["avg_cost"], d["revenue"], d["cogs"], d["profit"]] for d in data]
-            wb = _export_generic_to_xlsx("تكلفة البضاعة المباعة", headers, rows_x)
+            rows_x.append([
+                "الإجمالي", "",
+                round(totals["yards_sold"], 2), "",
+                round(totals["revenue"], 2),
+                round(totals["cogs"], 2),
+                round(totals["profit"], 2),
+            ])
+            wb = _export_generic_to_xlsx(
+                "تكلفة البضاعة المباعة", headers, rows_x,
+                types=["text", "text", "number", "money", "money", "money", "money"],
+                subtitle=(
+                    f"الفترة: {date_from.isoformat()} إلى {date_to.isoformat()}"
+                    f"  |  عدد الأقمشة: {len(data)}"
+                ),
+            )
             if wb is None:
                 return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
             return _xlsx_response(wb, "تقرير_تكلفة_البضاعة")
@@ -1101,7 +1171,8 @@ class ProfitLossReportView(APIView):
 
         if request.query_params.get("export") == "xlsx":
             return self._export_xlsx(
-                totals, comparison, collection, expenses, branch_rows, daily, stock
+                totals, comparison, collection, expenses, branch_rows, daily, stock,
+                date_from, date_to,
             )
 
         return Response({
@@ -1116,7 +1187,10 @@ class ProfitLossReportView(APIView):
             "daily": daily,
         })
 
-    def _export_xlsx(self, totals, comparison, collection, expenses, branch_rows, daily, stock):
+    def _export_xlsx(
+        self, totals, comparison, collection, expenses, branch_rows, daily, stock,
+        date_from=None, date_to=None,
+    ):
         change = comparison["change_pct"]
 
         def _line(label, key):
@@ -1127,6 +1201,15 @@ class ProfitLossReportView(APIView):
                 round(comparison["totals"][key], 2),
                 f"{pct:+.1f}%" if pct is not None else "—",
             ]
+
+        # السطر التوضيحي يحمل الفترة والمقارنة: الملف يحمل رقمين من فترتين
+        # مختلفتين، ولا يعرف من يفتحه لاحقاً أيّهما الحالي.
+        period = ""
+        if date_from and date_to:
+            period = (
+                f"الفترة: {date_from.isoformat()} إلى {date_to.isoformat()}"
+                f"  |  الفترة السابقة للمقارنة"
+            )
 
         headers = ["البيان", "الفترة الحالية", "الفترة السابقة", "نسبة التغيّر"]
         rows_x = [
@@ -1150,44 +1233,128 @@ class ProfitLossReportView(APIView):
             ["قيمة رصيد الإقفال", round(stock["closing"]["value"], 2)],
             ["قيمة البضاعة غير المباعة", round(stock["unsold_value"], 2)],
         ]
-        wb = _export_generic_to_xlsx("الربح والخسارة بعد كل شيء", headers, rows_x)
-        if wb is None:
-            return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
 
-        def _sheet(title, sheet_headers, sheet_rows):
-            ws = wb.create_sheet(title=title)
-            ws.append(sheet_headers)
-            for row in sheet_rows:
-                ws.append(row)
+        branch_rows_x = [
+            [r["branch_name"], round(r["sales"], 2), round(r["cogs"], 2),
+             round(r["salaries"], 2), round(r["expenses"], 2),
+             round(r["net"], 2), r["net_margin_pct"]] for r in branch_rows
+        ]
+        if branch_rows_x:
+            branch_rows_x.append([
+                "الإجمالي",
+                round(sum(r["sales"] for r in branch_rows), 2),
+                round(sum(r["cogs"] for r in branch_rows), 2),
+                round(sum(r["salaries"] for r in branch_rows), 2),
+                round(sum(r["expenses"] for r in branch_rows), 2),
+                round(sum(r["net"] for r in branch_rows), 2),
+                "",
+            ])
 
-        _sheet("حسب الفرع",
-               ["الفرع", "المبيعات", "التكلفة", "الرواتب", "المصاريف", "الصافي", "هامش الصافي %"],
-               [[r["branch_name"], round(r["sales"], 2), round(r["cogs"], 2),
-                 round(r["salaries"], 2), round(r["expenses"], 2),
-                 round(r["net"], 2), r["net_margin_pct"]] for r in branch_rows])
+        expense_rows_x = [
+            [r["category_name"], round(r["amount"], 2), r["pct_of_total"]]
+            for r in expenses["items"]
+        ]
+        if expense_rows_x:
+            expense_rows_x.append([
+                "الإجمالي",
+                round(sum(r["amount"] for r in expenses["items"]), 2),
+                100.0,
+            ])
 
-        _sheet("تفصيل المصاريف",
-               ["التصنيف", "المبلغ", "النسبة %"],
-               [[r["category_name"], round(r["amount"], 2), r["pct_of_total"]]
-                for r in expenses["items"]])
+        collection_rows = [
+            ["نقدي", round(collection["cash"], 2), _pct(collection["cash"], collection["sales"])],
+            ["تحويل", round(collection["transfer"], 2), _pct(collection["transfer"], collection["sales"])],
+            ["بطاقة", round(collection["card"], 2), _pct(collection["card"], collection["sales"])],
+            ["أخرى", round(collection["other"], 2), _pct(collection["other"], collection["sales"])],
+            ["إجمالي المحصّل", round(collection["collected"], 2), collection["collection_rate_pct"] or 0],
+        ]
 
-        _sheet("تفصيل التحصيل",
-               ["طريقة التحصيل", "المبلغ", "النسبة من المبيعات %"],
-               [
-                   ["نقدي", round(collection["cash"], 2), _pct(collection["cash"], collection["sales"])],
-                   ["تحويل", round(collection["transfer"], 2), _pct(collection["transfer"], collection["sales"])],
-                   ["بطاقة", round(collection["card"], 2), _pct(collection["card"], collection["sales"])],
-                   ["أخرى", round(collection["other"], 2), _pct(collection["other"], collection["sales"])],
-                   ["إجمالي المحصّل", round(collection["collected"], 2), collection["collection_rate_pct"] or 0],
-               ])
+        daily_rows_x = [
+            [r["date"], r["sales"], r["cogs"], r["gross_profit"], r["expenses"],
+             r["net"], r["net_margin_pct"]] for r in daily
+        ]
+        if daily_rows_x:
+            daily_rows_x.append([
+                "الإجمالي",
+                round(sum(r["sales"] for r in daily), 2),
+                round(sum(r["cogs"] for r in daily), 2),
+                round(sum(r["gross_profit"] for r in daily), 2),
+                round(sum(r["expenses"] for r in daily), 2),
+                round(sum(r["net"] for r in daily), 2),
+                "",
+            ])
 
-        _sheet("التفصيل اليومي",
-               ["التاريخ", "المبيعات", "تكلفة البضاعة المباعة", "مجمل الربح", "المصاريف", "الصافي", "هامش الصافي %"],
-               [[r["date"], r["sales"], r["cogs"], r["gross_profit"], r["expenses"],
-                 r["net"], r["net_margin_pct"]] for r in daily])
-
-        _sheet("المشتريات والمخزون", ["البيان", "القيمة"], stock_rows)
-
+        wb = excel.build_workbook([
+            {
+                "title": "الربح والخسارة بعد كل شيء",
+                "columns": [
+                    {"label": "البيان", "type": "text"},
+                    {"label": "الفترة الحالية", "type": "money"},
+                    {"label": "الفترة السابقة", "type": "money"},
+                    {"label": "نسبة التغيّر", "type": "text"},
+                ],
+                "rows": rows_x,
+                "heading": "تقرير الربح والخسارة",
+                "subtitle": period,
+            },
+            {
+                "title": "حسب الفرع",
+                "columns": [
+                    {"label": "الفرع", "type": "text"},
+                    {"label": "المبيعات", "type": "money"},
+                    {"label": "التكلفة", "type": "money"},
+                    {"label": "الرواتب", "type": "money"},
+                    {"label": "المصاريف", "type": "money"},
+                    {"label": "الصافي", "type": "money"},
+                    {"label": "هامش الصافي %", "type": "percent"},
+                ],
+                "rows": branch_rows_x,
+                "subtitle": period,
+            },
+            {
+                "title": "تفصيل المصاريف",
+                "columns": [
+                    {"label": "التصنيف", "type": "text"},
+                    {"label": "المبلغ", "type": "money"},
+                    {"label": "النسبة %", "type": "percent"},
+                ],
+                "rows": expense_rows_x,
+                "subtitle": period,
+            },
+            {
+                "title": "تفصيل التحصيل",
+                "columns": [
+                    {"label": "طريقة التحصيل", "type": "text"},
+                    {"label": "المبلغ", "type": "money"},
+                    {"label": "النسبة من المبيعات %", "type": "percent"},
+                ],
+                "rows": collection_rows,
+                "subtitle": period,
+            },
+            {
+                "title": "التفصيل اليومي",
+                "columns": [
+                    {"label": "التاريخ", "type": "date"},
+                    {"label": "المبيعات", "type": "money"},
+                    {"label": "تكلفة البضاعة المباعة", "type": "money"},
+                    {"label": "مجمل الربح", "type": "money"},
+                    {"label": "المصاريف", "type": "money"},
+                    {"label": "الصافي", "type": "money"},
+                    {"label": "هامش الصافي %", "type": "percent"},
+                ],
+                "rows": daily_rows_x,
+                "subtitle": period,
+            },
+            {
+                "title": "المشتريات والمخزون",
+                "columns": [
+                    {"label": "البيان", "type": "text"},
+                    {"label": "القيمة", "type": "money"},
+                ],
+                "rows": stock_rows,
+                "subtitle": period,
+            },
+        ])
         return _xlsx_response(wb, "تقرير_الربح_والخسارة")
 
 
@@ -1244,10 +1411,27 @@ class CommissionsReportView(APIView):
                 "sessions_count": 0,
                 "total_sales": Decimal("0"),
                 "total_commission": Decimal("0"),
+                "total_yards": Decimal("0"),
+                "total_pieces": Decimal("0"),
+                "returned_items": 0,
             })
             entry["sessions_count"] += 1
             entry["total_sales"] += sum(r.total for r in s.items.all())
             entry["total_commission"] += s.commission_amount or Decimal("0")
+            # «القطعة» في هذا المشروع طرد من 3.5 ياردة، والبنود نوعان:
+            # الياردات كمّيتها ياردات، والطاقة كميتها قطعة. فالجمع بلا هذا
+            # التمييز كان سيعني رقماً لا يقابله شيء في المخزن: من يبيع 70
+            # ياردة باطلاقات يستحق 20 قطعة، لا 70.
+            for item in s.items.all():
+                if item.is_returned:
+                    entry["returned_items"] += 1
+                    continue
+                if item.sale_type == SaleSessionItem.SaleType.ROLL:
+                    entry["total_pieces"] += item.quantity
+                    entry["total_yards"] += item.quantity * PIECE_YARDS
+                else:
+                    entry["total_yards"] += item.quantity
+                    entry["total_pieces"] += item.quantity / PIECE_YARDS
 
         data = []
         for entry in rows.values():
@@ -1259,21 +1443,45 @@ class CommissionsReportView(APIView):
                 "sessions_count": entry["sessions_count"],
                 "total_sales": float(entry["total_sales"]),
                 "total_commission": float(entry["total_commission"]),
+                "total_yards": float(entry["total_yards"]),
+                "total_pieces": float(entry["total_pieces"]),
+                "returned_items": entry["returned_items"],
             })
-        data.sort(key=lambda d: (d["employee_name"], d["branch_name"]))
+        # الأعلى مبيعاً أولاً: جدول التوزيع يُقرأ من أول سطر لا من وسطه.
+        data.sort(key=lambda d: (-d["total_sales"], d["employee_name"]))
+
 
         totals = {
             "sessions": sum(d["sessions_count"] for d in data),
             "sales": float(sum(d["total_sales"] for d in data)),
             "commission": float(sum(d["total_commission"] for d in data)),
+            "pieces": float(sum(d["total_pieces"] for d in data)),
+            "yards": float(sum(d["total_yards"] for d in data)),
             "employees": len(data),
         }
 
         if request.query_params.get("export") == "xlsx":
-            headers = ["الموظف", "الفرع", "عدد الورديات", "إجمالي المبيعات", "العمولة"]
-            rows_x = [[d["employee_name"], d["branch_name"], d["sessions_count"],
-                       d["total_sales"], d["total_commission"]] for d in data]
-            wb = _export_generic_to_xlsx("عمولات المبيعات", headers, rows_x)
+            headers = [
+                "الموظف", "الفرع", "عدد الورديات", "عدد القطع", "عدد الياردات",
+                "إجمالي المبيعات", "العمولة",
+            ]
+            rows_x = [[
+                d["employee_name"], d["branch_name"], d["sessions_count"],
+                round(d["total_pieces"], 2), round(d["total_yards"], 2),
+                d["total_sales"], d["total_commission"],
+            ] for d in data]
+            rows_x.append([
+                "الإجمالي", "", totals["sessions"], round(totals["pieces"], 2),
+                round(totals["yards"], 2), totals["sales"], totals["commission"],
+            ])
+            wb = _export_generic_to_xlsx(
+                "عمولات المبيعات", headers, rows_x,
+                types=["text", "text", "number", "number", "number", "money", "money"],
+                subtitle=(
+                    f"الفترة: {month_start.isoformat()} إلى {month_end.isoformat()}"
+                    f"  |  عدد الموظفين: {totals['employees']}"
+                ),
+            )
             if wb is None:
                 return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
             return _xlsx_response(wb, "تقرير_عمولات_المبيعات")
@@ -1350,7 +1558,20 @@ class JournalReportView(APIView):
             headers = ["التاريخ", "المبيعات", "المشتريات", "المصاريف", "دعم الشركاء", "سحب الشركاء", "الصافي", "الرصيد التراكمي"]
             rows_x = [[r["date"], r["sales"], r["purchases"], r["expenses"], r["support"],
                        r["withdraw"], r["net"], r["running_balance"]] for r in journal]
-            wb = _export_generic_to_xlsx("القيود اليومية", headers, rows_x)
+            # مجموع العمود «الصافي» لا يساوي الرصيد التراكمي الأخير إلا إذا
+            # بدأ الرصيد من صفر — وهذا بالضبط ما يُراجَع به السجل.
+            rows_x.append([
+                "الإجمالي", totals["sales"], totals["purchases"], totals["expenses"],
+                totals["support"], totals["withdraw"], totals["net"], "",
+            ])
+            wb = _export_generic_to_xlsx(
+                "القيود اليومية", headers, rows_x,
+                types=["date"] + ["money"] * 7,
+                subtitle=(
+                    f"الفترة: {date_from.isoformat()} إلى {date_to.isoformat()}"
+                    f"  |  عدد الأيام: {len(journal)}"
+                ),
+            )
             if wb is None:
                 return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
             return _xlsx_response(wb, "تقرير_القيود_اليومية")

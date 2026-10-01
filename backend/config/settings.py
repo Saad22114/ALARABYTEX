@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     "dataimport",
     "payroll",
     "machine_account",
+    "attendance",
 ]
 
 MIDDLEWARE = [

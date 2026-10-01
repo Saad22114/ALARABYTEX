@@ -5,6 +5,7 @@ from django.db.models import Sum
 from rest_framework import serializers
 
 from suppliers.models import Fabric, Supplier
+from sale_sessions.models import Employee
 from branches.models import Branch
 from core.branch_scope import assert_write_branch_allowed
 
@@ -24,6 +25,7 @@ from .models import (
     StockTransferItem,
     Warehouse,
 )
+from .services import public_summary
 
 
 class WarehouseSerializer(serializers.ModelSerializer):
@@ -408,25 +410,120 @@ class StockAdjustmentWriteSerializer(serializers.Serializer):
 
 
 class StockCountItemSerializer(serializers.ModelSerializer):
+    """سطر جرد واحد.
+
+    ``reveal_system=False`` يُسقط الرصيد الدفتري والفرق من الردّ: في الجرد
+    المغلق هما ما يفسد العدّ، ورؤيةُ رقمٍ يقارَن به العدّادُ تجعل الجرد
+   قياسًا لا مطابقةً. لا نحذف الحقول من الواجهة بل نخفيها، فتبقى
+    الشاشةُ تطلب الرصيدَ بلا أن يعرضه، ويفهم المطوّرُ أن الحقل محجوب لا
+    مُهمَل.
+    """
+
     fabric_name = serializers.CharField(source="fabric.name", read_only=True)
+    fabric_code = serializers.CharField(source="fabric.code", read_only=True)
     difference = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    is_variance = serializers.BooleanField(read_only=True)
+    counted = serializers.SerializerMethodField()
+
+    def __init__(self, *args, **kwargs):
+        # The default is disclosure: this serializer is reused outside the
+        # blind count, so a missing key there would be a bug, not a policy.
+        self._reveal_system = kwargs.pop("reveal_system", True)
+        super().__init__(*args, **kwargs)
+
+    def get_counted(self, obj):
+        return obj.counted_yards is not None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not self._reveal_system:
+            for field in ("system_yards", "difference", "is_variance"):
+                data.pop(field, None)
+        return data
 
     class Meta:
         model = StockCountItem
-        fields = ["id", "fabric", "fabric_name", "system_yards", "counted_yards", "difference"]
+        fields = [
+            "id", "fabric", "fabric_name", "fabric_code", "system_yards",
+            "counted_yards", "difference", "is_variance", "counted", "note",
+        ]
         read_only_fields = ["id", "system_yards"]
 
 
+class StockCountSummarySerializer(serializers.Serializer):
+    """ما يقرّر مدير المخزن «هل انتهى الجرد»."""
+
+    items = serializers.IntegerField()
+    counted = serializers.IntegerField()
+    pending = serializers.IntegerField()
+    variances = serializers.IntegerField()
+    net_yards = serializers.FloatField()
+    value = serializers.FloatField()
+    complete = serializers.BooleanField()
+
+
 class StockCountSerializer(serializers.ModelSerializer):
+    """جلسة الجرد كاملة: أصنافها وملخّصها.
+
+    الأصناف تُمرّر عبر دالّة لا كحقلٍ عادي، لأن إخفاء الجرد المغلق
+    يحتاج حالة الجلسة (الوقت والحالة) ليقرر ما يُخفى، وهي لا تصل إلى
+    المسلسل السطريّ.
+    """
+
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
     status_label = serializers.CharField(source="get_status_display", read_only=True)
-    items = StockCountItemSerializer(many=True, read_only=True)
+    counted_by_name = serializers.CharField(
+        source="counted_by.name", read_only=True, allow_null=True, default="",
+    )
+    hides_system = serializers.BooleanField(source="hides_system_balance", read_only=True)
+    items = serializers.SerializerMethodField()
+    summary = serializers.SerializerMethodField()
+
+    def get_items(self, obj):
+        return StockCountItemSerializer(
+            obj.items.select_related("fabric").all(),
+            many=True,
+            reveal_system=not obj.hides_system_balance,
+        ).data
+
+    def get_summary(self, obj):
+        return public_summary(obj)
 
     class Meta:
         model = StockCount
         fields = [
             "id", "number", "warehouse", "warehouse_name", "date", "status",
-            "status_label", "notes", "items", "created_at",
+            "status_label", "notes", "blind", "hides_system", "counted_by",
+            "counted_by_name", "items", "summary", "created_at",
+        ]
+        read_only_fields = ["id", "number", "status", "created_at"]
+
+
+class StockCountListSerializer(serializers.ModelSerializer):
+    """صفٌّ واحد في قائمة الجلسات — بلا أصناف.
+
+    القائمة كانت تُحمّل أصناف كل جلسة: عشرون جلسة بأربعين صنفاً = ثمانمئة
+    سطر في طلبٍ واحد، لعرض خمسة أعمدة. والملخّص وحده يجيب «كم رُصد وكم
+    فروق» بلا أن يمرّ سطرٌ واحدٍ من الأصناف عبر الشبكة.
+    """
+
+    warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    counted_by_name = serializers.CharField(
+        source="counted_by.name", read_only=True, allow_null=True, default="",
+    )
+    hides_system = serializers.BooleanField(source="hides_system_balance", read_only=True)
+    summary = serializers.SerializerMethodField()
+
+    def get_summary(self, obj):
+        return public_summary(obj)
+
+    class Meta:
+        model = StockCount
+        fields = [
+            "id", "number", "warehouse", "warehouse_name", "date", "status",
+            "status_label", "notes", "blind", "hides_system", "counted_by",
+            "counted_by_name", "summary", "created_at",
         ]
         read_only_fields = ["id", "number", "status", "created_at"]
 
@@ -435,6 +532,14 @@ class StockCountWriteSerializer(serializers.Serializer):
     warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all())
     date = serializers.DateField()
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+    # `blind` mirrors the model default on purpose. A missing field must not
+    # change the shape of the response: an absent key read as True would hide
+    # the book balance from a caller that never asked for a blind count, and
+    # the screen sends the flag explicitly anyway.
+    blind = serializers.BooleanField(required=False, default=False)
+    counted_by = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.all(), required=False, allow_null=True,
+    )
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -448,7 +553,14 @@ class StockCountWriteSerializer(serializers.Serializer):
             warehouse=validated_data["warehouse"],
             date=validated_data["date"],
             notes=validated_data.get("notes", ""),
+            blind=validated_data.get("blind", False),
+            counted_by=validated_data.get("counted_by"),
         )
+
+
+#: يقبل القيم النصية الفارغة كـ«لم يُرصد» لا كرقمٍ صفر.
+#: «صفر» و«لم أعدّه» حالتان مختلفتان: الأولى فارقٌ معدوم، والثانية جردٌ ناقص.
+_YARDS = serializers.DecimalField(max_digits=12, decimal_places=2)
 
 
 class StockCountItemWriteSerializer(serializers.Serializer):
@@ -465,8 +577,19 @@ class StockCountItemWriteSerializer(serializers.Serializer):
                     raise serializers.ValidationError("يوجد صنف غير مرصود في الجلسة")
                 if counted is None or counted == "":
                     counted = None
-                item.counted_yards = serializers.DecimalField(max_digits=12, decimal_places=2).to_internal_value(counted) if counted is not None else None
-                item.save(update_fields=["counted_yards"])
+                else:
+                    try:
+                        counted = _YARDS.to_internal_value(counted)
+                    except serializers.ValidationError:
+                        raise serializers.ValidationError(
+                            f"قيمة غير صحيحة لـ«{item.fabric.name}»"
+                        )
+                # السبب يُحفظ مع الرصيد: يُترجم بعد ذلك إلى ملاحظة الحركة.
+                note = raw.get("note", None)
+                if note is not None:
+                    item.note = str(note).strip()
+                item.counted_yards = counted
+                item.save(update_fields=["counted_yards", "note"])
         return instance
 
 

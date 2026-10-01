@@ -13,6 +13,8 @@
   EXPENSE_ROOT      -> جذر حسابات المصاريف (لبناء حسابات التصنيفات تحته)
   SALARY_EXPENSE    -> مصروف الرواتب
   ADVANCE_RECEIVABLE -> سلف الموظفين (أصل يُسدَّد من الرواتب)
+  MACHINE_RECEIVABLE -> ذمم شركة الماكينة (ما لم تحوّلْه شركة البطاقة بعد)
+  BANK_RECEIVABLE   -> مستحقات عند البنك (تحويلات لم تُخصم بعد)
 """
 
 from django.db import transaction
@@ -38,6 +40,8 @@ ACCOUNTS = [
     ("1103", "ذمم العملاء", "asset", "11", ""),
     ("1104", "مخزون البضاعة", "asset", "11", "INVENTORY"),
     ("1105", "سلف الموظفين", "asset", "11", "ADVANCE_RECEIVABLE"),
+    ("1106", "ذمم شركة الماكينة", "asset", "11", "MACHINE_RECEIVABLE"),
+    ("1107", "مستحقات عند البنك", "asset", "11", "BANK_RECEIVABLE"),
     ("1210", "أصول ثابتة", "asset", "12", ""),
     # التزامات
     ("21", "الالتزامات المتداولة", "liability", "2", ""),
@@ -72,6 +76,8 @@ ACCOUNTS = [
 # حسابات تُضاف لنظام قائم (قديمة) عند أول استخدام بعد التحديث.
 EXTRA_ACCOUNTS = [
     ("1105", "سلف الموظفين", "asset", "11", "ADVANCE_RECEIVABLE"),
+    ("1106", "ذمم شركة الماكينة", "asset", "11", "MACHINE_RECEIVABLE"),
+    ("1107", "مستحقات عند البنك", "asset", "11", "BANK_RECEIVABLE"),
     ("5501", "مصروف الرواتب", "expense", "5", "SALARY_EXPENSE"),
 ]
 

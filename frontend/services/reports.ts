@@ -78,7 +78,14 @@ export async function getExpensesBudgetReport(
 
 export interface CommissionsReportResult {
   items: CommissionReportRow[];
-  totals: { sessions: number; sales: number; commission: number; employees: number };
+  totals: {
+    sessions: number;
+    sales: number;
+    commission: number;
+    employees: number;
+    pieces: number;
+    yards: number;
+  };
   start_date: string;
   end_date: string;
 }

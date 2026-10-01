@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import ExportButton from '@/components/ui/ExportButton';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import SearchInput from '@/components/ui/SearchInput';
 import Select from '@/components/ui/Select';
@@ -19,7 +20,7 @@ import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import {
   Plus, Pencil, Trash2, TrendingUp, TrendingDown, Scale, UserRoundPlus,
-  FileText, Download, Receipt, Wallet, Sparkles, Percent, ArrowRightLeft, Users, Printer,
+  FileText, Receipt, Wallet, Sparkles, Percent, ArrowRightLeft, Users, Printer,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Partner, PartnerOperation, Paginated, PartnerOperationType, PartnerPaymentMethod, PartnerOperationsSummary, PartnerDistributionResult } from '@/types';
@@ -36,7 +37,6 @@ import {
   getPartnerDistribution,
 } from '@/services/partners';
 import { formatCurrency, formatDate } from '@/lib/format';
-import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
@@ -188,22 +188,6 @@ export default function PartnersPage() {
   }, [tab, fetchDistribution]);
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
-
-  const operationsExportUrl = useMemo(() => {
-    const p = new URLSearchParams();
-    p.append('export', 'xlsx');
-    if (from) p.append('date_from', from);
-    if (to) p.append('date_to', to);
-    return `${API_URL}/partner-operations/?${p.toString()}`;
-  }, [from, to]);
-
-  const distributionExportUrl = useMemo(() => {
-    const p = new URLSearchParams();
-    p.append('export', 'xlsx');
-    if (from) p.append('date_from', from);
-    if (to) p.append('date_to', to);
-    return `${API_URL}/partners/distribution/?${p.toString()}`;
-  }, [from, to]);
 
   const printDistribution = () => {
     if (!distribution) return;
@@ -409,21 +393,21 @@ export default function PartnersPage() {
           </div>
           <div className="flex items-center gap-2">
             {tab === 'operations' && (
-              <a href={operationsExportUrl} target="_blank" rel="noreferrer">
-                <Button variant="secondary" type="button">
-                  <Download size={16} />
-                  تصدير العمليات
-                </Button>
-              </a>
+              <ExportButton
+                path="/partner-operations/"
+                params={{ date_from: from, date_to: to }}
+                filename="عمليات الشركاء.xlsx"
+                label="تصدير العمليات"
+              />
             )}
             {tab === 'distribution' && (
               <>
-                <a href={distributionExportUrl} target="_blank" rel="noreferrer">
-                  <Button variant="secondary" type="button">
-                    <Download size={16} />
-                    تصدير التوزيع
-                  </Button>
-                </a>
+                <ExportButton
+                  path="/partners/distribution/"
+                  params={{ date_from: from, date_to: to }}
+                  filename="توزيع الأرباح.xlsx"
+                  label="تصدير التوزيع"
+                />
                 <Button variant="secondary" type="button" onClick={printDistribution}>
                   <Printer size={16} />
                   طباعة / PDF

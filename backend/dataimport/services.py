@@ -299,6 +299,7 @@ def build_template(entity_key):
         cell.fill = REQUIRED_FILL if field_spec.required else HEADER_FILL
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         sheet.column_dimensions[get_column_letter(column)].width = max(14, len(field_spec.label) + 4)
+    sheet.row_dimensions[1].height = 26
 
     example = []
     for field_spec in spec.fields:
@@ -307,10 +308,21 @@ def build_template(entity_key):
         cell = sheet.cell(row=2, column=column, value=value)
         cell.font = Font(italic=True, color="6B7280")
 
+    # القالب يُملأ لا يُقرأ: تجميد الرأس يبقى أسماء الأعمدة أمام العين
+    # عند التمرير في ملفٍ فيه مئة صفّ، والفلتر يتيح النظر في عمودٍ واحد.
+    # الورقة تُقرأ من اليمين كبقية مصدّرات المشروع.
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(spec.fields))}1"
+    sheet.sheet_view.rightToLeft = True
+    sheet.page_setup.orientation = "landscape"
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.fitToWidth = 1
+
     # التعليمات في ورقة منفصلة: لو كُتبت في ورقة البيانات لقرأها المحرّك
     # كصفوف استيراد وأفسدت الملف.
     notes_sheet = workbook.create_sheet("تعليمات")
     notes_sheet.column_dimensions["A"].width = 90
+    notes_sheet.sheet_view.rightToLeft = True
     title = notes_sheet.cell(row=1, column=1, value=f"قالب استيراد {spec.plural}")
     title.font = Font(bold=True, size=14)
     row = 3

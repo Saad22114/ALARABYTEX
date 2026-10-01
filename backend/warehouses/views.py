@@ -4,7 +4,7 @@ from django.db import transaction
 from django.db.models import Count, F, Max, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from suppliers.models import Fabric
 from core.admin_secret import require_admin_password
 from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
+from reports.cogs import fabric_average_costs
 
 from .models import (
     DocumentSequence,
@@ -20,6 +21,7 @@ from .models import (
     StockAdjustment,
     StockAdjustmentItem,
     StockCount,
+    StockCountItem,
     StockMovement,
     StockOpening,
     StockTransfer,
@@ -32,6 +34,7 @@ from .serializers import (
     StockAdjustmentSerializer,
     StockAdjustmentWriteSerializer,
     StockCountItemWriteSerializer,
+    StockCountListSerializer,
     StockCountSerializer,
     StockCountWriteSerializer,
     StockMovementSerializer,
@@ -42,13 +45,50 @@ from .serializers import (
     WarehouseSerializer,
 )
 from .services import (
+    add_count_line,
     apply_adjustment,
     build_count_snapshot,
     complete_transfer,
     post_count,
     post_opening,
     post_receipt,
+    public_summary,
+    remove_count_line,
 )
+
+
+def _message(exc):
+    """نصّ خطأ واحد يُعرض في سطر، لا كائن JSON داخل حقل detail.
+
+    خطأ التحقّق قد يكون قائمةً أو قاموساً؛ والواجهة تعرض ``detail`` نصّاً،
+    فترى المستخدم ``["نص"]`` و``{"x": "نص"}`` بدل الجملة. نجمله هنا.
+    """
+    detail = getattr(exc, "detail", str(exc))
+    if isinstance(detail, dict):
+        detail = "; ".join(str(v) for v in detail.values())
+    elif isinstance(detail, (list, tuple)):
+        detail = "; ".join(str(v) for v in detail)
+    return str(detail)
+
+
+def _count_subtitle(count, summary):
+    """سطر يوضيحي في ملف الجرد: من عدّ، وأين، ومتى، وكم بقي."""
+    counter = count.counted_by.name if count.counted_by else "غير محدّد"
+    parts = [
+        f"المخزن: {count.warehouse.name}",
+        f"التاريخ: {count.date}",
+        f"العدّاد: {counter}",
+        "جرد مغلق" if count.blind else "جرد مفتوح",
+        f"مُرصد {summary['counted']} من {summary['items']}",
+    ]
+    if summary["pending"]:
+        parts.append(f"بقي {summary['pending']}")
+    if summary["variances"]:
+        parts.append(
+            f"فروق: {summary['variances']} صنف / "
+            f"{summary['net_yards']:.2f} ياردة / {summary['value']:.2f} قيمة"
+        )
+    return "  |  ".join(parts)
 
 
 class WarehouseViewSet(viewsets.ModelViewSet):
@@ -307,8 +347,8 @@ class StockAdjustmentViewSet(viewsets.ModelViewSet):
 
 class StockCountViewSet(viewsets.ModelViewSet):
     permission_section = "warehouses"
-    queryset = StockCount.objects.select_related("warehouse").prefetch_related("items__fabric")
-    search_fields = ["number", "warehouse__name"]
+    queryset = StockCount.objects.select_related("warehouse", "counted_by")
+    search_fields = ["number", "warehouse__name", "counted_by__name"]
     ordering_fields = ["date", "number", "created_at"]
 
     def get_queryset(self):
@@ -319,6 +359,11 @@ class StockCountViewSet(viewsets.ModelViewSet):
             return StockCountWriteSerializer
         if self.action == "items":
             return StockCountItemWriteSerializer
+        # القائمة لا تحتاج أصناف كل جلسة: الملخّص وحده يجيب «كم رُصد وكم
+        # فروق». تحميلُ صنفٍ لكل سطرٍ في القائمة كان
+        # الصفوف لعرض خمسة أعمدة.
+        if self.action == "list":
+            return StockCountListSerializer
         return StockCountSerializer
 
     def create(self, request, *args, **kwargs):
@@ -339,6 +384,36 @@ class StockCountViewSet(viewsets.ModelViewSet):
         return Response(StockCountSerializer(count).data["items"])
 
     @action(detail=True, methods=["post"])
+    def add_fabric(self, request, pk=None):
+        """يضيف قماشاً وُجد على الرفّ وليس له سطرٌ في الجرد.
+
+        هذا هو الشقّ الذي كان مفقوداً: الجرد محصورٌ فيما رصيده الدفتري
+        موجب، فيستحيل عليه أن يُبلّغ عن قماشٍ وُجد بلا دفتر — وهو أشيع
+        الفروق في المخازن وأخطرها على الكمية.
+        """
+        count = self.get_object()
+        fabric = get_object_or_404(Fabric, pk=request.data.get("fabric"))
+        try:
+            add_count_line(count, fabric)
+        except serializers.ValidationError as exc:
+            return Response(
+                {"detail": _message(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(StockCountSerializer(count).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="items/(?P<item_id>[0-9]+)/remove")
+    def remove_item(self, request, pk=None, item_id=None):
+        count = self.get_object()
+        item = get_object_or_404(StockCountItem, pk=item_id, count=count)
+        try:
+            remove_count_line(count, item)
+        except serializers.ValidationError as exc:
+            return Response(
+                {"detail": _message(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(StockCountSerializer(count).data)
+
+    @action(detail=True, methods=["post"])
     def snapshot(self, request, pk=None):
         count = self.get_object()
         build_count_snapshot(count)
@@ -347,7 +422,12 @@ class StockCountViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def post(self, request, pk=None):
         count = self.get_object()
-        post_count(count)
+        try:
+            post_count(count)
+        except serializers.ValidationError as exc:
+            return Response(
+                {"detail": _message(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(StockCountSerializer(count).data)
 
     @action(detail=True, methods=["post"])
@@ -359,6 +439,83 @@ class StockCountViewSet(viewsets.ModelViewSet):
         count.status = StockCount.Status.CANCELLED
         count.save(update_fields=["status"])
         return Response(StockCountSerializer(count).data)
+
+    @action(detail=True, methods=["get"])
+    def export(self, request, pk=None):
+        """كشف الجرد إلى Excel: ورقةُ رصدٍ تُملأ بيد، وورقةُ فروقٍ تُقرأ بالعين.
+
+        في الجرد المغلق تُخفي ورقةُ الرصدُ الرصيد الدفتري، وإلا صار الملف
+        المطبوع ورقةَ مطابقةٍ لا ورقةَ جرد. أمّا ورقةُ الفروق فتعنى فقط ما بعد
+        النشر — لا معنى لفروقٍ لا يحتاج مشاهدة بعدها.
+        """
+        count = self.get_object()
+        hide = count.hides_system_balance
+        # نفس قاعدة الشاشة: الملخّص لا يفصح عن الفروق ما دامت الجلسة مغلقة.
+        summary = public_summary(count)
+        costs = fabric_average_costs(
+            list(count.items.values_list("fabric_id", flat=True).distinct())
+        )
+        rows = []
+        for item in count.items.select_related("fabric").all():
+            rows.append([
+                item.fabric.name,
+                item.fabric.code or "",
+                None if hide else float(item.system_yards),
+                float(item.counted_yards) if item.counted_yards is not None else None,
+                None if hide else float(item.difference),
+                "مطابق" if (item.counted_yards is not None and not item.is_variance)
+                else ("فروق" if item.counted_yards is not None else "لم يُرصد"),
+                float(costs.get(item.fabric_id) or 0),
+                item.note or "",
+            ])
+        counted_rows = [
+            r for r in rows if r[3] is not None
+        ]
+        if counted_rows and not hide:
+            rows.append([
+                "الإجمالي", "",
+                round(sum(r[2] or 0 for r in counted_rows), 2),
+                round(sum(r[3] or 0 for r in counted_rows), 2),
+                round(sum(r[4] or 0 for r in counted_rows), 2),
+                f"{summary['variances']} صنف عليه فرق", "", "",
+            ])
+        columns = [
+            {"label": "القماش", "type": "text"},
+            {"label": "الكود", "type": "text"},
+            {"label": "الرصيد الدفتري", "type": "money"},
+            {"label": "الرصيد المرصود", "type": "money"},
+            {"label": "الفرق", "type": "money"},
+            {"label": "الحالة", "type": "text"},
+            {"label": "متوسط التكلفة", "type": "money"},
+            {"label": "سبب الفرق", "type": "text"},
+        ]
+        from core import excel
+
+        sheets = [{
+            "title": "جرد",
+            "heading": f"جلسة جرد {count.number}",
+            "subtitle": _count_subtitle(count, summary),
+            "columns": columns,
+            "rows": rows,
+        }]
+        variance_rows = [r for r in rows if r[5] == "فروق"]
+        # ورقةُ فروقٍ فارغةٌ لا تقرأ شيئاً: إمّا فيها فروقٌ تستحق الصفحة،
+        # وإمّا فالمطابقةُ كلُّها فلا داعيَ لورقةٍ ثانية.
+        if variance_rows and count.status != StockCount.Status.OPEN:
+            sheets.append({
+                "title": "فروق",
+                "heading": f"فروق جرد {count.number}",
+                "subtitle": _count_subtitle(count, summary),
+                "columns": columns,
+                "rows": variance_rows,
+            })
+        workbook = excel.build_workbook(sheets)
+        if workbook is None:
+            return Response(
+                {"detail": "مكتبة openpyxl غير مثبّتة على الخادم."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return excel.xlsx_response(workbook, f"جرد-{count.number}", ascii_name="stock-count")
 
 
 class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
@@ -520,7 +677,22 @@ class StockBalanceView(APIView):
                 ]
                 for e in result
             ]
-            wb = _export_generic_to_xlsx("المخزون الموحد", headers, rows_x)
+            rows_x.append([
+                "الإجمالي", "",
+                round(sum(float(e["min_stock"]) for e in result), 2),
+                round(sum(float(e["total_yards"]) for e in result), 2),
+                sum(e["rolls_available"] for e in result),
+                sum(e["near_depletion_rolls"] for e in result),
+                "",
+            ])
+            wb = _export_generic_to_xlsx(
+                "المخزون الموحد", headers, rows_x,
+                types=["text", "text", "number", "number", "number", "number", "text"],
+                subtitle=(
+                    f"عدد الأقمشة: {len(result)}"
+                    f"  |  منخفض: {sum(1 for e in result if e['low_stock'])}"
+                ),
+            )
             if wb is None:
                 return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=500)
             return _xlsx_response(wb, "المخزون_الموحد")

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import ExportButton from '@/components/ui/ExportButton';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import Badge from '@/components/ui/Badge';
@@ -18,12 +19,11 @@ import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import StatCard from '@/components/ui/StatCard';
 import {
-  ArrowRight, Download, TrendingUp, TrendingDown, Scale, Wallet,
+  ArrowRight, TrendingUp, TrendingDown, Scale, Wallet,
   Plus, Percent, Users, Sparkles, FileText, Pencil, Trash2,
 } from 'lucide-react';
 import { PartnerMovementsResult, PartnerMovementRecord, PartnerDistributionResult, PartnerOperationType, PartnerPaymentMethod } from '@/types';
 import { getPartnerMovements, getPartnerDistribution, createPartnerOperation, updatePartnerOperation, deletePartnerOperation } from '@/services/partners';
-import { API_URL } from '@/services/api';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 
@@ -107,16 +107,6 @@ export default function PartnerDetailPage() {
   }, [tab, id, fetchDistribution]);
 
   const currentItem = distribution?.items.find((it) => it.id === id) || null;
-
-  const buildExportUrl = () => {
-    const p = new URLSearchParams();
-    if (dateFrom) p.append('date_from', dateFrom);
-    if (dateTo) p.append('date_to', dateTo);
-    p.append('export', 'xlsx');
-    return `${API_URL}/partners/${id}/movements/?${p.toString()}`;
-  };
-
-  const distributionExportUrl = `${API_URL}/partners/distribution/?export=xlsx`;
 
   const isCurrent = (otherId: number) => otherId === id;
 
@@ -225,15 +215,20 @@ export default function PartnerDetailPage() {
               تسجيل عملية
             </Button>
             {tab === 'statement' ? (
-              <a href={buildExportUrl()} className="inline-flex items-center gap-2 rounded-xl bg-surface px-5 py-2.5 text-sm font-medium text-neutral-700 border border-sand-300 hover:bg-sand-50 transition-all">
-                <Download size={16} />
-                تصدير الكشف (Excel)
-              </a>
+              <ExportButton
+                path={`/partners/${id}/movements/`}
+                params={{ date_from: dateFrom, date_to: dateTo }}
+                filename={`كشف_${data?.partner.name || 'شريك'}.xlsx`}
+                label="تصدير الكشف (Excel)"
+                size="md"
+              />
             ) : (
-              <a href={distributionExportUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-surface px-5 py-2.5 text-sm font-medium text-neutral-700 border border-sand-300 hover:bg-sand-50 transition-all">
-                <Download size={16} />
-                تصدير التوزيع (Excel)
-              </a>
+              <ExportButton
+                path="/partners/distribution/"
+                filename="توزيع الأرباح.xlsx"
+                label="تصدير التوزيع (Excel)"
+                size="md"
+              />
             )}
           </div>
         </div>

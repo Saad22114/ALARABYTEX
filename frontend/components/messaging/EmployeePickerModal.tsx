@@ -5,6 +5,7 @@ import Modal from '@/components/ui/Modal';
 import Avatar from '@/components/ui/Avatar';
 import { Search } from 'lucide-react';
 import { getMessageContacts } from '@/services/messages';
+import { formatLastSeen } from '@/lib/format';
 import { MessagingContact } from '@/types';
 
 interface Props {
@@ -79,9 +80,23 @@ export default function EmployeePickerModal({ open, title, description, onClose,
                 onClick={() => onSelect(e)}
                 className="w-full text-right px-4 py-2.5 flex items-center gap-3 hover:bg-sand-50 transition-colors"
               >
-                <Avatar name={e.name} avatar={e.avatar} avatarImage={e.avatar_image} size="md" />
+                <span className="relative inline-flex shrink-0">
+                  <Avatar name={e.name} avatar={e.avatar} avatarImage={e.avatar_image} size="md" />
+                  {e.is_online && (
+                    <span className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-surface" title="متصل الآن" />
+                  )}
+                </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{e.name}</p>
+                  {/* آخر ظهور تحت الاسم: من يُراسل وهو غائب منذ يومين يحتاج
+                      أن يعرف ذلك قبل أن يكتب رسالته، لا بعد يومين. */}
+                  {e.is_online ? (
+                    <p className="text-[11px] text-emerald-600 truncate">متصل الآن</p>
+                  ) : (
+                    <p className="text-[11px] text-neutral-400 truncate" title={formatLastSeen(e.last_seen_at)}>
+                      {formatLastSeen(e.last_seen_at)}
+                    </p>
+                  )}
                   {e.branch_name && <p className="text-xs text-neutral-400 truncate">{e.branch_name}</p>}
                 </div>
               </button>

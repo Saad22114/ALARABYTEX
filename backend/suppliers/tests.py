@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+from django.db.models import Sum
 from django.test import TestCase
 from rest_framework.test import APIClient
 from core.testsupport import authenticate_admin
@@ -319,7 +320,7 @@ class SupplierLedgerAPITest(TestCase):
         self._ledger({"entry_type": "opening", "date": self.today, "amount": 100})
         r = self._ledger({
             "entry_type": "payment", "date": self.today,
-            "amount": 40, "payment_method": "cash",
+            "amount": 40, "payment_method": "cash", "settlement_account": "none",
         })
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.data["amount"], "-40.00")
@@ -327,6 +328,157 @@ class SupplierLedgerAPITest(TestCase):
     def test_payment_requires_method(self):
         r = self._ledger({"entry_type": "payment", "date": self.today, "amount": 40})
         self.assertEqual(r.status_code, 400)
+
+    # ------------------------------------------------------------------
+    # الحساب الذي خُصمت منه الدفعة — إلزاميّ ويُسجَّل في قسمه
+    # ------------------------------------------------------------------
+    def test_payment_requires_a_settlement_account(self):
+        """الطلب: خيار إجباري — من أي حساب خُصمت الدفعة.
+
+        وبلا إجابة لا يُعرف أي حسابَي تسوية يُنقص، فيبقى رصيد الحساب يخالف
+        دفتر المورد. فالحقل إلزامي عند الدفع، لا اختياري يُملأ لاحقاً.
+        """
+        r = self._ledger({
+            "entry_type": "payment", "date": self.today,
+            "amount": 40, "payment_method": "cash",
+        })
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(
+            LedgerEntry.objects.filter(entry_type="payment").count(),
+            0,
+            "قيد دفع حُفظ بلا حساب خصم: الخادم تركه يمرّ",
+        )
+
+    def test_payment_drawn_from_the_machine_account_reduces_its_balance(self):
+        """«يُسجَّل في القسم الذي خُصم منه» تعني: حركة في ذاك القسم.
+
+        بلا حركة ``MachineCollection`` يبقى اختيارُ «حساب الماكينة» تسمية
+        تُحفظ في دفتر المورد فقط، فيرى المستخدم أنه اختار حساباً ولم يتغيّر
+        فيه شيء.
+        """
+        from machine_account.models import MachineCollection
+
+        r = self._ledger({
+            "entry_type": "payment", "date": self.today,
+            "amount": 40, "payment_method": "cash",
+            "settlement_account": "machine",
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["settlement_account"], "machine")
+        self.assertEqual(r.data["settlement_account_label"], "حساب الماكينة")
+
+        entry = LedgerEntry.objects.get(pk=r.data["id"])
+        self.assertEqual(entry.amount, -40)
+        collection = entry.settlement_movement
+        self.assertIsNotNone(
+            collection, "لا حركة تسوية: الدفعة لا تظهر في قسم الماكينة"
+        )
+        self.assertEqual(collection.account, "machine")
+        # بقيمة موجبة: حركة **واردة** من شركة البطاقة فتنقص رصيدها. لو
+        # سُجّلت بالسالب — كما هي في دفتر المورد — لكان الرصيد قد زاد.
+        self.assertEqual(collection.amount, 40)
+
+    def test_payment_drawn_from_the_bank_account_reduces_its_balance(self):
+        r = self._ledger({
+            "entry_type": "payment", "date": self.today,
+            "amount": 60, "payment_method": "bank_transfer",
+            "settlement_account": "bank", "bank_reference": "TR77",
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        entry = LedgerEntry.objects.get(pk=r.data["id"])
+        self.assertEqual(entry.settlement_movement.account, "bank")
+        self.assertEqual(entry.settlement_movement.amount, 60)
+
+    def test_payment_from_neither_account_touches_no_settlement_account(self):
+        """الخيار الثالث موجود تحديداً لأن حسابَي التسوية قد لا يكونان مصدراً
+        للمال في يوم معيّن — والخزنة هي. فلو أنشأنا له حركة تسوية صار قسم
+        التسوية يعرض حركة لم تحدث.
+        """
+        from machine_account.models import MachineCollection
+
+        before = MachineCollection.objects.count()
+        r = self._ledger({
+            "entry_type": "payment", "date": self.today,
+            "amount": 25, "payment_method": "cash",
+            "settlement_account": "none",
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(
+            r.data["settlement_account_label"], "لا يخصم من الماكينة ولا البنك"
+        )
+        self.assertEqual(
+            MachineCollection.objects.count(),
+            before,
+            "دفعة من الخزنة أنشأت حركة في حساب تسوية: رصيده لم يُخصم منه شيء",
+        )
+        entry = LedgerEntry.objects.get(pk=r.data["id"])
+        self.assertFalse(
+            MachineCollection.objects.filter(supplier_payment=entry).exists(),
+            "دفعة بلا خصم أنشأت حركة تسوية: رصيد الحساب لم يُخصم منه شيء",
+        )
+
+    def test_machine_payment_is_posted_to_the_machine_receivable_account(self):
+        """القيد المحاسبي يتبع الحساب المختار لا طريقة الدفع.
+
+        دفعة بنكية مع «حساب الماكينة» كان ترحيلها يقيد الخزنة أو البنك
+        بحسب الطريقة — وهذا بالضبط ما يطلب المستخدم تغييره.
+        """
+        from accounting.models import JournalLine
+
+        self._ledger({"entry_type": "opening", "date": self.today, "amount": 500})
+        self._ledger({
+            "entry_type": "payment", "date": self.today,
+            "amount": 100, "payment_method": "bank_transfer",
+            "settlement_account": "machine", "bank_reference": "TR9",
+        })
+        machine = JournalLine.objects.filter(
+            account__source_key="MACHINE_RECEIVABLE"
+        ).aggregate(t=Sum("credit"))["t"] or Decimal("0")
+        self.assertEqual(
+            machine,
+            Decimal("100"),
+            "قيد الدفع لم يُقيَّد على حساب الماكينة: الدفتر يخالف الاختيار",
+        )
+
+    def test_deleting_a_payment_removes_its_settlement_movement(self):
+        from machine_account.models import MachineCollection
+
+        r = self._ledger({
+            "entry_type": "payment", "date": self.today,
+            "amount": 40, "payment_method": "cash",
+            "settlement_account": "machine",
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(MachineCollection.objects.count(), 1)
+
+        d = self.c.delete(f"/api/suppliers/{self.supplier.id}/ledger/{r.data['id']}/")
+        self.assertEqual(d.status_code, 200)
+        self.assertEqual(
+            MachineCollection.objects.count(),
+            0,
+            "حركة تسوية بقيت بعد حذف دفعتها: قسم التسوية يعرض ما ليس في الدفتر",
+        )
+
+    def test_immediate_purchase_payment_needs_a_settlement_account(self):
+        r = self._ledger({
+            "entry_type": "purchase", "date": self.today,
+            "payment_amount": 40, "payment_method": "cash",
+            "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
+        })
+        self.assertEqual(r.status_code, 400)
+
+    def test_immediate_purchase_payment_records_the_settlement_account(self):
+        r = self._ledger({
+            "entry_type": "purchase", "date": self.today,
+            "payment_amount": 40, "payment_method": "cash",
+            "settlement_account": "bank",
+            "receipt_no": "INV-S1",
+            "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
+        })
+        self.assertEqual(r.status_code, 201, r.data)
+        payment = LedgerEntry.objects.get(entry_type="payment")
+        self.assertEqual(payment.settlement_account, "bank")
+        self.assertEqual(payment.settlement_movement.account, "bank")
 
     def test_return_is_negative(self):
         self._ledger({"entry_type": "opening", "date": self.today, "amount": 100})
@@ -340,6 +492,7 @@ class SupplierLedgerAPITest(TestCase):
             "date": self.today,
             "payment_amount": 40,
             "payment_method": "cash",
+            "settlement_account": "none",
             "receipt_no": "INV-77",
             "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
         })
@@ -355,7 +508,7 @@ class SupplierLedgerAPITest(TestCase):
         self._ledger({"entry_type": "opening", "date": self.today, "amount": 100})
         self._ledger({
             "entry_type": "payment", "date": self.today,
-            "amount": 40, "payment_method": "cash",
+            "amount": 40, "payment_method": "cash", "settlement_account": "none",
         })
         r = self.c.get(f"/api/suppliers/{self.supplier.id}/ledger/")
         balances = [e["running_balance"] for e in r.data["results"]]
@@ -370,7 +523,8 @@ class SupplierLedgerAPITest(TestCase):
         })
         self._ledger({
             "entry_type": "payment", "date": self.today,
-            "amount": 50, "payment_method": "bank_transfer", "bank_reference": "TR123",
+            "amount": 50, "payment_method": "bank_transfer",
+            "settlement_account": "none", "bank_reference": "TR123",
         })
         self._ledger({"entry_type": "return", "date": self.today, "amount": 30})
         r = self.c.get(f"/api/suppliers/{self.supplier.id}/summary/")
@@ -387,7 +541,8 @@ class SupplierLedgerAPITest(TestCase):
     def test_cash_payment_receiver_name(self):
         r = self._ledger({
             "entry_type": "payment", "date": self.today,
-            "amount": 50, "payment_method": "cash", "receiver_name": "خالد",
+            "amount": 50, "payment_method": "cash", "settlement_account": "none",
+            "receiver_name": "خالد",
         })
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.data["receiver_name"], "خالد")
@@ -402,6 +557,7 @@ class SupplierLedgerAPITest(TestCase):
             "date": self.today,
             "payment_amount": 30,
             "payment_method": "cash",
+            "settlement_account": "none",
             "receiver_name": "أحمد",
             "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
         })
@@ -432,6 +588,7 @@ class SupplierLedgerAPITest(TestCase):
             "date": self.today,
             "payment_amount": 40,
             "payment_method": "cash",
+            "settlement_account": "none",
             "receipt_no": "INV-DEL",
             "items": [{"fabric": self.f1.id, "quantity_yards": 10, "unit_price": 5}],
         })
@@ -492,7 +649,7 @@ class SupplierLedgerAPITest(TestCase):
         self._ledger({"entry_type": "opening", "date": self.today, "amount": 100})
         self._ledger({
             "entry_type": "payment", "date": self.today,
-            "amount": 40, "payment_method": "cash",
+            "amount": 40, "payment_method": "cash", "settlement_account": "none",
         })
         r = self.c.get("/api/suppliers/")
         sup = next(s for s in r.data["results"] if s["id"] == self.supplier.id)
@@ -686,7 +843,7 @@ class SupplierLedgerAPITest(TestCase):
         })
         self._ledger({
             "entry_type": "payment", "date": self.today,
-            "amount": 20, "payment_method": "cash",
+            "amount": 20, "payment_method": "cash", "settlement_account": "none",
         })
         LedgerEntry.objects.create(
             supplier=s2, date=date.today(), entry_type="opening", amount=50,

@@ -1,14 +1,29 @@
+from datetime import datetime, timedelta
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from branches.models import Branch
+from core.authentication import PresenceTokenAuthentication
 from sale_sessions.models import Employee
 
 from .models import Message
 
 User = get_user_model()
+
+
+def _as_datetime(value):
+    """يردّ DRF الوقت كـ ``datetime``؛ لكن لو غُيّر المُسلسِل يوماً لصار نصاً.
+
+    فنقبل الاثنين، فالغرض من الاختبار أن الحقل **يحمل الوقت نفسه** لا أن
+    يحمل نوعاً بعينه.
+    """
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
 
 
 class MessagingSetup(TestCase):
@@ -96,6 +111,88 @@ class ConversationListTests(MessagingSetup):
         res = self.client.get("/api/messaging/conversations/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data["me"]["id"], self.me.pk)
+
+
+class LastSeenTests(MessagingSetup):
+    """«اكتب آخر ظهور الوقت، وإذا أكثر من يوم اكتب اليوم والتاريخ تحت كل اسم»."""
+
+    def _row(self, res, name):
+        return next(c["employee"] for c in res.data["conversations"] if c["employee"]["name"] == name)
+
+    def test_conversations_carry_each_persons_last_seen(self):
+        """بلا هذا الحقل لا يستطيع الواجهة أن تكتب وقت آخر ظهور أصلاً.
+
+        فوجود ``last_seen_at`` في ردّ المحادثات شرط لعرضه، لا تحسين.
+        """
+        self.partner.last_seen_at = timezone.now() - timedelta(hours=3)
+        self.partner.save(update_fields=["last_seen_at"])
+
+        res = self.client.get(f"/api/messaging/conversations/?employee={self.me.pk}")
+        row = self._row(res, "محمد")
+        self.assertIn("last_seen_at", row)
+        self.assertIsNotNone(row["last_seen_at"])
+        # يُرسل الوقت **خاماً** لاصياغته: «أمس» و«الأحد 27 سبتمبر» تُحسم
+        # بتاريخ جهاز القارئ، فإرسالها جاهزة من الخادم تُجمّدها بلغة لحظة
+        # الإرسال وتُخطئ إن رُحل بين الإرسال والعرض.
+        self.assertEqual(
+            _as_datetime(row["last_seen_at"]).timestamp(),
+            self.partner.last_seen_at.timestamp(),
+        )
+
+    def test_a_person_who_never_signed_in_is_null_not_missing(self):
+        """موظف لم يدخل قط: ``null`` لا مفتاح غائب ولا وقت مُختلق."""
+        res = self.client.get(f"/api/messaging/conversations/?employee={self.me.pk}")
+        row = self._row(res, "خالد")
+        self.assertIn("last_seen_at", row)
+        self.assertIsNone(row["last_seen_at"])
+        self.assertFalse(row["is_online"])
+
+    def test_thread_header_carries_last_seen_too(self):
+        """الشاشة تعرض السطر تحت الاسم في رأس المحادثة أيضاً، لا في القائمة
+        وحدها — فأكثر المواضع التي يُراسل منها الموظف."""
+        self.partner.last_seen_at = timezone.now() - timedelta(days=4)
+        self.partner.save(update_fields=["last_seen_at"])
+
+        res = self.client.get(
+            f"/api/messaging/messages/?employee={self.me.pk}&partner={self.partner.pk}"
+        )
+        self.assertIsNotNone(res.data["with_employee"]["last_seen_at"])
+
+    def test_contacts_list_carries_last_seen(self):
+        """نافذة «رسالة جديدة» تعرض الأسماء من القائمة نفسها، فبالحقل نفسه
+        تتماسك مع ما يراه الموظف في القائمة الرئيسية."""
+        res = self.client.get(f"/api/messaging/contacts/?employee={self.me.pk}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        by_id = {e["id"]: e for e in res.data["employees"]}
+        self.assertIn("last_seen_at", by_id[self.silent.pk])
+        self.assertIsNone(by_id[self.silent.pk]["last_seen_at"])
+
+    def test_last_seen_is_written_when_a_request_authenticates(self):
+        """مصدر الحقل حقيقي: المصادقة هي ما يكتبه، لا تعبئة يدوية.
+
+        و``force_authenticate`` في الاختبارات يتجاوز طبقة المصادقة، فنستدعي
+        ما تستدعيه هي — وإلا اختلف الاختبار عن_screen_paths ما يفعله.
+        """
+        Employee.objects.filter(pk=self.partner.pk).update(last_seen_at=None)
+        before = timezone.now()
+        PresenceTokenAuthentication._touch(self.partner_user)
+        self.partner.refresh_from_db()
+        self.assertIsNotNone(
+            self.partner.last_seen_at,
+            "المصادقة لم تكتب آخر ظهور: الحقل يبقى فارغاً للجميع",
+        )
+        self.assertGreaterEqual(self.partner.last_seen_at, before)
+
+    def test_a_stale_last_seen_marks_the_person_offline(self):
+        """آخر ظهور قديم مع ``is_online`` صادق: وإلا ظهر الغائب متصلاً ما دام
+        الشاشة مفتوحة، وآخر ظهور مكتوب تحت الاسم يكذّبه."""
+        Employee.objects.filter(pk=self.partner.pk).update(
+            last_seen_at=timezone.now() - timedelta(days=30)
+        )
+        res = self.client.get(f"/api/messaging/conversations/?employee={self.me.pk}")
+        row = self._row(res, "محمد")
+        self.assertFalse(row["is_online"])
+        self.assertIsNotNone(row["last_seen_at"])
 
 
 class MessageThreadTests(MessagingSetup):

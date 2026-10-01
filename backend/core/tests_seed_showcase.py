@@ -22,6 +22,7 @@ from branches.models import Branch
 from core.testsupport import authenticate_admin
 from customers.models import Customer
 from expenses.models import Expense
+from machine_account.models import MachineCollection
 from partners.models import Partner, PartnerOperation
 from payroll.models import (
     AdvanceInstallment,
@@ -56,6 +57,10 @@ def add_months(value: date, months: int) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
+def month_last_day(value: date) -> date:
+    return add_months(value, 1) - timedelta(days=1)
+
+
 class SeedShowcaseBase(TestCase):
     """يشغّل الأمر مرّة واحدة لكل اختبار (وهي الحالة الوحيدة المهمة هنا)."""
 
@@ -79,8 +84,20 @@ class SeedShowcaseBase(TestCase):
         )
 
     def setUp(self):
-        self.c = APIClient()
-        authenticate_admin(self.c)
+        self._client = None
+
+    @property
+    def c(self) -> APIClient:
+        """عميل بمدير، يُبنى عند أول طلب فقط.
+
+        ``authenticate_admin`` ينشئ فرعاً معطّلاً، فلو بُني في ``setUp`` لأضاف
+        فرعاً بعد تشغيل الأمر، فاشترط الاختبارات التي تعيد تشغيله أن تعيده على
+        الحالة نفسها — وإلا اختلفت الأرقام لسبب لا علاقة له بالبذرة.
+        """
+        if self._client is None:
+            self._client = APIClient()
+            authenticate_admin(self._client)
+        return self._client
 
 
 class SeedPreservesWhatItPromises(SeedShowcaseBase):
@@ -117,6 +134,24 @@ class SeedPreservesWhatItPromises(SeedShowcaseBase):
             self.assertIsNotNone(
                 Warehouse.for_branch(branch), f"الفرع {branch.code} بلا مخزن"
             )
+
+    def test_gives_a_deactivated_branch_no_business(self):
+        """فرع أوقفه صاحب النظام لا مبيعات له ولا مصاريف ولا مخزن.
+
+        توليد بيانات لفرع مُعطَّل يجعل تقرير أداء الفروع يُظهر صفاً لفرع مغلق،
+        وهو رقم يستدعي سؤالاً لا جواب له في البيانات.
+        """
+        dormant = Branch.objects.create(
+            name="فرع متوقف", code="DORMANT", is_active=False
+        )
+        call_command(
+            "seed_showcase", months=1, verbosity=0, random_seed=self.seed
+        )
+
+        self.assertTrue(Branch.objects.filter(pk=dormant.pk).exists(), "مسح الفرع")
+        self.assertEqual(DailySale.objects.filter(branch=dormant).count(), 0)
+        self.assertEqual(Expense.objects.filter(branch=dormant).count(), 0)
+        self.assertEqual(SaleSession.objects.filter(branch=dormant).count(), 0)
 
     def test_is_deterministic_for_a_fixed_seed(self):
         """نفس البذرة على قاعدة نظيفة تعطي نفس الأرقام.
@@ -207,6 +242,76 @@ class SeedPopulatesEveryScreen(SeedShowcaseBase):
         )
         self.assertTrue(StockOpening.objects.exists(), "لا رصيد افتتاحي للمخزن الرئيسي")
         self.assertTrue(StockTransfer.objects.exists(), "لا تحويل بين المخزن والفرع")
+
+    def test_settlement_accounts_get_collections_and_supplier_draws(self):
+        """حسابا التسوية لا يُفتحان إلا ببيانات تُظهر الأمر كلّه.
+
+        الطلب: من أي حساب خُصمت دفعة المورد. وهذا يُختبر من الجهتين:
+        دفعة واردة تُنقص رصيد حساب الماكينة أو البنك، ودفعة مورد تخرج من
+        أحدهما فيظهر المورد في **قسم** ذلك الحساب. والرصيد السالب خطأ
+        مولِّد لا خطأ برنامج، ومع ذلك يُمنع.
+        """
+        self.assertGreaterEqual(
+            MachineCollection.objects.count(),
+            4,
+            "لا دفعات تسوية واردة: شاشة حسابات التسوية تعرض مبيعات بلا وصول",
+        )
+        for account in ("machine", "bank"):
+            self.assertTrue(
+                MachineCollection.objects.filter(account=account).exists(),
+                f"لا دفعة واردة على حساب {account}",
+            )
+
+        payments = LedgerEntry.objects.filter(
+            entry_type=LedgerEntry.EntryType.PAYMENT
+        )
+        self.assertEqual(
+            payments.filter(settlement_account="").count(),
+            0,
+            "دفعة بلا حساب خُصم منه: قيد يمرّ على الخادم بلا إجابة إلزامية",
+        )
+        drawn = payments.filter(
+            settlement_account__in=LedgerEntry.SETTLEMENT_CHOICES
+        )
+        self.assertTrue(drawn.exists(), "لا دفعة مورد خُصمت من حساب تسوية")
+        # كل دفعة خُصمت من حساب يجب أن تكون مرئية في قسم ذلك الحساب.
+        for payment in drawn.select_related("settlement_movement"):
+            self.assertIsNotNone(
+                payment.settlement_movement,
+                f"دفعة {payment.pk} بلا حركة تسوية: لا تظهر في القسم الذي خُصمت منها",
+            )
+            self.assertEqual(
+                payment.settlement_movement.account, payment.settlement_account
+            )
+            # الحركة بقيمة موجبة: واردة من شركة البطاقة فتنقص رصيدها. لو
+            # سُجّلت بالسالب — كما هي في دفتر المورد — لكان الرصيد قد زاد.
+            self.assertEqual(
+                payment.settlement_movement.amount, abs(payment.amount)
+            )
+
+        branches = list(Branch.objects.filter(is_active=True))
+        for account in ("machine", "bank"):
+            field = "card_amount" if account == "machine" else "transfer_amount"
+            sales = DailySale.objects.filter(branch__in=branches).aggregate(
+                t=Sum(field)
+            )["t"] or Decimal("0")
+            received = MachineCollection.objects.filter(
+                account=account, branch__in=branches
+            ).aggregate(t=Sum("amount"))["t"] or Decimal("0")
+            # ``amount`` سالب في دفتر المورد، فنأخذ قيمته المطلقة عند طرحه من
+            # المستلَم: الرصيد المتاح = ما باع − ما استقبل − ما أنفق منه.
+            spent = abs(
+                LedgerEntry.objects.filter(
+                    entry_type=LedgerEntry.EntryType.PAYMENT,
+                    settlement_account=account,
+                ).aggregate(t=Sum("amount"))["t"]
+                or Decimal("0")
+            )
+            self.assertGreaterEqual(
+                sales - received - spent,
+                Decimal("0"),
+                f"رصيد حساب {account} سالب: أنفق منه المولِّد أكثر مما استقبل",
+            )
 
     def test_builds_expenses_across_categories_branches_and_months(self):
         self.assertGreaterEqual(Expense.objects.count(), 30)
@@ -315,6 +420,19 @@ class SeedPopulatesEveryScreen(SeedShowcaseBase):
             LedgerEntry.objects.filter(date__gt=today, entry_type=LedgerEntry.EntryType.PURCHASE).count(),
             0,
         )
+        # الراتبُ لا يسقط من القاعدة لئلا يُنسى: مسيّرٌ مصروفٌ بتاريخٍ
+        # مستقبلي يُظهر في تقرير الشهر الجاري رواتبَ لم تُدفع، فيحسب
+        # القارئ مصروفاً لم يقع. وهو أشدُّ خطأ في تقرير الأرباح لأن
+        # الرقم فيه يبدو طبيعياً.
+        self.assertEqual(
+            [r for r in PayrollRun.objects.all() if r.paid_at and r.paid_at.date() > today],
+            [],
+            "مسيّر رواتب مصروفٌ بتاريخٍ لم يأتِ بعد",
+        )
+        self.assertFalse(
+            PayrollRun.objects.filter(month__gt=today.replace(day=1)).exists(),
+            "مسيّر رواتب لشهرٍ لم يبدأ",
+        )
 
 
 class SeedStockIsConsistent(SeedShowcaseBase):
@@ -398,6 +516,15 @@ class SeedReportsWork(SeedShowcaseBase):
         return first, last
 
     def test_profit_loss_has_profit_in_every_month(self):
+        """كل شهرٍ كاملٍ رابح، والشهر الجاري يُفحص على أنه كذلك بلا أن يُطنَّش.
+
+        الشهرُ الأخير قد يكون ناقصاً — نزرع ثلاثة أشهر فينتهي آخرها في
+        منتصفه. وناقصاً لا تعني خاسراً: مصروفُ الشهر كاملٌ يُدفع في
+        أوّله (إيجار، كهرباء) بينما مبيعاتُه ليومٍ واحد، فصافي ربحه
+        بالسالب حتى لو كان ربحاً في شهره الكامل. والحكمُ على شهرٍ من
+        أربعةِ أيامٍ كالحكم على شهرٍ كاملٍ لا يعني شيئاً — يُفحص على
+        أنه بُني كما بُني غيره، لا على أنه ربح.
+        """
         for offset in (0, 1):
             first, last = self._month_bounds(-offset)
             data = self._pl(first, last)
@@ -406,13 +533,24 @@ class SeedReportsWork(SeedShowcaseBase):
                 totals["total_sales"], 0, f"لا مبيعات في {first:%Y-%m}"
             )
             self.assertGreater(
-                totals["net_profit"], 0, f"خسارة في {first:%Y-%m}"
+                totals["gross_profit"], 0, f"مجمل سالب في {first:%Y-%m}"
             )
-            self.assertGreater(totals["gross_profit"], 0, f"مجمل سالب في {first:%Y-%m}")
             self.assertGreater(totals["cogs"], 0, "تكلفة مبيعات صفر: مخزون بلا حركة")
+            self.assertGreater(totals["gross_margin_pct"], 0)
+
+            if month_last_day(first) > self.ran_at:
+                # شهرٌ ما زال يجري: لا مسيّر رواتب له — الراتب مصروفُ
+                # نهايةِ الشهر، فتسجيلُه الآن يعني رقماً بتاريخٍ لم يأتِ.
+                self.assertEqual(
+                    totals["salaries"], 0, "راتب شهرٍ لم ينتهِ: مسيّرٌ بتاريخٍ مستقبلي"
+                )
+                continue
+
+            self.assertGreater(
+                totals["net_profit"], 0, f"خسارة في شهرٍ كامل {first:%Y-%m}"
+            )
             self.assertGreater(totals["expenses"], 0, "لا مصاريف: تقرير المصاريف فارغ")
             self.assertGreater(totals["salaries"], 0, "لا رواتب: تقرير الرواتب فارغ")
-            self.assertGreater(totals["gross_margin_pct"], 0)
             self.assertGreater(totals["net_margin_pct"], 0)
 
     def test_profit_loss_compares_with_the_previous_period(self):
@@ -422,7 +560,7 @@ class SeedReportsWork(SeedShowcaseBase):
         self.assertIsNotNone(data.get("comparison"), "لا مقارنة فترة سابقة")
         self.assertIsNotNone(data["comparison"]["totals"])
         self.assertGreater(data["comparison"]["totals"]["total_sales"], 0)
-        for key, value in data["change_pct"].items():
+        for key, value in data["comparison"]["change_pct"].items():
             self.assertIsInstance(value, (int, float), key)
 
     def test_profit_loss_stock_section_is_meaningful(self):

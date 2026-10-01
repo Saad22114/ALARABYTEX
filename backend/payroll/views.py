@@ -10,7 +10,6 @@ from django.db.models import (
     Value,
 )
 from django.db.models.functions import Coalesce
-from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -18,6 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from audit.services import log_activity
+from core import excel
 from core.branch_scope import scope_queryset
 from sale_sessions.models import Employee
 
@@ -63,26 +63,20 @@ ZERO = Decimal("0")
 
 
 def _xlsx_response(workbook, filename):
-    response = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    if workbook is None:
+        return Response(
+            {"detail": "مكتبة openpyxl غير مثبتة"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return excel.xlsx_response(workbook, filename)
+
+
+def _workbook_or_error(sheet_title, headers, rows, filename, types=None, subtitle=""):
+    """ورقة واحدة مُنسَّقة — نفس مصنع ``core.excel`` الذي تصدّر منه بقية
+    الشاشات، وإلا اختصّر تنسيق الرواتب عن بقية التقارير بلا سبب."""
+    return _xlsx_response(
+        excel.simple(sheet_title, headers, rows, types, subtitle=subtitle), filename
     )
-    response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
-    workbook.save(response)
-    return response
-
-
-def _workbook_or_error(sheet_title, headers, rows, filename):
-    try:
-        import openpyxl
-    except ImportError:
-        return Response({"detail": "مكتبة openpyxl غير مثبتة"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = sheet_title
-    ws.append(headers)
-    for row in rows:
-        ws.append(row)
-    return _xlsx_response(wb, filename)
 
 
 def _month_label(value):
@@ -387,6 +381,8 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
             ],
             rows,
             f"كشف_رواتب_{_month_label(run.month)}",
+            types=["text", "text"] + ["money"] * 12,
+            subtitle=f"شهر {_month_label(run.month)}  |  عدد الموظفين: {run.payslips.count()}",
         )
 
     def destroy(self, request, *args, **kwargs):
@@ -590,11 +586,21 @@ class AdvanceExportView(APIView):
                 float(money(a.remaining_amount)),
                 a.reason or "",
             ])
+        # المجموع يُحسب قبل ضياعه: الصفّ نفسه صار داخل ``rows`` بعد هذه
+        # النقطة، فجمعه هنا كان سيجمع مرّة مرّتين.
+        rows.append([
+            "الإجمالي", "", "",
+            round(sum(r[3] for r in rows), 2), "", "",
+            round(sum(r[6] for r in rows), 2),
+            round(sum(r[7] for r in rows), 2), "",
+        ])
         return _workbook_or_error(
             "سلف الرواتب",
             ["الموظف", "الفرع", "التاريخ", "المبلغ", "طريقة الصرف", "الحالة", "المسدد", "المتبقي", "السبب"],
             rows,
             "سلف_الرواتب",
+            types=["text", "text", "date", "money", "text", "text", "money", "money", "text"],
+            subtitle=f"عدد السلف: {len(rows) - 1}",
         )
 
 
@@ -624,6 +630,8 @@ class RunListExportView(APIView):
             ["الشهر", "الفرع", "الحالة", "الموظفون", "الإجمالي", "الخصومات", "الصافي", "خصم سلفة"],
             rows,
             "مسيّرات_الرواتب",
+            types=["text", "text", "text", "number", "money", "money", "money", "money"],
+            subtitle=f"عدد المسيّرات: {len(rows)}",
         )
 
 
@@ -644,6 +652,8 @@ class StatementExportView(APIView):
             ["التاريخ", "النوع", "المرجع", "مدين", "دائن", "ملاحظات"],
             rows,
             f"كشف_حساب_{employee.name}",
+            types=["date", "text", "text", "money", "money", "text"],
+            subtitle=f"الموظف: {employee.name}  |  عدد الحركات: {len(rows)}",
         )
 
 
