@@ -2,12 +2,13 @@ from datetime import date
 from decimal import Decimal
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 from core.testsupport import authenticate_admin
 
 from appsettings.models import AppSettings
 from branches.models import Branch
-from sale_sessions.models import Employee
+from sale_sessions.models import Employee, SaleSession, SaleSessionItem
 from suppliers.models import Fabric
 from warehouses.models import FabricRoll, StockMovement, Warehouse
 from sales.models import DailySaleItem
@@ -292,4 +293,103 @@ class SalesByEmployeeTest(TestCase):
         self.assertEqual(r.status_code, 200)
         row = {i["employee_name"]: i for i in r.data["items"]}["أحمد"]
         self.assertEqual(row["items_count"], 1)
+        self.assertEqual(row["yards_total"], 10.0)
+
+    def _piece_stock(self):
+        """قماش برولة متاحة في مخزن الفرع؛ فالبيع يُرفض بلا رصيد متاح."""
+        wh = Warehouse.objects.filter(branch=self.branch).first()
+        if wh is None:
+            wh = Warehouse.objects.create(name="W", code="W", branch=self.branch)
+        fabric, _ = Fabric.objects.get_or_create(
+            code="C-PIECES-1", defaults={"name": "قطن", "sale_price_yard": 5}
+        )
+        FabricRoll.objects.create(
+            warehouse=wh, fabric=fabric, yards=500, remaining_yards=500
+        )
+        return fabric
+
+    def _closed_session_with_items(self, employee, branch=None, items=(), returned=()):
+        """وردية مغلقة ببنودها، بلا المرور بإغلاق حقيقي: المطلوب البنية لا القيود."""
+        session = SaleSession.objects.create(
+            employee=employee,
+            branch=branch or self.branch,
+            status=SaleSession.Status.CLOSED,
+            closed_at=timezone.now(),
+        )
+        fabric, _ = Fabric.objects.get_or_create(
+            code="Q-PIECES-1", defaults={"name": "قماش", "purchase_price": Decimal("10")}
+        )
+        rows = []
+        for sale_type, quantity in items:
+            row = SaleSessionItem(
+                session=session, fabric=fabric, sale_date=self.today,
+                sale_type=sale_type, quantity=Decimal(quantity),
+                unit_price=Decimal("5"), total=Decimal("0"),
+            )
+            row.save()
+            rows.append(row)
+        for row, is_returned in zip(rows, returned):
+            if is_returned:
+                row.is_returned = True
+                row.returned_at = timezone.now()
+                row.save(update_fields=["is_returned", "returned_at", "updated_at"])
+        return session, rows
+
+    def test_by_employee_counts_pieces_per_employee(self):
+        """الطلب: توزيع المبيعات على الموظفين يعرض عدد القطع المباعة لكل موظف.
+
+        القطعة طرد من 3.5 ياردة. فمن باع 70 ياردة باع 20 قطعة لا 70؛ ومن
+        باع 4 طاقات باع 4 قطع لا 14.
+        """
+        fabric = self._piece_stock()
+        self._sale(
+            employee=self.e1.id, total_sales=750, cash_amount=750,
+            items=[{"fabric": fabric.id, "yards": 84, "unit_price": 5}],
+        )
+        self._closed_session_with_items(
+            self.e1,
+            items=[
+                (SaleSessionItem.SaleType.YARD, "70"),
+                (SaleSessionItem.SaleType.ROLL, "4"),
+            ],
+        )
+
+        r = self.c.get(f"/api/sales/by-employee/?branch={self.branch.id}")
+        self.assertEqual(r.status_code, 200)
+        row = {i["employee_name"]: i for i in r.data["items"]}["أحمد"]
+        self.assertEqual(row["pieces_total"], 24.0)      # 20 + 4
+        self.assertEqual(row["yards_total"], 84.0)       # 70 + (4 × 3.5)
+
+    def test_by_employee_pieces_exclude_returns_and_other_branches(self):
+        """القطع المسترجعة وقطع فرع آخر لا تدخل في رقم الموظف."""
+        other = Branch.objects.create(name="B2", code="B2")
+        fabric = self._piece_stock()
+        self._sale(
+            employee=self.e1.id, total_sales=100, cash_amount=100,
+            items=[{"fabric": fabric.id, "yards": 10, "unit_price": 5}],
+        )
+        self._closed_session_with_items(
+            self.e1,
+            items=[(SaleSessionItem.SaleType.ROLL, "7")],
+            returned=[True],
+        )
+        self._closed_session_with_items(
+            self.e1, branch=other,
+            items=[(SaleSessionItem.SaleType.ROLL, "9")],
+        )
+
+        r = self.c.get(f"/api/sales/by-employee/?branch={self.branch.id}")
+        row = {i["employee_name"]: i for i in r.data["items"]}["أحمد"]
+        self.assertEqual(row["pieces_total"], 0.0)
+
+    def test_by_employee_pieces_zero_without_sessions(self):
+        """سند بيع بلا بنود وردية: قطعه صفر لا خطأ، ولا ينهار الطلب."""
+        fabric = self._piece_stock()
+        self._sale(
+            employee=self.e1.id, total_sales=100, cash_amount=100,
+            items=[{"fabric": fabric.id, "yards": 10, "unit_price": 5}],
+        )
+        r = self.c.get(f"/api/sales/by-employee/?branch={self.branch.id}")
+        row = {i["employee_name"]: i for i in r.data["items"]}["أحمد"]
+        self.assertEqual(row["pieces_total"], 0.0)
         self.assertEqual(row["yards_total"], 10.0)

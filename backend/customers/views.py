@@ -30,7 +30,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "phone", "email", "address"]
     ordering_fields = ["name", "phone", "created_at", "is_active"]
     #: ما يريده المستخدم من البحث ليس «الاسم أبجدياً» بل «الأقرب إلى ما
-    #: كتبه». فنرتّب قرب المطابقة بأنفسنا في ``_search`` —迟早 يتطلّب ذلك
+    #: كتبه». فنرتّب قرب المطابقة بأنفسنا في ``_search`` —لأن ذلك يتطلّب ذلك
     #: تجريد الرقم من فواصله، ولا يفعل ``SearchFilter`` ذلك — ونترك
     #: ``OrderingFilter`` يعمل إن طلبه العميل صراحةً.
     filter_backends = [OrderingFilter]

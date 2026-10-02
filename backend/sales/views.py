@@ -1,3 +1,6 @@
+from collections import defaultdict
+from decimal import Decimal
+
 from django.conf import settings
 from django.db.models import Count, F, Sum
 from rest_framework import status, viewsets
@@ -169,6 +172,32 @@ class SalesByEmployeeView(APIView):
         )
         qty = {r["sale__employee_id"]: r for r in qty_rows}
 
+        # «عدد القطع» لا يُستخرج من DailySaleItem لأنه يخزّن ياردات فقط بلا
+        # نوع بيع، والقطعة طرد من 3.5 ياردة. فنشتقها من بنود الورديات نفسها:
+        # الطاقة كميتها قطعة، والياردات تُقسم على 3.5. ونستثني المسترجع لأن
+        # الاسترجاع يلغي البند فلا يبقى له في المخزن ما يقابله.
+        from sale_sessions.models import SaleSession, SaleSessionItem
+        from sale_sessions.services import item_pieces
+
+        session_items = scope_queryset(
+            request,
+            SaleSessionItem.objects.filter(
+                session__status=SaleSession.Status.CLOSED, is_returned=False
+            ),
+            "session__branch",
+        )
+        if branch:
+            session_items = session_items.filter(session__branch_id=branch)
+        if date_from:
+            session_items = session_items.filter(sale_date__gte=date_from)
+        if date_to:
+            session_items = session_items.filter(sale_date__lte=date_to)
+        pieces_acc = defaultdict(lambda: Decimal(0))
+        for item in session_items.select_related("session").only(
+            "id", "sale_type", "quantity", "session__employee_id"
+        ):
+            pieces_acc[item.session.employee_id] += item_pieces(item)
+
         items = [
             {
                 "employee": r["employee_id"],
@@ -181,6 +210,9 @@ class SalesByEmployeeView(APIView):
                 "sales_count": r["sales_count"],
                 "items_count": qty.get(r["employee_id"], {}).get("items_count", 0),
                 "yards_total": float(qty.get(r["employee_id"], {}).get("yards_total") or 0),
+                "pieces_total": float(
+                    pieces_acc.get(r["employee_id"], Decimal(0)).quantize(Decimal("0.01"))
+                ),
             }
             for r in rows
         ]

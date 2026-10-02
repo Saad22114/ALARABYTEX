@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import ExportButton from '@/components/ui/ExportButton';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import Select from '@/components/ui/Select';
 import DateRangeToolbar, { getRangeForKey, DateRangeKey } from '@/components/ui/DateRangeToolbar';
@@ -19,21 +20,20 @@ import Spinner from '@/components/ui/Spinner';
 import StatCard from '@/components/ui/StatCard';
 import {
   Plus, Pencil, Trash2, Store, Timer,
-  IndianRupee, Banknote, Download, Users, ChevronDown, ChevronLeft, Archive, Eye, EyeOff, ChevronsUp, ChevronsDownUp,
+  IndianRupee, Banknote, Users, ChevronDown, ChevronLeft, Archive, Eye, EyeOff, ChevronsUp, ChevronsDownUp,
   Printer, Share2, CheckCircle,
 } from 'lucide-react';
 import {
   Branch, Employee, DailySale,
   SaleSummary, SalesByEmployeeResult, SaleSession, SessionSaleItem, Fabric,
 } from '@/types';
-import { listSales, getSalesSummary, getSalesByEmployee, salesExportUrl } from '@/services/sales';
+import { listSales, getSalesSummary, getSalesByEmployee } from '@/services/sales';
 import { listSaleSessions, removeSessionItem, deleteSaleSession } from '@/services/sessions';
 import { listBranches } from '@/services/branches';
 import { listEmployees } from '@/services/employees';
 import { listFabrics } from '@/services/fabrics';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format';
 import { openSalesInvoice, sessionToDailySales, buildInvoiceNumber } from '@/lib/invoice';
-import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
@@ -330,7 +330,6 @@ export default function SalesPage() {
     fetchSummary();
   }, [fetchClosedSessions, fetchSummary]);
 
-  const exportUrl = useMemo(() => `${API_URL}${salesExportUrl(filterParams)}`, [filterParams]);
   const avgPerDay = summary && summary.days_count > 0 ? summary.total_sales / summary.days_count : 0;
 
   return (
@@ -354,12 +353,12 @@ export default function SalesPage() {
           </div>
           {tab === 'sales' && (
             <div className="flex items-center gap-2">
-              <a href={exportUrl} target="_blank" rel="noreferrer">
-                <Button variant="secondary" type="button">
-                  <Download size={16} />
-                  تصدير Excel
-                </Button>
-              </a>
+              <ExportButton
+                path="/sales/"
+                params={filterParams}
+                filename="المبيعات.xlsx"
+                size="md"
+              />
               {hasWindow(me?.permissions, 'sessions', 'manual') && (
                 <Button onClick={() => setManualOpen(true)}>
                   <Plus size={18} />
@@ -734,6 +733,7 @@ export default function SalesPage() {
                       <tr>
                         <Th>الموظف</Th>
                         <Th>عدد السجلات</Th>
+                        <Th>عدد البنود</Th>
                         <Th>عدد القطع</Th>
                         <Th>الياردات</Th>
                         <Th>النقدي</Th>
@@ -751,6 +751,7 @@ export default function SalesPage() {
                             <Td className="font-medium">{row.employee_name}</Td>
                             <Td className="tabular-nums">{row.sales_count}</Td>
                             <Td className="tabular-nums">{formatNumber(row.items_count)}</Td>
+                            <Td className="tabular-nums">{formatNumber(row.pieces_total)}</Td>
                             <Td className="tabular-nums">{formatNumber(row.yards_total)}</Td>
                             <Td className="tabular-nums">{formatCurrency(row.cash_total)}</Td>
                             <Td className="tabular-nums">{formatCurrency(row.transfer_total)}</Td>

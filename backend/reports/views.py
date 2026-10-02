@@ -14,6 +14,7 @@ from partners.models import PartnerOperation
 from sales.models import DailySale
 from suppliers.models import Fabric, Supplier
 from sale_sessions.models import SaleSession, SaleSessionItem
+from sale_sessions.services import item_pieces
 from suppliers.serializers import PIECE_YARDS
 from warehouses.models import (
     FabricRoll,
@@ -852,8 +853,8 @@ def _closing_stock(request, date_to, branch=None, costs=None):
     """رصيد الإقفال بالياردة وقيمته عند نهاية الفترة.
 
     القيمة بمتوسط التكلفة المرجّح نفسه المستخدم في تكلفة البضاعة المباعة،
-    حتى لا تختلط معاملتان في نفس التقرير.，力 كان الرصيد غير مسجّل لأحد
-    الأقمشة счита تكلفته صفراً (وهو ما تفعله تكلفة البضاعة المباعة أيضاً).
+    حتى لا تختلط معاملات في نفس التقرير، ولو كان الرصيد غير مسجّل لأحد
+    الأقسام تُحسب تكلفة صفراً (وهو ما تفعله تكلفة البضاعة المباعة أيضاً).
     """
     qs = scope_queryset(
         request,
@@ -1418,20 +1419,19 @@ class CommissionsReportView(APIView):
             entry["sessions_count"] += 1
             entry["total_sales"] += sum(r.total for r in s.items.all())
             entry["total_commission"] += s.commission_amount or Decimal("0")
-            # «القطعة» في هذا المشروع طرد من 3.5 ياردة، والبنود نوعان:
-            # الياردات كمّيتها ياردات، والطاقة كميتها قطعة. فالجمع بلا هذا
-            # التمييز كان سيعني رقماً لا يقابله شيء في المخزن: من يبيع 70
-            # ياردة باطلاقات يستحق 20 قطعة، لا 70.
+            # التعريف في `sale_sessions.services.item_pieces` وحده: لقطعتان في
+            # المشروع تذكران «القطع» — هذا التقرير وتوزيع المبيعات على الموظفين —
+            # ولو اختلفتاه لقابل الموظف رقمين مختلفين لنفس البيع.
             for item in s.items.all():
                 if item.is_returned:
                     entry["returned_items"] += 1
                     continue
-                if item.sale_type == SaleSessionItem.SaleType.ROLL:
-                    entry["total_pieces"] += item.quantity
-                    entry["total_yards"] += item.quantity * PIECE_YARDS
-                else:
-                    entry["total_yards"] += item.quantity
-                    entry["total_pieces"] += item.quantity / PIECE_YARDS
+                entry["total_yards"] += (
+                    item.quantity * PIECE_YARDS
+                    if item.sale_type == SaleSessionItem.SaleType.ROLL
+                    else item.quantity
+                )
+                entry["total_pieces"] += item_pieces(item)
 
         data = []
         for entry in rows.values():

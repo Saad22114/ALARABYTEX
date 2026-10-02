@@ -778,12 +778,45 @@ class SeedReportsWork(SeedShowcaseBase):
         self.assertGreater(statement, report)
 
     def test_dashboard_opens_with_numbers(self):
-        res = self.c.get("/api/dashboard/summary/")
+        """اللوحة تفتح بأرقام، ووقتها الافتراضي «اليوم».
+
+        الافتراضي يومٌ واحد، والجمعة يوم راحة في هذه الشركة فلا مبيعات فيها.
+        فلو اشترطنا رقماً في «اليوم» لسقط هذا الاختبار كل جمعة، ولو سقط
+        أُصلح بأن نُفرغ اليوم من كل شيء — فصار مُصلَحاً على حساب معنى «اللوحة
+        تحمل أرقاماً». فنثبّت الأرقام على شهرٍ مضمونٍ من أيام العمل، ونثبّت
+        على «اليوم» وحده أن الشاشة تفتح ولا تنهار.
+        """
+        today = self.c.get("/api/dashboard/summary/")
+        self.assertEqual(today.status_code, 200)
+        self.assertIn("chart_data", today.data)
+
+        res = self.c.get("/api/dashboard/summary/", {"period": "last_month"})
         self.assertEqual(res.status_code, 200)
         self.assertGreater(res.data["total_sales"], 0)
         self.assertTrue(res.data["chart_data"])
         self.assertTrue(res.data["top_fabrics"])
         self.assertGreaterEqual(res.data["branches_count"], 2)
+
+    def test_the_weekly_holiday_carries_no_sales(self):
+        """الجمعة يوم راحة: لا مبيعات فيها، واللقطة اليومية تُظهر صفراً لا خطأ.
+
+        يوم الراحة ليس يوماً ناقص البيانات، بل يوم لا عمل فيه. فالموظف الذي
+        يفتح اللوحة صباح الجمعة يجب أن يرى أصفاراً صحيّة، لا رقماً مفقوداً
+        ولا خطأً يفزعه بأن حاسوبه خرب.
+        """
+        today = timezone.localdate()
+        if today.weekday() != 4:
+            self.skipTest("اليوم ليس الجمعة")
+        self.assertFalse(DailySale.objects.filter(date=today).exists())
+        res = self.c.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["total_sales"], 0)
+        row = next(
+            (d for d in res.data["chart_data"] if d["date"] == today.isoformat()),
+            None,
+        )
+        self.assertIsNotNone(row, "المصروفات اليومية تجعل اليوم سطراً في المنحنى")
+        self.assertEqual(row["sales"], 0)
 
 
 class SeedNoResetAddsInsteadOfDestroying(SeedShowcaseBase):

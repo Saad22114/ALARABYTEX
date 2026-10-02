@@ -13,11 +13,6 @@ export async function getSalesSummary(
   return apiRequest<SaleSummary>(`/sales/summary/${q}`);
 }
 
-export function salesExportUrl(params?: Record<string, string | number | undefined | null>): string {
-  const q = buildQuery({ ...params, export: 'xlsx' });
-  return `/sales/${q}`;
-}
-
 export async function getSale(id: number): Promise<DailySale> {
   return apiRequest<DailySale>(`/sales/${id}/`);
 }

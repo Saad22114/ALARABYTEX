@@ -369,8 +369,11 @@ export interface SalesByEmployeeRow {
   card_total: number;
   other_total: number;
   sales_count: number;
+  /** عدد بنود البيع (كل سطر قلم برقم قماش)، لا عدد القطع. */
   items_count: number;
   yards_total: number;
+  /** القطع المكافئة للمباع: القطعة طرد من 3.5 ياردة. */
+  pieces_total: number;
 }
 
 export interface SalesByEmployeeResult {
