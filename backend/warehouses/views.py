@@ -447,6 +447,10 @@ class StockCountViewSet(viewsets.ModelViewSet):
         في الجرد المغلق تُخفي ورقةُ الرصدُ الرصيد الدفتري، وإلا صار الملف
         المطبوع ورقةَ مطابقةٍ لا ورقةَ جرد. أمّا ورقةُ الفروق فتعنى فقط ما بعد
         النشر — لا معنى لفروقٍ لا يحتاج مشاهدة بعدها.
+
+        ومع كل سطر سعرا قماشه: سعرُ الشراء وسعرُ البيع لليارد، فتصير
+        الورقة تُقرأ بمالها لا بالمتر وحده — المراجع يعرف قيمة ما عدّ
+        وقيمة ما نقص، لا مقدار النقص وحده.
         """
         count = self.get_object()
         hide = count.hides_system_balance
@@ -466,6 +470,8 @@ class StockCountViewSet(viewsets.ModelViewSet):
                 "مطابق" if (item.counted_yards is not None and not item.is_variance)
                 else ("فروق" if item.counted_yards is not None else "لم يُرصد"),
                 float(costs.get(item.fabric_id) or 0),
+                float(item.fabric.purchase_price or 0),
+                float(item.fabric.sale_price_yard or 0),
                 item.note or "",
             ])
         counted_rows = [
@@ -477,7 +483,7 @@ class StockCountViewSet(viewsets.ModelViewSet):
                 round(sum(r[2] or 0 for r in counted_rows), 2),
                 round(sum(r[3] or 0 for r in counted_rows), 2),
                 round(sum(r[4] or 0 for r in counted_rows), 2),
-                f"{summary['variances']} صنف عليه فرق", "", "",
+                f"{summary['variances']} صنف عليه فرق", "", "", "", "",
             ])
         columns = [
             {"label": "القماش", "type": "text"},
@@ -487,6 +493,8 @@ class StockCountViewSet(viewsets.ModelViewSet):
             {"label": "الفرق", "type": "money"},
             {"label": "الحالة", "type": "text"},
             {"label": "متوسط التكلفة", "type": "money"},
+            {"label": "سعر الشراء", "type": "money"},
+            {"label": "سعر البيع", "type": "money"},
             {"label": "سبب الفرق", "type": "text"},
         ]
         from core import excel

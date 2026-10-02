@@ -530,6 +530,8 @@ export default function CountsPage() {
                 <thead>
                   <tr>
                     <Th>القماش</Th>
+                    <Th>سعر الشراء</Th>
+                    <Th>سعر البيع</Th>
                     <Th>الرصيد الدفتري</Th>
                     <Th>الرصيد المرصود</Th>
                     <Th>الفرق</Th>
@@ -556,6 +558,12 @@ export default function CountsPage() {
                             {it.fabric_code && (
                               <span className="font-mono text-[11px] text-neutral-400 mr-2" dir="ltr">{it.fabric_code}</span>
                             )}
+                          </Td>
+                          <Td className="tabular-nums text-neutral-600">
+                            {Number(it.purchase_price) ? formatNumber(Number(it.purchase_price)) : '—'}
+                          </Td>
+                          <Td className="tabular-nums text-neutral-600">
+                            {Number(it.sale_price) ? formatNumber(Number(it.sale_price)) : '—'}
                           </Td>
                           <Td className="tabular-nums">
                             {it.system_yards === undefined ? (

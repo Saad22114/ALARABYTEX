@@ -18,6 +18,8 @@ function item(overrides: Partial<CountItem> = {}): CountItem {
     fabric: 10,
     fabric_name: 'قطن',
     fabric_code: 'F-1',
+    purchase_price: 12.5,
+    sale_price: 20,
     system_yards: 30,
     counted_yards: null,
     counted: false,

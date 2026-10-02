@@ -876,6 +876,12 @@ export interface CountItem {
   fabric: number;
   fabric_name: string;
   fabric_code: string;
+  /**
+   * سعر شراء اليارد وسعر بيعه كما هما مسجّلان على القماش. يأتيان من القماش
+   * لا من سطر الجرد، فيرى العدّاد قيمة ما يعدّ ويثمن ما ينقص.
+   */
+  purchase_price: number;
+  sale_price: number;
   counted_yards: number | null;
   counted: boolean;
   note: string;

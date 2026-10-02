@@ -421,6 +421,22 @@ class StockCountItemSerializer(serializers.ModelSerializer):
 
     fabric_name = serializers.CharField(source="fabric.name", read_only=True)
     fabric_code = serializers.CharField(source="fabric.code", read_only=True)
+    # السعران يُقرآن من القماش لحظة العرض، لا من سطر الجرد: سطر الجرد
+    # لا يحمل سعراً، ولو حمله لتقادما مع تغيّر سعر القماش. والأسعار
+    # بياناتٌ ثابتة لا إجابةُ الجرد، فبقاءُها ظاهراً في الجرد المغلق
+    # لا يُفسد سرّيةَ العدّ.
+    purchase_price = serializers.DecimalField(
+        source="fabric.purchase_price",
+        max_digits=12,
+        decimal_places=3,
+        read_only=True,
+    )
+    sale_price = serializers.DecimalField(
+        source="fabric.sale_price_yard",
+        max_digits=12,
+        decimal_places=3,
+        read_only=True,
+    )
     difference = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     is_variance = serializers.BooleanField(read_only=True)
     counted = serializers.SerializerMethodField()
@@ -444,8 +460,9 @@ class StockCountItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockCountItem
         fields = [
-            "id", "fabric", "fabric_name", "fabric_code", "system_yards",
-            "counted_yards", "difference", "is_variance", "counted", "note",
+            "id", "fabric", "fabric_name", "fabric_code", "purchase_price",
+            "sale_price", "system_yards", "counted_yards", "difference",
+            "is_variance", "counted", "note",
         ]
         read_only_fields = ["id", "system_yards"]
 

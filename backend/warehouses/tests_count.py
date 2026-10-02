@@ -711,6 +711,34 @@ class ExportTests(CountTestCase):
         self.assertIn('filename="stock-count.xlsx"', disposition)
         self.assertIn("filename*=UTF-8''", disposition)
 
+    def test_the_sheet_carries_the_purchase_and_sale_price(self):
+        """ورقةُ الجرد تُقرأ بالمتر وحده فتبقى بلا معنى للمال.
+
+        ناقصُ قماشٍ خمسة ياردات جردٌ ناقص، لكن قيمته خمسون أو مئة بحسب
+        سعره. فالسعران ليسا زينة: بهما يُثمن النقص والزيادة، لا مقدارهما
+        وحده.
+        """
+        Fabric.objects.filter(pk=self.fabric.pk).update(
+            purchase_price=Decimal("12.5"), sale_price_yard=Decimal("20"),
+        )
+        data = self.make_count(blind=False)
+        self.count_in(data["id"], fabric=self.fabric.pk, counted_yards="25")
+        ws = self.export(data["id"])["جرد"]
+        self.assertEqual(self.data_cells(ws, "سعر الشراء")[0], 12.5)
+        self.assertEqual(self.data_cells(ws, "سعر البيع")[0], 20.0)
+
+    def test_a_blind_sheet_prints_the_prices_and_still_hides_the_balance(self):
+        """السعرُ معلومةٌ عن القماش، والرصيدُ جوابُ الجرد — فأولاهما يبقى وثانيهما يختفي."""
+        Fabric.objects.filter(pk=self.fabric.pk).update(
+            purchase_price=Decimal("12.5"), sale_price_yard=Decimal("20"),
+        )
+        data = self.make_count(blind=True)
+        self.count_in(data["id"], fabric=self.fabric.pk, counted_yards="25")
+        ws = self.export(data["id"]).active
+        self.assertEqual(self.data_cells(ws, "سعر الشراء")[0], 12.5)
+        self.assertEqual(self.data_cells(ws, "سعر البيع")[0], 20.0)
+        self.assertEqual(self.data_cells(ws, "الرصيد الدفتري"), [None])
+
     def test_missing_openpyxl_gives_a_clear_error(self):
         from core import excel
 
@@ -723,3 +751,55 @@ class ExportTests(CountTestCase):
             excel._lib = real
         self.assertEqual(r.status_code, 500)
         self.assertIn("openpyxl", str(r.data["detail"]))
+
+
+class CountPriceTests(CountTestCase):
+    """سعرا الشراء والبيع في ورقة الجرد: لا يُقاس النقص بالمتر وحده.
+
+    ناقصُ قماشٍ خمسة ياردات جردٌ ناقص، لكن قيمته خمسون أو مئة أو ألف بحسب
+    سعره. فعمودُ الأ yards يقول *كم* ضاع، ولا يقول *كم* ضاع من المال —
+    وهذا هو السؤال الذي يُبنى عليه قرار التعويض.
+    """
+
+    def priced(self, purchase="12.5", sale="20"):
+        Fabric.objects.filter(pk=self.fabric.pk).update(
+            purchase_price=Decimal(purchase), sale_price_yard=Decimal(sale),
+        )
+        return self.fabric
+
+    def line_of(self, cid):
+        r = self.c.get(f"/api/warehouses/counts/{cid}/")
+        self.assertEqual(r.status_code, 200)
+        return r.data["items"][0]
+
+    def test_the_counter_sees_both_prices(self):
+        self.priced()
+        line = self.line_of(self.make_count()["id"])
+        self.assertEqual(Decimal(str(line["purchase_price"])), Decimal("12.5"))
+        self.assertEqual(Decimal(str(line["sale_price"])), Decimal("20"))
+
+    def test_a_blind_count_still_shows_the_prices(self):
+        """السعرُ بياناتُ القماش، لا إجابةُ الجرد.
+
+        الجردُ المغلق يُخفي الرصيد الدفتري والفرق لأنهما يجعلان العدّاد
+        يطابق بدل أن يعدّ. أمّا السعرُ فمعلومةٌ ثابتة عن القماش تُقرأ
+        في الورقةِ الدفترية أيضاً، وإخفاؤها تُحرم العدّاد من تقدير ما
+        يعدّ بلا أن تكسر سرّيةَ الجرد.
+        """
+        self.priced()
+        line = self.line_of(self.make_count(blind=True)["id"])
+        self.assertEqual(Decimal(str(line["purchase_price"])), Decimal("12.5"))
+        self.assertNotIn("system_yards", line)
+        self.assertNotIn("difference", line)
+
+    def test_prices_follow_the_fabric_not_the_old_line(self):
+        """السعرُ يُقرأ لحظة العرض، فتغييرُ سعر القماش يغيّر ما يُعرض.
+
+        لو خُزِّن السعرُ في سطر الجرد لتقادم مع القماش: يبقى الجردُّ
+        القديم يثمن عيّنته بسعرٍ لم يبقِ له.
+        """
+        data = self.make_count()
+        self.priced()
+        self.assertEqual(Decimal(str(self.line_of(data["id"])["sale_price"])), Decimal("20"))
+        self.priced(sale="25")
+        self.assertEqual(Decimal(str(self.line_of(data["id"])["sale_price"])), Decimal("25"))
