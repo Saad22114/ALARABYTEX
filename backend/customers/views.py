@@ -8,20 +8,12 @@ from rest_framework.response import Response
 
 from core.daterange import resolve_range
 from core.branch_scope import scope_queryset
+from core.phones import find_by_phone, normalize_phone
 
 from sale_sessions.models import SaleSessionItem
 
 from .models import Customer
 from .serializers import CustomerSerializer
-
-#: فواصل قد يتخلّلها رقم الهاتف في التسجيل ثم تُكتب في البحث بلا شيء.
-_SEPARATORS = re.compile(r"[\s\-_()]+")
-
-
-def normalize_phone(value):
-    """تجريد ما ليس رقماً: «٩٨ ١١-٠٠٠٩» و «98110009» رقم واحد."""
-    return _SEPARATORS.sub("", value or "")
-
 
 class CustomerViewSet(viewsets.ModelViewSet):
     permission_section = "customers"
@@ -166,19 +158,26 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="lookup")
     def lookup(self, request):
+        """هل هذا الرقم مسجَّل؟ سؤالٌ له جوابٌ واحد، فلا يُترك فراغاً.
+
+        الشاشة تعرض «لا يوجد زبون مسجَّل بهذا الرقم» على هذا الجواب، فيصير
+        الرقمُ الخطأُ حكماً على زبونٍ مسجَّلٍ فعلاً، فيُطلب من المحاسب أن
+        يضيفه من جديد — وهو ليس جديداً، ويأخذ عرضَ زبونٍ آخر واسمَه.
+        """
         phone = (request.query_params.get("phone") or "").strip()
         if not phone:
             return Response({"found": False, "customer": None})
-        customer = (
-            scope_queryset(self.request, Customer.objects.all())
-            .filter(phone=phone)
-            .first()
-        )
+        customer = self._find_by_phone(request, phone)
         if customer is None:
             return Response({"found": False, "customer": None})
         data = CustomerSerializer(customer).data
         data["last_purchase_date"] = self._last_purchase_date(request, phone)
         return Response({"found": True, "customer": data})
+
+    def _find_by_phone(self, request, phone):
+        return find_by_phone(
+            scope_queryset(request, Customer.objects.all()), phone
+        ).first()
 
     @staticmethod
     def _last_purchase_date(request, phone):

@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.branch_scope import scope_queryset
+from core.phones import find_by_phone
 from .models import Employee, SaleSession, SaleSessionItem
 from .sections import ROLE_PRESETS, SECTIONS
 from .serializers import (
@@ -350,14 +351,20 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
             return Response(
                 {"detail": "أدخل رقم هاتف الزبون"}, status=status.HTTP_400_BAD_REQUEST
             )
-        items = (
+        # سطرُ البيعُ يحمل الرقمَ كما كتبه البائعُ يومَ البيعُ، فقد كُتب
+        # مرسوماً مرّةً ومجرَّداً أخرى. فالمطابقةُ بالرسم وحده تُسقط
+        # مشترياتٍ للزبون نفسه، ثم يُقال: ليس له مشتريات.
+        base = scope_queryset(
+            request,
             SaleSessionItem.objects.select_related(
                 "fabric", "session__employee", "session__branch"
-            )
-            .filter(customer_phone=phone)
-            .order_by("-sale_date", "-id")
+            ),
+            branch_field="session__branch",
         )
-        items = scope_queryset(request, items, branch_field="session__branch")
+        items = find_by_phone(base, phone, field="customer_phone").order_by(
+            "-sale_date", "-id"
+        )
+
         from .serializers import SaleSessionItemSerializer as _ItemSer
         rows = []
         for it in items:

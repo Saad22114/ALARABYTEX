@@ -24,6 +24,12 @@ describe('getRangeForKey', () => {
     expect(getRangeForKey('today')).toEqual({ from: '2026-09-21', to: '2026-09-21' });
   });
 
+  it('all is the absence of bounds, not a span', () => {
+    setToday('2026-09-21');
+    // «الكل» غيابُ حدَّين، لا مداهُما.
+    expect(getRangeForKey('all')).toEqual({ from: '', to: '' });
+  });
+
   it('month starts on the first and ends today', () => {
     setToday('2026-09-21');
     expect(getRangeForKey('month')).toEqual({ from: '2026-09-01', to: '2026-09-21' });
@@ -46,5 +52,13 @@ describe('getActivePreset', () => {
   it('returns null for a custom range', () => {
     setToday('2026-09-21');
     expect(getActivePreset('2026-09-10', '2026-09-12')).toBeNull();
+  });
+
+  it('treats a range with neither bound as all, not as a custom range', () => {
+    setToday('2026-09-21');
+    // حدٌّ واحدٌ دون الآخر اختيارٌ ناقص، لا «الكل».
+    expect(getActivePreset('', '')).toBe('all');
+    expect(getActivePreset('', '2026-09-21')).toBeNull();
+    expect(getActivePreset('2026-09-01', '')).toBeNull();
   });
 });

@@ -188,6 +188,36 @@ class CustomerApiTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.json()["found"])
 
+    def test_lookup_finds_customer_by_normalized_phone(self):
+        """الرقمُ واحد، والرسم واحد، والذي كتبه قراره يحتفظ الزبون.
+
+        الشاشة ستقول «غيرُ مسجَّل» لكل رقم لم يطابق تماماً، فإذا أخبر
+        زبوناً موجوداً بالمئة أن يُقال «مسجَّل» والذي سجلّناً برقمن واحد.
+        """
+        customer = Customer.objects.create(
+            name="منى", phone="0565-555-555", branch=self.branch
+        )
+        for typed in ("0565555555", "0565 555 555", "0565-555-555"):
+            with self.subTest(typed=typed):
+                res = self.client.get(reverse("customer-lookup"), {"phone": typed})
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertTrue(data["found"], typed)
+                self.assertEqual(data["customer"]["id"], customer.pk)
+
+    def test_lookup_still_says_no_for_a_number_that_does_not_exist(self):
+        """تنويه الرقم ليس الفاصل إلا إنه يُقابل على رقم آخر مُسجَّل، فيحاسب على عدم المتابعة.
+
+        لولا أصاب «أقرب» أن يُحسّن البحث إلى أقرب أخر ويُقال إليه أنّه
+        المحصوص عناد، وأنّ الأصول أحرً من الذي كتبه الشاشة.
+        """
+        Customer.objects.create(name="منى", phone="0561111111", branch=self.branch)
+        for typed in ("0567777777", "9999", "0561", "0561111112"):
+            with self.subTest(typed=typed):
+                res = self.client.get(reverse("customer-lookup"), {"phone": typed})
+                self.assertEqual(res.status_code, 200)
+                self.assertFalse(res.json()["found"], typed)
+
     def test_lookup_requires_phone(self):
         res = self.client.get(reverse("customer-lookup"))
         self.assertEqual(res.status_code, 200)

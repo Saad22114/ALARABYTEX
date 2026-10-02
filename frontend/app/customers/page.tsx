@@ -18,7 +18,10 @@ import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
 import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle, Search as SearchIcon, Printer, Download } from 'lucide-react';
 import { Customer, CustomersSummary, Paginated, Branch, CustomerSalesResult, SaleSession } from '@/types';
-import { listCustomers, createCustomer, updateCustomer, deleteCustomer, getCustomersSummary } from '@/services/customers';
+import {
+  listCustomers, createCustomer, updateCustomer, deleteCustomer,
+  getCustomersSummary, lookupCustomer,
+} from '@/services/customers';
 import { listBranches } from '@/services/branches';
 import { getCustomerSales, getSaleSession } from '@/services/sessions';
 import { formatDate, formatCurrency } from '@/lib/format';
@@ -39,6 +42,10 @@ export default function CustomersPage() {
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
   const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
   const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
+  // «الكل» رايةٌ مستقلّةٌ لا تاريخان فارغان. فراغُ التاريخين يُحذف من العنوان
+  // عند التحديث فيعود الشهر الجاري، فتنقرض الرايةُ بلا سبب.
+  const [allTime, setAllTime] = useUrlState('all', '0');
+  const noDates = allTime === '1';
   const [summary, setSummary] = useState<CustomersSummary | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -49,6 +56,7 @@ export default function CustomersPage() {
   const [phoneSearch, setPhoneSearch] = useState('');
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [customerSales, setCustomerSales] = useState<CustomerSalesResult | null>(null);
+  const [phoneMiss, setPhoneMiss] = useState<string | null>(null);
   const [invoiceSession, setInvoiceSession] = useState<SaleSession | null>(null);
   const [invoiceItemIds, setInvoiceItemIds] = useState<number[]>([]);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
@@ -59,8 +67,8 @@ export default function CustomersPage() {
     const params: Record<string, string | number | undefined | null> = {
       page, page_size: pageSize, search: search || undefined,
       branch: filterBranch || undefined,
-      date_from: dateFrom || undefined,
-      date_to: dateTo || undefined,
+      date_from: noDates ? undefined : dateFrom || undefined,
+      date_to: noDates ? undefined : dateTo || undefined,
     };
     listCustomers(params)
       .then((res) => { if (!cancelled) setData(res); })
@@ -74,12 +82,12 @@ export default function CustomersPage() {
   useEffect(() => {
     getCustomersSummary({
       branch: filterBranch || undefined,
-      date_from: dateFrom || undefined,
-      date_to: dateTo || undefined,
+      date_from: noDates ? undefined : dateFrom || undefined,
+      date_to: noDates ? undefined : dateTo || undefined,
     })
       .then(setSummary)
       .catch(() => setSummary(null));
-  }, [filterBranch, dateFrom, dateTo]);
+  }, [filterBranch, dateFrom, dateTo, noDates]);
 
   useEffect(() => {
     listBranches({ page_size: 200 }).then((res) => setBranches(res.results)).catch(() => {});
@@ -130,13 +138,32 @@ export default function CustomersPage() {
     }
   };
 
+  /**
+   * رقمٌ خطأ لا يجيب «لا نتائج» أبداً.
+   *
+   * رقمان يبدوان واحداً: زبونٌ مسجَّل بلا مشتريات، ورقمٌ لا وجود له.
+   * الأول يُعالَج بأن يعدّ المتعاملون رصيده، والثاني بأن يُسجَّل أو
+   * يُصحَّح. وجدولٌ فارغٌ لا يفرق بينهما، فيظنّ الموظف أنّ الزبون
+   * موجودٌ بلا مبيعات وهو في الحقيقة رقمٌ أخطأ فيه — فيُطالب زبوناً
+   * غيره بدينٍ عليه.
+   */
   const handlePhoneSearch = async () => {
     const phone = phoneSearch.trim();
     if (!phone) return;
     setPhoneLoading(true);
     setCustomerSales(null);
+    setPhoneMiss(null);
     try {
       const res = await getCustomerSales(phone);
+      if (res.items.length === 0) {
+        const found = await lookupCustomer(phone);
+        setPhoneMiss(
+          found.found
+            ? `${found.customer?.name} مسجَّل بهذا الرقم وليس له مشتريات مسجّلة`
+            : `لا يوجد زبون مسجَّل بالرقم ${phone}`,
+        );
+        return;
+      }
       setCustomerSales(res);
     } catch (err: any) {
       toast('error', err.message);
@@ -187,7 +214,10 @@ export default function CustomersPage() {
           <DateRangeToolbar
             from={dateFrom}
             to={dateTo}
-            onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
+            onChange={(f, t) => { setAllTime('0'); setDateFrom(f); setDateTo(t); setPage(1); }}
+            allowAll
+            allActive={noDates}
+            onSelectAll={() => { setAllTime('1'); setPage(1); }}
           />
           <Select
             value={filterBranch}
@@ -226,6 +256,11 @@ export default function CustomersPage() {
               </div>
             </div>
           </div>
+          {phoneMiss && (
+            <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {phoneMiss}
+            </p>
+          )}
           {customerSales && (
             <div className="mt-4 space-y-4">
               <div className="flex flex-wrap gap-4 text-sm">
@@ -287,7 +322,14 @@ export default function CustomersPage() {
           {loading ? (
             <div className="flex justify-center py-12"><Spinner size={32} /></div>
           ) : !data || data.results.length === 0 ? (
-            <EmptyState title="لا يوجد زبائن" description="لم يتم تسجيل أي زبون بعد — سيتم تسجيل الزبائن تلقائياً عند كتابة الاسم والهاتف في نقطة البيع أو في الفاتورة" />
+            search.trim() ? (
+              <EmptyState
+                title={`لا يوجد زبون يطابق «${search.trim()}»`}
+                description="لا يوجد زبون مسجَّل بهذا الاسم أو الرقم ضمن نطاق التواريخ المختار — جرّب «الكل» لترى الزبائن كلهم، أو أضِفه إن كان جديداً."
+              />
+            ) : (
+              <EmptyState title="لا يوجد زبائن" description="لم يتم تسجيل أي زبون بعد — سيتم تسجيل الزبائن تلقائياً عند كتابة الاسم والهاتف في نقطة البيع أو في الفاتورة" />
+            )
           ) : (
             <>
               <Table>

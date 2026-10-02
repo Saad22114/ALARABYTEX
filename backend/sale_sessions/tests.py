@@ -1766,6 +1766,36 @@ class ReturnAndRollOverrideTest(TestCase):
         self.assertEqual(len(open_row), 1)
         self.assertEqual(r.data["totals"]["total"], 75.0)
 
+    def test_customer_sales_finds_lines_written_with_a_different_spelling(self):
+        """سطرُ البيع يحمل الرقمَ كما كُتب يومَ البيع، لا كما حُفظ للزبون.
+
+        فالمطابقةُ بالرسم وحده تُسقط مشترياتٍ للزبون نفسه، والحائبُ
+        يقول بعدها: ليس له مشتريات — وهو جوابٌ يغيّر ما يفعله المحاسب.
+        """
+        sid = self._open_session()
+        self._add_item(sid, quantity=10, phone="0551-111")
+        self._add_item(sid, quantity=4, phone="055999")
+        for typed in ("0551-111", "0551111", "0551 111"):
+            with self.subTest(typed=typed):
+                r = self.c.get("/api/sale-sessions/customer-sales/", {"phone": typed})
+                self.assertEqual(r.status_code, 200, r.data)
+                self.assertEqual(r.data["totals"]["count"], 1, typed)
+                self.assertEqual(r.data["totals"]["total"], 50.0, typed)
+
+    def test_customer_sales_says_nothing_for_a_number_nobody_typed(self):
+        """رقمٌ لم يكتبه أحد: صفرُ بنود، لا سطرٌ لرقمٍ آخر.
+
+        الجوابُ الفارغُ يجب أن يكون فارغاً تماماً، وإلا أخبره رقمٌ آخر عن
+        مشتريه.
+        """
+        sid = self._open_session()
+        self._add_item(sid, quantity=10, phone="055111")
+        r = self.c.get("/api/sale-sessions/customer-sales/", {"phone": "055222"})
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["items"], [])
+        self.assertEqual(r.data["totals"]["count"], 0)
+        self.assertEqual(r.data["totals"]["total"], 0.0)
+
     def test_customer_sales_requires_phone(self):
         r = self.c.get("/api/sale-sessions/customer-sales/")
         self.assertEqual(r.status_code, 400)
