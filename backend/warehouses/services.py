@@ -487,21 +487,40 @@ def remove_count_line(count, item):
     item.delete()
 
 
-def build_count_snapshot(count: StockCount):
-    """يرصد الأرصدة الدفترية لكل قماش بفروع الجلسة قبل الجرد."""
+def build_count_snapshot(count: StockCount, fabrics=None):
+    """يرصد الأرصدة الدفترية للقماش المطلوب في الجلسة قبل الجرد.
+
+    بلا ``fabrics`` — أو بقائمةٍ فارغة — يقتصر الرصد على كل قماش في المخزن،
+    فتصير الجلسةُ صورةً للمخزن كله. ومعه يقتصر على المخزوم من ذلك القماش
+    وحده، فيصير الجرد الجزئيّ بحجم ما اختاره العدّاد لا بحجم ما في المخزن،
+    وهو الفارق بين جرد صنفٍ واحد وجردِ مستودع.
+
+    والقماشُ المختار الذي لا رصيدَ دفترياً له يُرصد سطراً برصيدٍ صفر لا
+    يُسقط: أن يوجد على الرفّ بلا أن يكون في الدفتر هو عينُ الحالة التي
+    برّها وُجد هذا الجرد.
+    """
     if count.status in (StockCount.Status.POSTED, StockCount.Status.CANCELLED):
         raise serializers.ValidationError("لا يمكن تعديل جلسة منشورة أو ملغاة")
-    rows = (
+    rows = list(
         FabricRoll.objects.filter(warehouse=count.warehouse, status=FabricRoll.Status.AVAILABLE)
         .values("fabric_id")
         .annotate(total=Sum("remaining_yards"))
     )
+    wanted = {fabric.pk for fabric in fabrics} if fabrics else None
+    lines = [
+        StockCountItem(count=count, fabric_id=row["fabric_id"], system_yards=row["total"])
+        for row in rows
+        if wanted is None or row["fabric_id"] in wanted
+    ]
+    if wanted is not None:
+        seen = {row["fabric_id"] for row in rows}
+        lines.extend(
+            StockCountItem(count=count, fabric_id=fabric_id, system_yards=Decimal("0"))
+            for fabric_id in sorted(wanted - seen)
+        )
     with transaction.atomic():
         count.items.all().delete()
-        StockCountItem.objects.bulk_create(
-            StockCountItem(count=count, fabric_id=row["fabric_id"], system_yards=row["total"])
-            for row in rows
-        )
+        StockCountItem.objects.bulk_create(lines)
     return count
 
 

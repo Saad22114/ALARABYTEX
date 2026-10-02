@@ -141,6 +141,11 @@ export interface CountWrite {
   /** جرد مغلق: يعدّ ولا يطابق. الشاشة ترسله صريحاً دائماً. */
   blind?: boolean;
   counted_by?: number | null;
+  /**
+   * نطاق الجرد: أرسل المعرّفات المراد جردها، أو لا ترسل شيئاً فيُرد
+   * عن كل قماش المخزن. القائمة الفارغة تعني «الكل» لا «لا شيء».
+   */
+  fabrics?: number[];
 }
 
 export async function createCount(data: CountWrite): Promise<StockCount> {

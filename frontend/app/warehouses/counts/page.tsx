@@ -101,12 +101,17 @@ function VarianceBadge({ summary }: { summary: CountSummary }) {
 function NewCountForm({
   warehouses,
   employees,
+  fabrics,
   onSubmit,
   loading,
 }: {
   warehouses: Warehouse[];
   employees: Employee[];
-  onSubmit: (d: { warehouse: number; date: string; notes: string; blind: boolean; counted_by: number | null }) => void;
+  fabrics: Fabric[];
+  onSubmit: (d: {
+    warehouse: number; date: string; notes: string; blind: boolean;
+    counted_by: number | null; fabrics?: number[];
+  }) => void;
   loading: boolean;
 }) {
   const [warehouse, setWarehouse] = useState<number | undefined>(warehouses[0]?.id);
@@ -116,13 +121,34 @@ function NewCountForm({
   // الجرد المغلق هو ما يجعل الجرد جرداً. من يفتح جلسة يريد عدّاً لا مطابقة،
   // والرصيدُ الدفتري أمام عين العدّاد يجعله يعدّ ليصل إليه لا ليقيس ما رآه.
   const [blind, setBlind] = useState(true);
+  // نطاق الجرد. «الكل» هو الافتراضي لأنه الوضع الأوّلي، والوضع الثاني
+  // يحتاج اختياراً صريحاً، فلا يبدأ على قائمةٍ كاملةٍ لم يخطّ في واحدة
+  // منها علامة.
+  const [scope, setScope] = useState<'all' | 'some'>('all');
+  const [picked, setPicked] = useState<number[]>([]);
+  const [pickFilter, setPickFilter] = useState('');
+
+  const shown = useMemo(() => {
+    const q = pickFilter.trim();
+    if (!q) return fabrics;
+    return fabrics.filter(
+      (f) => f.name.includes(q) || (f.code || '').toLowerCase().includes(q.toLowerCase()),
+    );
+  }, [fabrics, pickFilter]);
+
+  const togglePick = (id: number) =>
+    setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         if (!warehouse) return;
-        onSubmit({ warehouse, date, notes, blind, counted_by: counter === '' ? null : Number(counter) });
+        onSubmit({
+          warehouse, date, notes, blind,
+          counted_by: counter === '' ? null : Number(counter),
+          fabrics: scope === 'some' && picked.length ? picked : undefined,
+        });
       }}
       className="space-y-4"
     >
@@ -143,6 +169,49 @@ function NewCountForm({
         />
         <p className="text-xs text-neutral-400 mt-1">جردٌ بلا اسم يعني عملياً: لا أحد مسؤول عنه.</p>
       </div>
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 mb-1">نطاق الجرد</label>
+        <Select
+          value={scope}
+          onChange={(e) => setScope(e.target.value as 'all' | 'some')}
+          options={[
+            { value: 'all', label: 'كل قماش المخزن' },
+            { value: 'some', label: 'قماش محدَّد فقط' },
+          ]}
+        />
+        <p className="text-xs text-neutral-400 mt-1">
+          {scope === 'all'
+            ? 'تُؤخذ الأرصدة الدفترية من كل قماش له رصيد في هذا المخزن.'
+            : picked.length
+              ? `${picked.length} صنف في نطاق الجرد.`
+              : 'اختر الصنف أو الأصناف المراد جردها.'}
+        </p>
+      </div>
+
+      {scope === 'some' && (
+        <div className="rounded-xl border border-sand-200 bg-sand-50 p-3">
+          <SearchInput value={pickFilter} onChange={setPickFilter} placeholder="بحث باسم القماش أو كوده" />
+          <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
+            {shown.length === 0 ? (
+              <p className="text-xs text-neutral-400 py-2 text-center">لا نتائج</p>
+            ) : (
+              shown.map((f) => (
+                <label key={f.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-sand-100 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(f.id)}
+                    onChange={() => togglePick(f.id)}
+                    className="rounded border-sand-300 text-brand-600 focus:ring-brand-500/40"
+                  />
+                  <span className="text-sm text-neutral-800">{f.name}</span>
+                  {f.code && <span className="font-mono text-[11px] text-neutral-400" dir="ltr">{f.code}</span>}
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-sand-200 bg-sand-50 p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -216,7 +285,10 @@ export default function CountsPage() {
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 
-  const handleCreate = async (d: { warehouse: number; date: string; notes: string; blind: boolean; counted_by: number | null }) => {
+  const handleCreate = async (d: {
+    warehouse: number; date: string; notes: string; blind: boolean;
+    counted_by: number | null; fabrics?: number[];
+  }) => {
     setFormLoading(true);
     try {
       const r = await createCount(d);
@@ -467,7 +539,13 @@ export default function CountsPage() {
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="بدء جلسة جرد">
-        <NewCountForm warehouses={warehouses} employees={employees} onSubmit={handleCreate} loading={formLoading} />
+        <NewCountForm
+          warehouses={warehouses}
+          employees={employees}
+          fabrics={fabrics}
+          onSubmit={handleCreate}
+          loading={formLoading}
+        />
       </Modal>
 
       <Modal

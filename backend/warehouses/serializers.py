@@ -557,6 +557,12 @@ class StockCountWriteSerializer(serializers.Serializer):
     counted_by = serializers.PrimaryKeyRelatedField(
         queryset=Employee.objects.all(), required=False, allow_null=True,
     )
+    # نطاق الجرد: غائبٌ أو فارغ = كل قماش المخزن، ومعه = المخزوم منه.
+    # والحقلُ يمرّ إلى `build_count_snapshot` ولا يُخزَّن: سطورُ الجلسة هي
+    # ما يثبّت النطاق، فلا يحتاج الأمرُ إلى أثرٍ ثانٍ يجرّ معه.
+    fabrics = serializers.PrimaryKeyRelatedField(
+        queryset=Fabric.objects.all(), many=True, required=False,
+    )
 
     def validate(self, attrs):
         request = self.context.get("request")

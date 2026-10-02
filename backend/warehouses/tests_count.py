@@ -440,6 +440,66 @@ class FoundStockTests(CountTestCase):
         self.assertEqual(r.status_code, 400)
 
 
+class CountScopeTests(CountTestCase):
+    """نطاق الجرد: صنفٌ واحد، أو أصناف مختارة، أو المخزن كله.
+
+    الجردُ الكامل لمخزنٍ كبير يبدو فضيلةً، وهو في الحقيقة شرطُ تأخير: من
+    يريد جردَ صنفٍ واحد عليه أن يعدّ فيه مئة صنفٍ أولاً. والجردُ الجزئيّ
+    ليس ميزةً ناقصة، بل هو وحده ما يبقى ممكناً عند مستودعٍ فيه مئة صنف
+    ومن عنده ساعة، فليس «الكل» هو الأصلَ والجزئيَّ هو الاستثناء.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.other = make_fabric("حرير", "F-SILK")
+        self.book_stock(self.other, "12")
+
+    def fabrics_in(self, cid):
+        r = self.c.get(f"/api/warehouses/counts/{cid}/")
+        self.assertEqual(r.status_code, 200)
+        return sorted(line["fabric"] for line in r.data["items"])
+
+    def test_the_scope_limits_the_session_to_the_fabrics_chosen(self):
+        data = self.make_count(fabrics=[self.fabric.pk])
+        self.assertEqual(self.fabrics_in(data["id"]), [self.fabric.pk])
+
+    def test_several_fabrics_can_be_chosen_at_once(self):
+        data = self.make_count(fabrics=[self.fabric.pk, self.other.pk])
+        self.assertEqual(self.fabrics_in(data["id"]), sorted([self.fabric.pk, self.other.pk]))
+
+    def test_no_scope_still_means_the_whole_warehouse(self):
+        """غيابُ النطاق ليس نقصاً في الإرسال، بل هو «الكل» — كما كان قبله."""
+        self.assertEqual(
+            self.fabrics_in(self.make_count()["id"]),
+            sorted([self.fabric.pk, self.other.pk]),
+        )
+
+    def test_an_empty_scope_does_not_mean_an_empty_count(self):
+        """قائمةٌ فارغة ليست جردَ لا شيء، وإلا أدّت نقرةً واحدة إلى جلسةٍ فارغة."""
+        self.assertEqual(
+            self.fabrics_in(self.make_count(fabrics=[])["id"]),
+            sorted([self.fabric.pk, self.other.pk]),
+        )
+
+    def test_a_chosen_fabric_with_no_stock_still_gets_a_line(self):
+        """القماشُ المختار بلا رصيدٍ دفتري سطرٌ صفريّ لا غياب.
+
+        أن يوجد على الرفّ بلا أن يكون في الدفتر هو الحالة التي برّها وُجد
+        الجرد؛ فمن أسقطه من الجرد أسقط الدليلَ نفسه.
+        """
+        lonely = make_fabric("مخمل", "F-VELVET")
+        data = self.make_count(fabrics=[lonely.pk])
+        self.assertEqual(self.fabrics_in(data["id"]), [lonely.pk])
+        line = self.c.get(f"/api/warehouses/counts/{data['id']}/").data["items"][0]
+        self.assertEqual(Decimal(str(line["system_yards"])), Decimal("0"))
+
+    def test_the_scope_reaches_the_book_balance_of_each_chosen_fabric(self):
+        """النطاقُ يختار السطور، لا الأرصدة: كل سطرٍ يأخذ رصيده الحقيقي."""
+        data = self.make_count(fabrics=[self.other.pk])
+        line = self.c.get(f"/api/warehouses/counts/{data['id']}/").data["items"][0]
+        self.assertEqual(Decimal(str(line["system_yards"])), Decimal("12"))
+
+
 class VarianceNoteTests(CountTestCase):
     """سببُ الفرق: فرقٌ بلا سببٍ معروف يعود في الجرد القادم ولا يُعالَج أبداً."""
 

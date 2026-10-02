@@ -370,7 +370,7 @@ class StockCountViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         instance = serializer.save()
-        build_count_snapshot(instance)
+        build_count_snapshot(instance, serializer.validated_data.get("fabrics"))
         return Response(StockCountSerializer(instance).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["get", "put", "patch"])
