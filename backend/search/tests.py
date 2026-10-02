@@ -99,11 +99,11 @@ class GlobalSearchTests(TestCase):
         self.assertEqual(payload["total"], 2)
 
     def test_exact_match_ranks_before_partial(self):
-        Supplier.objects.create(name="موردidal")
-        Supplier.objects.create(name="مورد、公司idal outsource")
+        Supplier.objects.create(name="مورد الرياض")
+        Supplier.objects.create(name="مورد الرياض للتجارة")
         Supplier.objects.create(name="zzz")
-        rows = self.client.get("/api/search/?q=موردidal").json()["results"]
-        self.assertEqual(rows[0]["title"], "موردidal")
+        rows = self.client.get("/api/search/?q=مورد الرياض").json()["results"]
+        self.assertEqual(rows[0]["title"], "مورد الرياض")
 
     def test_prefix_match_ranks_before_contains(self):
         Supplier.objects.create(name="الرياض للتجارة")
@@ -197,7 +197,7 @@ class SearchScopeTests(TestCase):
     def test_manager_sees_all_branches(self):
         self.assertIsNone(employee_branch_scope(self.employee))
         Warehouse.objects.create(name="مخزن ألف", code="WA", branch=self.branch_a)
-        Warehouse.objects.create(name="مخزن ألف作答", code="WB", branch=self.branch_b)
+        Warehouse.objects.create(name="مخزن ألف ب", code="WB", branch=self.branch_b)
         titles = [r["title"] for r in self.client.get("/api/search/?q=مخزن ألف").json()["results"]]
         self.assertEqual(len(titles), 2)
 
@@ -208,10 +208,10 @@ class SearchScopeTests(TestCase):
         self.assertEqual(employee_branch_scope(self.employee), {self.branch_a.pk})
 
         Warehouse.objects.create(name="مخزن ألف", code="WA", branch=self.branch_a)
-        Warehouse.objects.create(name="مخزن ألف作答", code="WB", branch=self.branch_b)
+        Warehouse.objects.create(name="مخزن ألف ب", code="WB", branch=self.branch_b)
         titles = [r["title"] for r in self.client.get("/api/search/?q=مخزن ألف").json()["results"]]
         self.assertIn("مخزن ألف", titles)
-        self.assertNotIn("مخزن ألف作答", titles)
+        self.assertNotIn("مخزن ألف ب", titles)
 
     def test_employee_without_branch_sees_nothing_scoped(self):
         self.employee.role = Employee.Role.SALES

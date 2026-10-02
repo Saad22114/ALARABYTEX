@@ -321,7 +321,7 @@ class AutoPostTests(AccountingSetup):
             date=date(2025, 6, 1),
             amount=Decimal("50"),
             payment_method=Expense.PaymentMethod.CASH,
-            description="叮",
+            description="أجرة نقل",
         )
         post_expense(exp)
         entry = JournalEntry.objects.filter(source=JournalEntry.Source.EXPENSE, source_id=exp.pk).first()
@@ -335,7 +335,7 @@ class AutoPostTests(AccountingSetup):
             date=date(2025, 6, 1),
             amount=Decimal("50"),
             payment_method=Expense.PaymentMethod.CASH,
-            description="叮",
+            description="أجرة نقل",
         )
         post_expense(exp)
         self.assertTrue(JournalEntry.objects.filter(source=JournalEntry.Source.EXPENSE, source_id=exp.pk).exists())

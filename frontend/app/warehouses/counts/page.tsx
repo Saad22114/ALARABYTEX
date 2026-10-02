@@ -274,7 +274,7 @@ export default function CountsPage() {
         const yards = cell?.yards.trim() ?? '';
         return {
           fabric,
-          // السطر الفارغ «لم يُعدّ» لا «رصيده صفر»؛这也是 سبب تمرير نص.
+          // السطر الفارغ «لم يُعدّ» لا «رصيده صفر»؛وهذا سبب تمرير نص.
           counted_yards: yards === '' ? null : Number(yards),
           note: cell?.note ?? '',
         };

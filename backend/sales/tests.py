@@ -393,3 +393,41 @@ class SalesByEmployeeTest(TestCase):
         row = {i["employee_name"]: i for i in r.data["items"]}["أحمد"]
         self.assertEqual(row["pieces_total"], 0.0)
         self.assertEqual(row["yards_total"], 10.0)
+
+    def test_export_xlsx_returns_a_real_file(self):
+        """«تصدير Excel» ينزل ملفاً يفتحه Excel، لا صفحة خطأ.
+
+        الطلب: «اذا عملت تصدير لملف اكسيل يظهر لي
+        {"detail":"لم يتم تزويد بيانات الدخول."} ولا يفتح الاكسيل». فالخادم
+        يردّ سليماً، والخطأ يقع في الواجهة التي تفتح الرابط بلا رمز دخول.
+        فهذا اختبار الضمانة: كسرٌ في الواجهة يظهر هنا لا عند المستخدم.
+        """
+        fabric = self._piece_stock()
+        self._sale(
+            employee=self.e1.id, total_sales=100, cash_amount=100,
+            items=[{"fabric": fabric.id, "yards": 10, "unit_price": 5}],
+        )
+        r = self.c.get(f"/api/sales/?branch={self.branch.id}&export=xlsx")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(
+            r["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        # ملف xlsx أرشيف zip يبدأ بـ«PK»؛ فبأي نصّ آخر لن يفتحه Excel.
+        self.assertTrue(r.content.startswith(b"PK"))
+        disposition = r["Content-Disposition"]
+        self.assertIn("attachment;", disposition)
+        # الاسم العربي يُرسَل مرّتين: ASCII للمتصفحات القديمة، وfilename*
+        # المرفّز لExcel. فبديلهما يظهر الاسم مبتوراً عند التنزيل.
+        self.assertIn("filename=", disposition)
+        self.assertIn("filename*=UTF-8''", disposition)
+
+    def test_export_refuses_an_unauthenticated_caller(self):
+        """لماذا لا يجوز فتح رابط التصدير في المتصفح مباشرة.
+
+        مصادقة هذا المشروع رمزٌ في ترويسة ``Authorization``، والرابط لا يحمل
+        ترويسات: المتصفح يفتحه طلباً جديداً بلا رمز. فالرابط المباشر يردّ
+        401، أما ``downloadBlob`` فيرسل الرمز فينزل الملف.
+        """
+        r = APIClient().get(f"/api/sales/?branch={self.branch.id}&export=xlsx")
+        self.assertEqual(r.status_code, 401)
