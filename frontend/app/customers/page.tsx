@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -77,22 +77,35 @@ export default function CustomersPage() {
   const [invoiceItemIds, setInvoiceItemIds] = useState<number[]>([]);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
 
-  const fetchData = useCallback(() => {
-    let cancelled = false;
-    setLoading(true);
-    const params: Record<string, string | number | undefined | null> = {
-      page, page_size: pageSize, search: search || undefined,
+  /**
+   * استعلامٌ واحدٌ يبني القائمةَ ويُبنى عليه التصدير.
+   *
+   * كان التصدير يسألُ الخادم من جديد بمعطياتٍ لا شيءَ منها مما يراه
+   * المستخدم: لا بحثٌ ولا فرعٌ ولا تاريخان ولا ترتيب. فالملفّ كان يصلُ
+   * أبجدياً وكاملاً دائماً، من أيّ شاشةٍ صُدِّر منها — فلا يُعرف الخطأُ
+   * فيه حتى لا تُطابق الأرقام.
+   */
+  const listParams = useMemo(
+    (): Record<string, string | number | undefined | null> => ({
+      search: search || undefined,
       branch: filterBranch || undefined,
       ordering: sort || undefined,
       date_from: noDates ? undefined : dateFrom || undefined,
       date_to: noDates ? undefined : dateTo || undefined,
-    };
+    }),
+    [search, filterBranch, sort, dateFrom, dateTo, noDates]
+  );
+
+  const fetchData = useCallback(() => {
+    let cancelled = false;
+    setLoading(true);
+    const params = { ...listParams, page, page_size: pageSize };
     listCustomers(params)
       .then((res) => { if (!cancelled) setData(res); })
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize, search, filterBranch, sort, dateFrom, dateTo, noDates, toast]);
+  }, [page, pageSize, listParams, toast]);
 
   useEffect(() => fetchData(), [fetchData]);
 
@@ -239,14 +252,14 @@ export default function CustomersPage() {
   };
 
   /**
-   * يصدّر كل الزبائن لا الصفحة المعروضة فقط.
+   * يصدّر كلّ ما تعرضه الشاشة، لا الصفحة المعروضة فقط.
    *
-   * الـ endpoint يقبل `page_size`، فنسأل عن العدد الكامل ونمرّر `res.results` —
-   * لو صدّرنا `data` الحالي لانتفقت الخطة مع ما يراه المستخدم على الشاشة.
+   * ومعه البحثُ والفرعُ والتاريخان والترتيبُ الذي يراه الموظف فوق.
+   * ولو صدّرنا `data` الحالي لانتفقت الصفحاتُ مع ما يراه على الشاشة.
    */
   const handleExport = async () => {
     try {
-      const res = await listCustomers({ page_size: 100000 });
+      const res = await listCustomers({ ...listParams, page_size: 100000 });
       downloadCsv(csvFilename('customers'), [
         { header: 'الاسم', value: (c: Customer) => c.name },
         { header: 'الهاتف', value: (c: Customer) => c.phone },
@@ -256,7 +269,13 @@ export default function CustomersPage() {
         { header: 'إجمالي المشتريات', value: (c: Customer) => c.purchase_total ?? 0 },
         { header: 'آخر شراء', value: (c: Customer) => c.last_purchase_date || '' },
       ], res.results);
-      toast('success', `تم تصدير ${res.results.length} زبون`);
+      const filtered = Boolean(search || filterBranch || sort || !noDates);
+      toast(
+        'success',
+        filtered
+          ? `تم تصدير ${res.results.length} زبوناً ممّا تعرضه الشاشة`
+          : `تم تصدير ${res.results.length} زبون`
+      );
     } catch (err: any) {
       toast('error', err.message);
     }
