@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
@@ -21,40 +21,18 @@ import { getDashboardActivity, getDashboardAlerts, getDashboardSummary } from '@
 import { listBranches } from '@/services/branches';
 import { Branch } from '@/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
+import {
+  comparableMonthSpans,
+  compareLabel,
+  currentMonthKey,
+  deltaText,
+  monthLabel,
+  shiftMonthKey,
+} from '@/lib/dashboard';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useUrlState } from '@/lib/useUrlState';
-
-function deltaText(pct: number | null | undefined): string {
-  if (pct === null || pct === undefined) return '';
-  const sign = pct >= 0 ? '+' : '−';
-  return `${sign}${Math.abs(pct)}% عن الفترة السابقة`;
-}
-
-function currentMonthKey(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthRange(ym: string): { from: string; to: string } {
-  const [y, m] = ym.split('-').map(Number);
-  const lastDay = new Date(y, m, 0).getDate();
-  return { from: `${ym}-01`, to: `${ym}-${String(lastDay).padStart(2, '0')}` };
-}
-
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number);
-  const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
-  return `${months[(m || 1) - 1]} ${y}`;
-}
-
-function compareLabel(a: number, b: number): string {
-  if (!a) return 'لا بيانات في الشهر الأول';
-  const pct = ((b - a) / a) * 100;
-  const sign = pct >= 0 ? '+' : '−';
-  return `${sign}${Math.abs(pct).toFixed(1)}% مقارنة بالشهر الأول`;
-}
 
 export default function DashboardPage() {
   const { toast } = useToast();
@@ -74,11 +52,14 @@ export default function DashboardPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [monthA, setMonthA] = useState<string>(currentMonthKey());
-  const [monthB, setMonthB] = useState<string>(() => {
-    const now = new Date();
-    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [monthB, setMonthB] = useState<string>(() => shiftMonthKey(currentMonthKey(), -1));
+  // One span pair, used by the fetch and by the caption below it. Two
+  // calculations could drift apart and then the panel would describe a
+  // comparison it is not actually making.
+  const monthSpans = useMemo(
+    () => comparableMonthSpans(monthA, monthB),
+    [monthA, monthB]
+  );
   const [monthDataA, setMonthDataA] = useState<DashboardSummary | null>(null);
   const [monthDataB, setMonthDataB] = useState<DashboardSummary | null>(null);
   const [monthLoading, setMonthLoading] = useState(false);
@@ -132,8 +113,8 @@ export default function DashboardPage() {
     if (!monthA || !monthB) return;
     let cancelled = false;
     setMonthLoading(true);
-    const a = monthRange(monthA);
-    const b = monthRange(monthB);
+    const a = { from: monthSpans.a.from, to: monthSpans.a.to };
+    const b = { from: monthSpans.b.from, to: monthSpans.b.to };
     const paramsA: Record<string, string | number | undefined> = { date_from: a.from, date_to: a.to };
     const paramsB: Record<string, string | number | undefined> = { date_from: b.from, date_to: b.to };
     if (branch) { paramsA.branch = branch; paramsB.branch = branch; }
@@ -146,7 +127,7 @@ export default function DashboardPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setMonthLoading(false); });
     return () => { cancelled = true; };
-  }, [monthA, monthB, branch]);
+  }, [monthSpans, branch]);
 
   return (
     <AppShell>
@@ -271,12 +252,18 @@ export default function DashboardPage() {
                 </div>
               ) : monthDataA && monthDataB ? (
                 <>
+                  {monthSpans.partial && (
+                    <p className="mb-4 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+                      مقارنةً على أوّل {monthSpans.days} يوماً من كل شهر، لأنّ أحدهما ما زال جارياً
+                      <span className="font-medium">وإلا قِسنا {monthSpans.days} يوماً في شهرٍ كامل</span>
+                    </p>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                     <div className="p-4 rounded-2xl border border-emerald-200 bg-emerald-50/50">
                       <div className="flex items-center justify-between mb-1">
                         <p className="text-sm text-emerald-700">إجمالي المبيعات</p>
                         <Badge variant={monthDataB.total_sales >= monthDataA.total_sales ? 'success' : 'neutral'}>
-                          {compareLabel(monthDataA.total_sales, monthDataB.total_sales)}
+                          {compareLabel('مبياعات', monthDataA.total_sales, monthDataB.total_sales)}
                         </Badge>
                       </div>
                       <div className="flex items-end justify-between gap-2">
@@ -295,7 +282,7 @@ export default function DashboardPage() {
                       <div className="flex items-center justify-between mb-1">
                         <p className="text-sm text-red-700">إجمالي المصاريف</p>
                         <Badge variant={monthDataB.total_expenses <= monthDataA.total_expenses ? 'success' : 'neutral'}>
-                          {compareLabel(monthDataA.total_expenses, monthDataB.total_expenses)}
+                          {compareLabel('مصاريف', monthDataA.total_expenses, monthDataB.total_expenses)}
                         </Badge>
                       </div>
                       <div className="flex items-end justify-between gap-2">
@@ -314,7 +301,7 @@ export default function DashboardPage() {
                       <div className="flex items-center justify-between mb-1">
                         <p className="text-sm text-brand-700">صافي الفترة</p>
                         <Badge variant={monthDataB.net >= monthDataA.net ? 'success' : 'neutral'}>
-                          {compareLabel(monthDataA.net, monthDataB.net)}
+                          {compareLabel('صافي', monthDataA.net, monthDataB.net)}
                         </Badge>
                       </div>
                       <div className="flex items-end justify-between gap-2">

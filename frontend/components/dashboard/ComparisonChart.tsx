@@ -3,6 +3,7 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { DashboardChartPoint } from '@/types';
 import { formatCurrency } from '@/lib/format';
+import { axisMoney } from '@/lib/dashboard';
 import EmptyState from '@/components/ui/EmptyState';
 import { TrendingUp } from 'lucide-react';
 
@@ -42,7 +43,7 @@ export default function ComparisonChart({ current, previous }: ComparisonChartPr
         <LineChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e8e4db" />
           <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#737373' }} />
-          <YAxis tick={{ fontSize: 12, fill: '#737373' }} />
+          <YAxis tick={{ fontSize: 12, fill: '#737373' }} tickFormatter={axisMoney} width={70} />
           <Tooltip
             contentStyle={{
               borderRadius: '12px',
