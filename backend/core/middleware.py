@@ -24,6 +24,30 @@ _auto_backup_lock = threading.Lock()
 _last_auto_backup_check = 0.0
 
 
+def _database_is_throwaway() -> bool:
+    """True when the default connection points at a database built to be discarded.
+
+    Test runs are not something you should be billed for; they are
+    something that must never charge you. Every request that gets past
+    the throttle serialises the whole database into ``MEDIA_ROOT/backups``,
+    and that directory keeps only ``BACKUP_KEEP`` files, the oldest going
+    first. So one test run that reaches this middleware spends a real
+    backup slot on test data and pushes out a real backup: the last copy
+    of yesterday's books, deleted by a change to a serializer.
+
+    The test is the database name, not the process. Asking "is this a test?"
+    means guessing from argv and environment, and a guess that is wrong in
+    the direction of "yes" is how a real backup gets thrown away. The name
+    is the thing that is actually true about the data. A production
+    database genuinely called ``test_something`` would lose its
+    auto-backup -- a deliberate trade, and cheaper than the other direction.
+    """
+    from django.db import connections
+
+    name = connections["default"].settings_dict.get("NAME") or ""
+    return str(name).startswith("test_")
+
+
 def _check_auto_backup():
     """Run the auto backup if it is due — throttled in-process to at most once a minute.
 
@@ -31,6 +55,8 @@ def _check_auto_backup():
     المجانية) يتحقق التطبيق دورياً كلما مرّ طلب، ويُنشئ النسخة التلقائية عند موعدها.
     """
     global _last_auto_backup_check
+    if _database_is_throwaway():
+        return
     with _auto_backup_lock:
         now = time.time()
         if now - _last_auto_backup_check < _AUTO_BACKUP_MIN_INTERVAL_SECONDS:
