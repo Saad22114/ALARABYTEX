@@ -59,20 +59,29 @@ describe('Input numeric behaviour', () => {
     expect(el.pattern).toBe('[0-9]*');
   });
 
-  it('blocks non-digit keys', () => {
-    const onChange = vi.fn();
-    render(<Input type="number" value="" onChange={onChange} />);
+  // fireEvent returns false when the handler called preventDefault. That is the
+  // only honest way to test this: jsdom inserts no text on keydown, so an
+  // "onChange was not called" assertion passes whether the key was blocked or
+  // not -- which is exactly how the decimal point stayed blocked unnoticed.
+  it('blocks letter keys', () => {
+    render(<Input type="number" value="" onChange={() => {}} />);
     const el = screen.getByRole('textbox') as HTMLInputElement;
-    fireEvent.keyDown(el, { key: 'a' });
-    expect(onChange).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(el, { key: 'a' })).toBe(false);
   });
 
   it('allows digit keys', () => {
-    const onChange = vi.fn();
-    render(<Input type="number" value="" onChange={onChange} />);
+    render(<Input type="number" value="" onChange={() => {}} />);
     const el = screen.getByRole('textbox') as HTMLInputElement;
-    fireEvent.keyDown(el, { key: '5' });
-    expect(onChange).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(el, { key: '5' })).toBe(true);
+  });
+
+  it('leaves navigation and editing keys alone', () => {
+    render(<Input type="number" value="" onChange={() => {}} />);
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    for (const key of ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight',
+                       'Home', 'End', 'Tab', 'Enter']) {
+      expect(fireEvent.keyDown(el, { key })).toBe(true);
+    }
   });
 
   it('sanitizes pasted text via sanitizeNumeric', () => {
@@ -103,3 +112,74 @@ describe('Input numeric behaviour', () => {
     expect(el.inputMode).toBe('');
   });
 });
+
+/**
+ * «اريد اكتب 1.4 يكتب 14» — the dot is the whole meaning of a decimal field.
+ *
+ * The keypad was already right (inputMode="decimal"), and the sanitiser already
+ * kept one dot. The keydown guard in between rejected every single-character key
+ * that was not a digit, so on any keyboard that emits a key event for the
+ * decimal key -- Android's decimal pad does -- the dot never arrived.
+ */
+describe('the decimal point', () => {
+  it('is not blocked in a decimal field', () => {
+    render(<Input type="number" value="" onChange={() => {}} />);
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    expect(fireEvent.keyDown(el, { key: '.' })).toBe(true);
+  });
+
+  it('is accepted in whichever form the keyboard sends it', () => {
+    render(<Input type="number" value="" onChange={() => {}} />);
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    for (const key of [',', '٫', '٬', '،']) {
+      expect(fireEvent.keyDown(el, { key })).toBe(true);
+    }
+  });
+
+  it('is still blocked where the field is a whole number', () => {
+    render(<Input type="number" numeric="int" value="" onChange={() => {}} />);
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    expect(fireEvent.keyDown(el, { key: '.' })).toBe(false);
+  });
+
+  it('still blocks letters and arithmetic keys', () => {
+    render(<Input type="number" value="" onChange={() => {}} />);
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    for (const key of ['a', 'e', '-', '+', '$', '*', '/']) {
+      expect(fireEvent.keyDown(el, { key })).toBe(false);
+    }
+  });
+
+  it('reads 1 . 4 as 1.4', () => {
+    // Assert on what the page receives, not on el.value: a controlled input
+    // with a no-op onChange is re-rendered back to "", so the DOM value says
+    // nothing about what the field decided.
+    const seen: string[] = [];
+    render(<Input type="number" value="" onChange={(e) => seen.push(e.target.value)} />);
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    expect(fireEvent.keyDown(el, { key: '.' })).toBe(true);
+    fireEvent.change(el, { target: { value: '1.4' } });
+    expect(seen).toEqual(['1.4']);
+  });
+
+  it('collapses a second dot rather than letting it through', () => {
+    // Letting the key through must not mean letting nonsense through: the
+    // sanitiser is still the only gate on what ends up in the database.
+    const seen: string[] = [];
+    render(<Input type="number" value="" onChange={(e) => seen.push(e.target.value)} />);
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(el, { target: { value: '1.4.5' } });
+    expect(seen).toEqual(['1.45']);
+  });
+
+  it('drops the dot in an int field at the value level too', () => {
+    const seen: string[] = [];
+    render(
+      <Input type="number" numeric="int" value="" onChange={(e) => seen.push(e.target.value)} />
+    );
+    const el = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(el, { target: { value: '1.4' } });
+    expect(seen).toEqual(['14']);
+  });
+
+  });

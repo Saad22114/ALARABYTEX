@@ -12,6 +12,13 @@ const NON_LATIN_DIGITS = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
 const NON_LATIN_SEP = '٫٬،';
 
 /**
+ * ما يقبله sanitizeNumeric فاصلاً: نقطة، فاصلة، والفواصل العربية.
+ * مشتقٌّ من الثابتين أعلاه لا مكتوبٌ بجوارهما، حتى لا يختلف المرشّحُ عن
+ * الضغط على المفتاح فتُحجب فاصلةٌ يسمح بها أحدهما.
+ */
+const DECIMAL_SEPARATOR_KEYS = `.,${NON_LATIN_SEP}`;
+
+/**
  * يُبقي الأرقام فقط، وفاصلة عشرية واحدة كحد أقصى، ويسقط كل ما عداها:
  * الحروف، الرموز، إشارة السالب، وعلامة الأسّ (e) التي يقبلها type="number".
  *
@@ -105,8 +112,15 @@ export default function Input({
   const maxNum = typeof max === 'number' ? max : undefined;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (isNumber && e.key.length === 1 && !/[0-9]/.test(e.key)) {
-      e.preventDefault();
+    if (isNumber && e.key.length === 1) {
+      const isDigit = /[0-9]/.test(e.key);
+      // النقطةُ هي كلُّ معنى الخانة العشرية. المرشّحُ في onChange يحتفظ
+      // بواحدة ويسقط الثانية، فإمرارُها من هنا لا يكلّف شيئاً — وحجبُها
+      // هو الفرق بين «1.4» و«14»، وهو أسوأُ ما يصيب بائعاً حُرِم من فاصلة.
+      const isSeparator = !isInt && DECIMAL_SEPARATOR_KEYS.includes(e.key);
+      if (!isDigit && !isSeparator) {
+        e.preventDefault();
+      }
     }
     onKeyDown?.(e);
   };
