@@ -243,3 +243,170 @@ class CustomerApiTests(TestCase):
         res = self.client.get(self.list_url, {"date_from": "2026-09-01", "date_to": "2026-09-30"})
         self.assertEqual(res.json()["count"], 1)
         self.assertEqual(res.json()["results"][0]["id"], recent.pk)
+
+    # ------------------------------------------------- الرقم واحدٌ برسمين
+
+    def test_create_rejects_the_same_digits_in_another_drawing(self):
+        """«0565-555-555» و«0565555555» سطران في الجدول، ورقمٌ واحد عند الناس.
+
+        وقاعدةُ البيانات لا ترى ذلك: ``unique=True`` يقارن النصّ حرفاً بحرف.
+        فلو سقط الفحصُ على مقارنة الرسم، لكُتب الرقم مرّتين، وصار في المحل
+        زبونان يقرآن الرقمَ نفسَه فيتّهم كلٌّ منهما الآخر.
+        """
+        Customer.objects.create(name="منى", phone="0565-555-555", branch=self.branch)
+        for typed in ("0565555555", "0565 555 555", "05-65-555-555"):
+            with self.subTest(typed=typed):
+                res = self.client.post(
+                    self.list_url,
+                    {"name": "مكرر", "phone": typed, "branch": self.branch.pk},
+                    content_type="application/json",
+                )
+                self.assertEqual(res.status_code, 400)
+                self.assertIn("منى", str(res.json()["phone"]))
+
+    def test_create_rejects_the_twin_in_the_other_direction(self):
+        """الاتجاهُ المعاكس هو المهمّ: المسجَّل بلا فواصل، والمكتوب بفاصل."""
+        Customer.objects.create(name="سالم", phone="0565555555", branch=self.branch)
+        res = self.client.post(
+            self.list_url,
+            {"name": "مكرر", "phone": "0565-555-555", "branch": self.branch.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("سالم", str(res.json()["phone"]))
+
+    def test_short_numbers_are_checked_too(self):
+        """الرقمُ القصيرُ أرجحُ خطأٍ منه رقماً صحيحاً، فالفحصُ عليه أوجب.
+
+        وهنا الفحصُ بسقفٍ منخفض مقصود: في البحث نرفض أقلَّ من سبعة أرقام لأنّ
+        السؤال «هل أعرفه؟»، أمّا هنا فالسؤال «هل واحدٌ مرّتين؟» — وفيه الرقمُ
+        القصيرُ نفسه هو الدليل.
+        """
+        Customer.objects.create(name="قديم", phone="05-05", branch=self.branch)
+        res = self.client.post(
+            self.list_url,
+            {"name": "مكرر", "phone": "0505", "branch": self.branch.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("phone", res.json())
+
+    def test_update_keeps_its_own_phone(self):
+        """من يحفظ رقمه هو ليس مكرِّراً لأحد — وإلا استحال التعديل أصلاً."""
+        c = Customer.objects.create(name="قديم", phone="0565555555", branch=self.branch)
+        res = self.client.put(
+            self._url(c.pk),
+            {"id": c.pk, "name": "جديد", "phone": "0565555555", "branch": self.branch.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        c.refresh_from_db()
+        self.assertEqual(c.name, "جديد")
+
+    def test_update_cannot_take_another_customers_number(self):
+        Customer.objects.create(name="منى", phone="0565555555", branch=self.branch)
+        other = Customer.objects.create(name="سالم", phone="0566666666", branch=self.branch)
+        res = self.client.patch(
+            self._url(other.pk),
+            {"phone": "0565-555-555"},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        other.refresh_from_db()
+        self.assertEqual(other.phone, "0566666666")
+
+    # ------------------------------------------------------------ الترتيب
+
+    def _names(self, params):
+        res = self.client.get(self.list_url, {"page_size": 50, **params})
+        self.assertEqual(res.status_code, 200)
+        return [row["name"] for row in res.json()["results"]]
+
+    def _age(self, customer, when):
+        Customer.objects.filter(pk=customer.pk).update(created_at=when)
+
+    def test_order_newest_and_oldest_first(self):
+        first = Customer.objects.create(name="أول", phone="0581111111")
+        middle = Customer.objects.create(name="ثانٍ", phone="0582222222")
+        last = Customer.objects.create(name="ثالث", phone="0583333333")
+        self._age(first, "2026-01-05T10:00:00+04:00")
+        self._age(middle, "2026-05-05T10:00:00+04:00")
+        self._age(last, "2026-09-05T10:00:00+04:00")
+        self.assertEqual(self._names({"ordering": "newest"}), ["ثالث", "ثانٍ", "أول"])
+        self.assertEqual(self._names({"ordering": "oldest"}), ["أول", "ثانٍ", "ثالث"])
+
+    def test_order_by_price_sorts_by_what_they_bought(self):
+        """«السعر الأعلى» مبلغٌ في جدول البنود، لا عمودٌ في جدول الزبائن.
+
+        والترتيبُ به لا يعمل إن حُسب بعد التقسيم إلى صفحات، لأن الصفحة الثانية
+        لا تعرف أرقامَ الأولى — فالحسابُ لازمٌ داخل الاستعلام.
+        """
+        small = Customer.objects.create(name="صغير", phone="0591111111")
+        big = Customer.objects.create(name="كبير", phone="0592222222")
+        middle = Customer.objects.create(name="وسط", phone="0593333333")
+        self._buy(small, "10")
+        self._buy(middle, "100")
+        self._buy(big, "1000")
+        self.assertEqual(
+            self._names({"ordering": "top"}), ["كبير", "وسط", "صغير"]
+        )
+        self.assertEqual(
+            self._names({"ordering": "bottom"}), ["صغير", "وسط", "كبير"]
+        )
+
+    def test_price_order_ignores_customers_who_bought_nothing(self):
+        """من لم يشترِ ليس «صفراً في آخر القائمة» بل لا معنى لمقارنته بالمبلغ.
+
+        إنه يأخذ مكانه في النهاية حين يُرتَّب تنازلياً، ويبدأ القائمة حين يُرتَّب
+        تصاعدياً — فلا يختفي زبونٌ لم يشترِ من الشاشة أبداً.
+        """
+        silent = Customer.objects.create(name="صامت", phone="0599111111")
+        buyer = Customer.objects.create(name="مشترٍ", phone="0599222222")
+        self._buy(buyer, "50")
+        self.assertEqual(self._names({"ordering": "bottom"}), ["صامت", "مشترٍ"])
+        self.assertEqual(self._names({"ordering": "top"}), ["مشترٍ", "صامت"])
+        self.assertIsNotNone(silent.pk)
+
+    def test_price_order_sums_a_number_written_with_spaces(self):
+        """«0561 000009» و«0561000009» رقمٌ واحد، والمبلغُ يجب أن يُحسب مرّةً واحدة."""
+        spaced = Customer.objects.create(name="بمسافات", phone="0561 000009")
+        plain = Customer.objects.create(name="بلا مسافات", phone="0599333333")
+        self._buy(spaced, "40")
+        self._buy(spaced, "2")  # نفس الرقم، رسمٌ آخر: يجب أن يُجمَع معه
+        self._buy(plain, "30")
+        self.assertEqual(self._names({"ordering": "top"}), ["بمسافات", "بلا مسافات"])
+
+    def test_search_keeps_closeness_first_and_the_chosen_order_after(self):
+        """البحثُ يقدّم الأقرب، والترتيبُ الذي اختاره الزائر يفصل بين المتساويين."""
+        old = Customer.objects.create(name="قديم", phone="0561000001")
+        recent = Customer.objects.create(name="حديث", phone="0561000002")
+        self._age(old, "2026-01-05T10:00:00+04:00")
+        self._age(recent, "2026-09-05T10:00:00+04:00")
+        # كلاهما يبدأ بالرقم المكتوب، فيتساويان في القرب — والفاصل هو التاريخ.
+        self.assertEqual(
+            self._names({"search": "0561", "ordering": "newest"}), ["حديث", "قديم"]
+        )
+        self.assertEqual(
+            self._names({"search": "0561", "ordering": "oldest"}), ["قديم", "حديث"]
+        )
+
+    def _buy(self, customer, total):
+        """سطرُ بيعٍ واحد باسم هذا الزبون — ليس أكثر، فالمبلغُ المطلوب هو المجموع."""
+        from sale_sessions.models import Employee, SaleSession, SaleSessionItem
+        from suppliers.models import Fabric
+
+        if not hasattr(self, "_buyer"):
+            self._fabric = Fabric.objects.create(name="قماش اختبار")
+            self._buyer = Employee.objects.create(name="بائع", branch=self.branch)
+        session = SaleSession.objects.create(employee=self._buyer, branch=self.branch)
+        SaleSessionItem.objects.create(
+            session=session,
+            fabric=self._fabric,
+            sale_type="yard",
+            quantity=1,
+            unit_price=total,
+            total=total,
+            sale_date="2026-09-10",
+            customer_name=customer.name,
+            customer_phone=customer.phone,
+        )

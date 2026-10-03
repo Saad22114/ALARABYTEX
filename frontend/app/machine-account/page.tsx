@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Download,
   Wallet,
+  ArrowRightLeft,
 } from 'lucide-react';
 import {
   Branch,
@@ -35,6 +36,7 @@ import {
   createCollection,
   deleteCollection,
   listAllCollections,
+  transferToBank,
 } from '@/services/machine';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -103,6 +105,15 @@ export default function MachineAccountPage() {
   });
   const [deleting, setDeleting] = useState<MachineCollection | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [transfer, setTransfer] = useState({
+    open: false,
+    amount: '',
+    date: new Date().toISOString().slice(0, 10),
+    branch: '',
+    reference: '',
+    notes: '',
+  });
+  const [transferLoading, setTransferLoading] = useState(false);
 
   const fetchData = useCallback(() => {
     const params: Record<string, string> = { date_from: from, date_to: to };
@@ -140,6 +151,14 @@ export default function MachineAccountPage() {
       data?.accounts?.[key] || { ...EMPTY, label: ACCOUNT_META[key].label, hint: '' },
     [data]
   );
+
+  /**
+   * ما في الماكينة فعلاً أمّا رصيدُ البطاقة المعروض في البطاقة.
+   *
+   * الأول متراكمٌ من أوّل يومٍ، والثاني محسوبٌ للفترة المعروضة. وأولاهما هو
+   * الذي يحدُّ التحويل — ولولاه لاستطاع الموظف أن يحوّل مالَ العام الماضي مرّتين.
+   */
+  const machineAvailable = data?.transferable ?? 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,6 +212,50 @@ export default function MachineAccountPage() {
     }
     setForm((f) => ({ ...f, account: key, amount: balance.toFixed(2), method: 'transfer' }));
     toast('info', `عبّأنا المبلغ بالمتبقي على ${ACCOUNT_META[key].label} — عدّل التاريخ والمرجع ثم سجّل`);
+  };
+
+  /** يُعبّئ استمارة التحويل ببقية رصيد الماكينة، ويقول للزائر إن لم يكن هناك رصيد. */
+  const openTransfer = () => {
+    const available = machineAvailable;
+    if (available <= 0) {
+      toast('info', 'لا يوجد في الماكينة مبلغٌ غير مُودَع يمكن تحويله');
+      return;
+    }
+    setTransfer((t) => ({
+      ...t,
+      open: true,
+      amount: available.toFixed(2),
+      branch: branchFilter,
+    }));
+  };
+
+  const handleTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(transfer.amount);
+    if (!amount || amount <= 0) {
+      toast('error', 'أدخل المبلغ المحوَّل');
+      return;
+    }
+    setTransferLoading(true);
+    try {
+      const res = await transferToBank({
+        amount,
+        date: transfer.date,
+        branch: transfer.branch ? Number(transfer.branch) : null,
+        reference: transfer.reference,
+        notes: transfer.notes,
+      });
+      toast(
+        'success',
+        `تم تحويل ${formatCurrency(res.transferred)} — المتبقّي في الماكينة ${formatCurrency(res.machine_remaining)}`
+      );
+      setTransfer((t) => ({ ...t, open: false, amount: '', reference: '', notes: '' }));
+      fetchData().then(setData);
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setTransferLoading(false);
+    }
   };
 
   const handleExport = async () => {
@@ -405,7 +468,93 @@ export default function MachineAccountPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* تحويل من الماكينة إلى البنك */}
+              <Card
+                title="«تحويل من الماكينة إلى البنك»"
+                className="lg:col-span-1"
+              >
+                <div className="rounded-xl bg-sky-50 dark:bg-sky-500/10 px-3 py-2 text-xs text-sky-800 dark:text-sky-200">
+                  في الماكينة الآن مبلغٌ غير مُودَع قدره{' '}
+                  <b className="tabular-nums">{formatCurrency(machineAvailable)}</b>
+                  {!transfer.open && machineAvailable > 0 && (
+                    <Button
+                      variant="secondary"
+                      className="mt-3 w-full"
+                      onClick={openTransfer}
+                    >
+                      <ArrowRightLeft size={16} />
+                      حوِّل مبلغاً إلى البنك
+                    </Button>
+                  )}
+                </div>
+
+                {transfer.open ? (
+                  <form onSubmit={handleTransfer} className="mt-3 space-y-3">
+                    <Input
+                      label="المبلغ المحوَّل إلى البنك"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={transfer.amount}
+                      onChange={(e) => setTransfer((t) => ({ ...t, amount: e.target.value }))}
+                      placeholder="0.00"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Input
+                        label="التاريخ"
+                        type="date"
+                        value={transfer.date}
+                        onChange={(e) => setTransfer((t) => ({ ...t, date: e.target.value }))}
+                      />
+                      <Select
+                        label="الفرع"
+                        value={transfer.branch}
+                        onChange={(e) => setTransfer((t) => ({ ...t, branch: e.target.value }))}
+                        options={[
+                          { value: '', label: 'الحساب الكلّي' },
+                          ...branches.map((b) => ({ value: b.id, label: b.name })),
+                        ]}
+                      />
+                    </div>
+                    <Input
+                      label="رقم الحوالة (اختياري)"
+                      value={transfer.reference}
+                      onChange={(e) => setTransfer((t) => ({ ...t, reference: e.target.value }))}
+                      placeholder="TRF-..."
+                    />
+                    <Input
+                      label="ملاحظات (اختياري)"
+                      value={transfer.notes}
+                      onChange={(e) => setTransfer((t) => ({ ...t, notes: e.target.value }))}
+                      placeholder="ملاحظات..."
+                    />
+                    <div className="flex gap-2">
+                      <Button type="submit" loading={transferLoading} className="flex-1">
+                        <ArrowRightLeft size={16} />
+                        تأكيد التحويل
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="subtle"
+                        onClick={() => setTransfer((t) => ({ ...t, open: false }))}
+                      >
+                        إلغاء
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      التحويلُ يخرج المال من الماكينة ويدخل البنك، ولا يُقبل إلا بقدر ما
+                      فيها فعلاً — فالمبلغُ الأكبر يُرفض قبل أن يُسجَّل.
+                    </p>
+                  </form>
+                ) : (
+                  <p className="text-[11px] text-neutral-400 leading-relaxed mt-3">
+                    الصيغةُ أعلاه تُسجّل إيداعاً يخرج من الماكينة — وهو ما تحتاجه حين
+                    تحمل ماكينةُ البطاقة مالاً ثم تُودَع في البنك.
+                  </p>
+                )}
+              </Card>
+
               {/* تسجيل دفعة */}
               <Card title="«وصلني كذا» — تسجيل دفعة واردة" className="lg:col-span-1">
                 <form onSubmit={handleSubmit} className="space-y-3">

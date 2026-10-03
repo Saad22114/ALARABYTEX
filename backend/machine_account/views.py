@@ -4,16 +4,21 @@ from datetime import date, timedelta
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.branch_scope import scope_queryset
+from core.branch_scope import assert_write_branch_allowed, scope_queryset
 from sales.models import DailySale
 
 from .models import MachineCollection
 from .serializers import MachineCollectionSerializer
 
 ZERO = Decimal("0")
+
+#: أوّل يومٍ نعدّ منه. لا نبدأ من «اليوم» ولا من «بداية الشهر المعروض»: رصيدُ
+#: الماكينة مالٌ متراكمٌ في الصندوق، وسقفُ التحويل يجب أن يرى كلَّه.
+EPOCH = date(2000, 1, 1)
 
 #: كل حساب تسوية وعمود المبيعات اليومية الذي يقابله.
 #:
@@ -183,11 +188,20 @@ class MachineAccountView(APIView):
             "balance": sum(totals[k]["balance"] for k in keys),
         }
 
+        # ما يمكن تحويلُه من الماكينة إلى البنك الآن، وهو نفس السقف الذي
+        # تمنع عنده نقطةُ التحويل. رصيدٌ متراكمٌ لا رصيدُ الفترة المعروضة:
+        # الصندوقُ لا يُفرَّغ كلَّ شهر، ورصيدُ هذه الشاشة قد يكون صفراً وفي
+        # الماكينة مالٌ لم يُودَع منذ العام الماضي.
+        _, _, transferable = _account_figures(
+            request, EPOCH, today, branch, MachineCollection.Account.MACHINE
+        )
+
         return Response({
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
             "accounts": totals,
             "combined": combined,
+            "transferable": float(transferable),
             "month": month,
             "months": months,
             "recent_collections": MachineCollectionSerializer(recent, many=True).data,
@@ -223,6 +237,87 @@ class MachineCollectionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+
+    @action(detail=False, methods=["post"], url_path="transfer")
+    def transfer(self, request):
+        """«حوِّل من الماكينة إلى البنك»: مالٌ يخرج من الماكينة إلى البنك في خطوة.
+
+        المالُ الذي في الماكينة ليس حراً أن يُختلق. رصيدُ الماكينة يقول بالضبط
+        كم من مبيعات البطاقة لم يُودَع بعد، وهو سقفٌ لا يُتجاوز: أن تُسجِّل دفعةً
+        أكبرَ منه يعني أن المحل يملك مالاً لا يملكه، وأن الدفعة لا تُسدِّد شيئاً.
+
+        والسقفُ هنا رصيدٌ متراكم من أوّل يومٍ حتى اليوم، لا رصيدُ الفترة
+        المعروضة في الشاشة. والصندوقُ لا يُفرَّغ كلَّ شهر، فلو قِسناه بالشهر
+        لأمكن تحويلُ مبلغٍ لم يُودَع بعدُ أبداً.
+
+        POST /api/machine-account/collections/transfer/
+        """
+        amount = request.data.get("amount")
+        try:
+            amount = Decimal(str(amount))
+        except (TypeError, ValueError, ArithmeticError):
+            return Response(
+                {"detail": "أدخل مبلغاً صحيحاً"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if amount <= ZERO:
+            return Response(
+                {"detail": "المبلغ المحوَّل يجب أن يكون أكبر من صفر"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        branch = request.data.get("branch")
+        try:
+            branch = int(branch) if branch not in (None, "") else None
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "الفرع غير صحيح"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        assert_write_branch_allowed(request, branches=[branch])
+
+        # السقفُ رصيدٌ متراكم من أوّل يومٍ حتى اليوم، لا رصيدُ الشاشة.
+        _, _, outstanding = _account_figures(
+            request, EPOCH, timezone.localdate(), branch, MachineCollection.Account.MACHINE
+        )
+        if amount > outstanding:
+            return Response(
+                {
+                    "detail": (
+                        f"المبلغ المحوَّل أكبر من رصيد الماكينة غير المُودَع "
+                        f"({outstanding})"
+                    ),
+                    "available": float(outstanding),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            when = date.fromisoformat(str(request.data.get("date") or ""))
+        except (TypeError, ValueError):
+            when = timezone.localdate()
+
+        row = MachineCollection.objects.create(
+            account=MachineCollection.Account.MACHINE,
+            branch_id=branch,
+            date=when,
+            amount=amount,
+            method=MachineCollection.CollectionMethod.TRANSFER,
+            reference=str(request.data.get("reference") or "")[:100],
+            notes=str(request.data.get("notes") or "")[:255],
+            created_by=request.user if request.user.is_authenticated else None,
+        )
+        _, _, remaining = _account_figures(
+            request, EPOCH, timezone.localdate(), branch, MachineCollection.Account.MACHINE
+        )
+        return Response(
+            {
+                "collection": MachineCollectionSerializer(row).data,
+                "transferred": float(amount),
+                "machine_remaining": float(remaining),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

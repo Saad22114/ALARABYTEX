@@ -242,3 +242,88 @@ class SettlementAccountTest(TestCase):
         months = {m["month"]: m for m in r.data["months"]}
         self.assertEqual(months["2026-03"]["accounts"]["machine"]["sales"], 800.0)
         self.assertEqual(months["2026-03"]["accounts"]["bank"]["sales"], 400.0)
+
+    # ---------------------------------------------- تحويل من الماكينة إلى البنك
+
+    def _transfer(self, amount, branch=None, date_str="2026-03-26", **kw):
+        data = {
+            "amount": amount,
+            "branch": branch.id if branch else None,
+            "date": date_str,
+            "reference": "TRF-9",
+        }
+        data.update(kw)
+        return self.c.post(
+            "/api/machine-account/collections/transfer/", data, format="json"
+        )
+
+    def test_transfer_moves_money_out_of_the_machine(self):
+        self._sale(self.branch, card=1000)
+        r = self._transfer(400, branch=self.branch)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["transferred"], 400.0)
+        self.assertEqual(r.data["machine_remaining"], 600.0)
+
+        row = MachineCollection.objects.get()
+        self.assertEqual(row.account, "machine")
+        self.assertEqual(row.method, "transfer")
+        self.assertEqual(row.reference, "TRF-9")
+
+        # ثم يظهر في جدول الدفعات والرصيدُ ينقص كما ينقص أي إيداع.
+        self.assertEqual(
+            self.c.get("/api/machine-account/collections/").data["count"], 1
+        )
+        r2 = self.c.get("/api/machine-account/", {**self.range, "branch": self.branch.id})
+        self.assertEqual(self._machine(r2)["balance"], 600.0)
+
+    def test_transfer_cannot_exceed_what_the_machine_holds(self):
+        """السقفُ ليس زينةً في الشاشة: هو ما في الماكينة فعلاً.
+
+        ولو سمحنا بأكثر منه لأمكن تسجيل دفعةٍ لا تسدِّد شيئاً، فيبقى الرصيدُ
+        موجباً كما لو أنّ المال لم يتحرّك — ويظنّ المحلّ أنّ ما في الماكينة
+        أكبرُ ممّا هو فيه.
+        """
+        self._sale(self.branch, card=1000)
+        r = self._transfer(1001, branch=self.branch)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["available"], 1000.0)
+        self.assertEqual(MachineCollection.objects.count(), 0)
+
+    def test_transfer_rejected_when_the_machine_is_empty(self):
+        self._sale(self.branch, card=0)
+        r = self._transfer(1, branch=self.branch)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(MachineCollection.objects.count(), 0)
+
+    def test_transfer_limit_spans_older_sales(self):
+        """السقفُ رصيدٌ متراكم، لا رصيدُ الشهر المعروض.
+
+        الصندوقُ لا يُفرَّغ كلَّ شهر. فلو قِسناه بالفترة المعروضة لأمكن في
+        فبراير تحويلُ مالَ يناير كلِّه ثم تحويلُه مرّةً أخرى في فبراير.
+        """
+        self._sale(self.branch, card=800, date_str="2026-01-10")
+        self._sale(self.branch, card=500, date_str="2026-03-10")
+
+        self.assertEqual(self._transfer(1300, branch=self.branch).status_code, 201)
+        self.assertEqual(self._transfer(1, branch=self.branch).status_code, 400)
+
+    def test_transfer_does_not_spend_another_branchs_money(self):
+        self._sale(self.branch, card=1000)
+        r = self._transfer(500, branch=self.algo)
+        self.assertEqual(r.status_code, 400)
+        r2 = self._transfer(500, branch=self.branch)
+        self.assertEqual(r2.status_code, 201)
+
+    def test_transfer_rejects_nonsense_amounts(self):
+        self._sale(self.branch, card=1000)
+        for bad in (0, -5, None, "abc"):
+            with self.subTest(amount=bad):
+                r = self._transfer(bad, branch=self.branch)
+                self.assertEqual(r.status_code, 400)
+        self.assertEqual(MachineCollection.objects.count(), 0)
+
+    def test_transfer_falls_back_to_today_on_a_bad_date(self):
+        self._sale(self.branch, card=1000)
+        r = self._transfer(100, branch=self.branch, date_str="not-a-date")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(MachineCollection.objects.get().date, date.today())

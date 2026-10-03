@@ -33,6 +33,28 @@ export async function createCollection(data: Partial<MachineCollection>): Promis
   });
 }
 
+/** مالٌ يخرج من الماكينة إلى البنك. الخادمُ هو من يمنع تجاوز الرصيد — لا النموذج. */
+export interface TransferResult {
+  collection: MachineCollection;
+  transferred: number;
+  machine_remaining: number;
+}
+
+export interface TransferPayload {
+  amount: number;
+  date: string;
+  branch?: number | null;
+  reference?: string;
+  notes?: string;
+}
+
+export async function transferToBank(data: TransferPayload): Promise<TransferResult> {
+  return apiRequest<TransferResult>('/machine-account/collections/transfer/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function deleteCollection(id: number): Promise<void> {
   return apiRequest<void>(`/machine-account/collections/${id}/`, { method: 'DELETE' });
 }

@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from core.phones import find_by_phone
+
 from .models import Customer
 
 
@@ -26,9 +28,18 @@ class CustomerSerializer(serializers.ModelSerializer):
         if value is None:
             return value
         phone = value.strip()
-        qs = Customer.objects.filter(phone=phone)
+        # التطابقُ على الأرقام لا على الرسم. «0565-555-555» و«0565555555» و«0565 555 555»
+        # ثلاثةُ أسطرٍ في قاعدة البيانات، ورقمٌ واحدٌ عند الناس — فالسؤالُ هنا
+        # «هل واحدٌ مرّتين؟» لا «هل أعرفه؟». ولهذا لا يُشترط عددُ الأرقام الأدنى
+        # المعتاد في البحث (سبعة): هنا الغايةُ كشفُ التكرار لا اليقين، والرقمُ
+        # القصيرُ نفسُه أرجحُ خطأً منه رقماً صحيحاً.
+        qs = Customer.objects.all()
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise serializers.ValidationError("رقم الهاتف مسجل مسبقاً لزبون آخر")
+        twin = find_by_phone(qs, phone, min_digits=1).first()
+        if twin is not None:
+            raise serializers.ValidationError(
+                f"رقم الهاتف مسجل مسبقاً للزبون «{twin.name}» — "
+                "أدخله كما هو أو اختر رقماً آخر"
+            )
         return phone

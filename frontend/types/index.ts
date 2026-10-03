@@ -1951,6 +1951,11 @@ export interface MachineAccountResult {
   /** مفاتيحُ الحسبين قد تكون ناقصة عند طلب حساب واحد عبر `?account=`. */
   accounts: Partial<Record<SettlementAccountKey, SettlementAccount>>;
   combined: SettlementFigures;
+  /**
+   * ما يمكن تحويله من الماكينة إلى البنك الآن. رصيدٌ متراكمٌ من أوّل يومٍ
+   * حتى اليوم، لا رصيدُ الفترة المعروضة — فهو سقفُ التحويل نفسه.
+   */
+  transferable: number;
   month: Partial<Record<SettlementAccountKey, SettlementFigures>>;
   months: MachineAccountMonth[];
   recent_collections: MachineCollection[];

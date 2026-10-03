@@ -1,6 +1,21 @@
 from django.conf import settings
 import re
-from django.db.models import Case, Count, IntegerField, Max, Q, Sum, When
+from decimal import Decimal
+
+from django.db.models import (
+    Case,
+    Count,
+    DecimalField,
+    IntegerField,
+    Max,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce, Replace
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter
@@ -20,7 +35,19 @@ class CustomerViewSet(viewsets.ModelViewSet):
     queryset = Customer.objects.select_related("branch").order_by("name")
     serializer_class = CustomerSerializer
     search_fields = ["name", "phone", "email", "address"]
-    ordering_fields = ["name", "phone", "created_at", "is_active"]
+    ordering_fields = ["name", "phone", "created_at", "is_active", "purchase_total"]
+    #: «الأحدث أولاً» و«الأعلى سعراً» اسمان يطلبهما الموظف بلغته، لا أسماء
+    #: أعمدة يعرفها الخادم وحده. فنرتّب فقط حين يُطلب الترتيب، فلا نُحمّل
+    #: كل استعلامٍ بلا فائدة استعلاماً فرعياً على كل سطرٍ فيه.
+    ordering_labels = {
+        "newest": "-created_at",
+        "oldest": "created_at",
+        "top": "-purchase_total",
+        "bottom": "purchase_total",
+    }
+    #: أعمدةُ الترتيب التي اختارها الزائر لهذا الطلب، لتبقى فاصلاً بعد القرب
+    #: في البحث. تُصفَّر كلَّ طلب في ``_requested_ordering``.
+    _order_columns = ()
     #: ما يريده المستخدم من البحث ليس «الاسم أبجدياً» بل «الأقرب إلى ما
     #: كتبه». فنرتّب قرب المطابقة بأنفسنا في ``_search`` —لأن ذلك يتطلّب ذلك
     #: تجريد الرقم من فواصله، ولا يفعل ``SearchFilter`` ذلك — ونترك
@@ -45,9 +72,54 @@ class CustomerViewSet(viewsets.ModelViewSet):
         date_to = params.get("date_to")
         if date_to:
             qs = qs.filter(created_at__date__lte=date_to)
-        return self._search(qs, params.get("search"))
+        qs = self._requested_ordering(qs, params.get("ordering"))
+        return self._search(qs, params.get("search"), tiebreak=self._order_columns)
 
-    def _search(self, qs, term):
+    def _requested_ordering(self, qs, requested):
+        """يترجم اسماً مختصراً للترتيب إلى عمودٍ حقيقي، ويضيفه إن كان عموداً محسوباً.
+
+        «الأحدث أولاً» و«الأعلى سعراً» اسمان يطلبهما الموظف بلغته، لا أسماء
+        أعمدة يعرفها الخادم وحده. فنترجمهما إلى ``created_at`` و
+        ``purchase_total``، ولا نضيف استعلاماً فرعياً إلا إن طُلب ترتيبٌ
+        بالمبلغ فعلاً — وخلاف ذلك فالحسابُ على كل استعلام بلا فائدة.
+        """
+        self._order_columns = ()
+        if not requested:
+            return qs
+        columns = tuple(
+            self.ordering_labels.get(part.strip(), part.strip())
+            for part in str(requested).split(",")
+            if part.strip()
+        )
+        if not columns:
+            return qs
+        if any(col.lstrip("-") == "purchase_total" for col in columns):
+            qs = self._annotate_purchase_total(qs)
+        self._order_columns = columns
+        return qs.order_by(*columns)
+
+    def _annotate_purchase_total(self, qs):
+        """يربط «مجموع مشتريات الزبون» بالسجلّ نفسِه، ليصير ترتيباً لا زينة.
+
+        المجموعُ يُحسب مرّتين برسمين: كما سُجِّل، وبلا مسافات — فمن كتب
+        الرقم مرّتين مختلفَ الرسم لا يلتقي مَن يقرأه. نجمعهما معاً أوّلاً
+        ثم نربط، تماماً كما يفعل ``_purchase_stats`` في الذاكرة.
+        """
+        items = scope_queryset(
+            self.request,
+            SaleSessionItem.objects.all(),
+            branch_field="session__branch",
+        ).filter(
+            Q(customer_phone=OuterRef("phone"))
+            | Q(customer_phone=Replace(OuterRef("phone"), Value(" "), Value("")))
+        )
+        total = Subquery(
+            items.values("customer_phone").annotate(t=Sum("total")).values("t"),
+            output_field=DecimalField(max_digits=15, decimal_places=2),
+        )
+        return qs.annotate(purchase_total=Coalesce(total, Value(Decimal("0"))))
+
+    def _search(self, qs, term, tiebreak=()):
         """يبحث بالاسم أو برقم الهاتف، ويرتّب من الأقرب إلى الأبعد.
 
         ما يريده المستخدم من البحث ليس «الاسم أبجدياً» بل «الأقرب إلى ما
@@ -57,10 +129,16 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
         الترتيب: رقم مطابق تماماً ← يبدأ بالرقم ← يحتوي الرقم ← الاسم يبدأ
         بالكلمة ← الاسم يحتويها.
+
+        closeness comes first and the requested sort is only the tie-break:
+        فلو غلب الترتيبُ المطلوب على القرب، عاد البحثُ إلى ما كان عليه قبل
+        أن يُصلحه: متشابهون متباعدون. أمّا بلا بحثٍ أصلاً فالترتيبُ المطلوب
+        هو كلُّ ما بقي — وهذا ما كان يضيع لأنّ ``order_by("name")`` هنا كان
+        يبتلع كلَّ اختيارٍ للزائر.
         """
         needle = normalize_phone(term)
         if not needle:
-            return qs.order_by("name")
+            return qs.order_by(*(tiebreak or ("name",)))
 
         if needle.isdigit():
             # الهاتف مخزَّن كما سُجّل، فقد يكون بمسافات. فنطابق على ما
@@ -91,7 +169,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             When(name__icontains=needle, then=base + 1),
         ]
         rank = Case(*steps, default=99, output_field=IntegerField())
-        return qs.annotate(_match_rank=rank).order_by("_match_rank", "name")
+        return qs.annotate(_match_rank=rank).order_by("_match_rank", *(tiebreak or ()), "name")
 
     def _phone_variants(self, phones):
         out = set()

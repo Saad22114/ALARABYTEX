@@ -31,6 +31,19 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
 import SessionCustomerInvoiceModal from '@/components/sessions/SessionCustomerInvoiceModal';
 
+/**
+ * «السعر الأعلى» ليس عموداً في جدول الزبائن، بل مجموعُ مشتريات الزبون في جدول
+ * البنود. ولهذا المفتاحُ المختار اسمٌ يُترجمه الخادم إلى ذلك المجموع، ولهذا
+ * يُحفَظ في العنوان وحده فيمضي معه الانتقالُ إلى زبونٍ آخر بلا إعادة اختيار.
+ */
+const SORT_OPTIONS = [
+  { value: '', label: 'الترتيب: الاسم' },
+  { value: 'newest', label: 'الأحدث أولاً' },
+  { value: 'oldest', label: 'الأقدم أولاً' },
+  { value: 'top', label: 'السعر الأعلى أولاً' },
+  { value: 'bottom', label: 'السعر الأقل أولاً' },
+];
+
 export default function CustomersPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
@@ -46,6 +59,7 @@ export default function CustomersPage() {
   // عند التحديث فيعود الشهر الجاري، فتنقرض الرايةُ بلا سبب.
   const [allTime, setAllTime] = useUrlState('all', '0');
   const noDates = allTime === '1';
+  const [sort, setSort] = useUrlState('sort', '');
   const [summary, setSummary] = useState<CustomersSummary | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -55,6 +69,8 @@ export default function CustomersPage() {
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [phoneSearch, setPhoneSearch] = useState('');
   const [phoneLoading, setPhoneLoading] = useState(false);
+  const [phoneHints, setPhoneHints] = useState<Customer[]>([]);
+  const [hintsOpen, setHintsOpen] = useState(false);
   const [customerSales, setCustomerSales] = useState<CustomerSalesResult | null>(null);
   const [phoneMiss, setPhoneMiss] = useState<string | null>(null);
   const [invoiceSession, setInvoiceSession] = useState<SaleSession | null>(null);
@@ -67,6 +83,7 @@ export default function CustomersPage() {
     const params: Record<string, string | number | undefined | null> = {
       page, page_size: pageSize, search: search || undefined,
       branch: filterBranch || undefined,
+      ordering: sort || undefined,
       date_from: noDates ? undefined : dateFrom || undefined,
       date_to: noDates ? undefined : dateTo || undefined,
     };
@@ -75,7 +92,7 @@ export default function CustomersPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize, search, filterBranch, dateFrom, dateTo, toast]);
+  }, [page, pageSize, search, filterBranch, sort, dateFrom, dateTo, noDates, toast]);
 
   useEffect(() => fetchData(), [fetchData]);
 
@@ -147,8 +164,46 @@ export default function CustomersPage() {
    * موجودٌ بلا مبيعات وهو في الحقيقة رقمٌ أخطأ فيه — فيُطالب زبوناً
    * غيره بدينٍ عليه.
    */
-  const handlePhoneSearch = async () => {
-    const phone = phoneSearch.trim();
+  /**
+   * ما يكتبه الموظف يُقرأ قبل أن يُكمل.
+   *
+   * الموظفُ يتذكّر نصفَ رقمٍ ويكتبه، ثم ينتظر. فإذا انتظر ضغطةَ «بحث» لأظهر
+   * جواباً، صار الحقلُ عقبةً بينه وبين الزبون. فنبحثُ فورَ الكتابة، بعد أن
+   * يتوقّف القلمُ لحظة، فيرى المتشابهَ وهو لا يزال ينوي.
+   *
+   * ثلاثةُ أرقامٍ حدٌّ أدنى: رقمان يطابقان نصفَ كلِّ الأرقام، فيصير الجدولُ
+   * كلُّه ولا يبقى «المتشابه» متشاهاً. وما دون ثلاثة أرقام لا نرسمُ قائمةً
+   * أبداً، لأنّه لا سؤالَ فيه.
+   */
+  useEffect(() => {
+    const digits = phoneSearch.replace(/\D/g, '');
+    if (digits.length < 3) {
+      setPhoneHints([]);
+      setHintsOpen(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      listCustomers({ search: digits, page_size: 8, page: 1 })
+        .then((res) => {
+          if (cancelled) return;
+          setPhoneHints(res.results);
+          setHintsOpen(true);
+        })
+        .catch(() => { if (!cancelled) setPhoneHints([]); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [phoneSearch]);
+
+  /** الضغطُ على مقترحٍ يملأ الرقم كاملاً ويطلب كشف مبيعاته — لا يتركه معلَّقاً. */
+  const chooseHint = (customer: Customer) => {
+    setPhoneSearch(customer.phone || '');
+    setHintsOpen(false);
+    setTimeout(() => { void handlePhoneSearch(customer.phone || ''); }, 0);
+  };
+
+  const handlePhoneSearch = async (forced?: string) => {
+    const phone = (forced ?? phoneSearch).trim();
     if (!phone) return;
     setPhoneLoading(true);
     setCustomerSales(null);
@@ -225,6 +280,12 @@ export default function CustomersPage() {
             options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
             className="w-full sm:w-48"
           />
+          <Select
+            value={sort}
+            onChange={(e) => { setSort(e.target.value); setPage(1); }}
+            options={SORT_OPTIONS}
+            className="w-full sm:w-52"
+          />
         </div>
 
         {summary && (
@@ -236,24 +297,42 @@ export default function CustomersPage() {
           </div>
         )}
 
-        <Card title="بحث الزبون بالهاتف" subtitle="ابحث برقم الهاتف لعرض كل مبيعاته وإمكانية عمل فاتورة">
+        <Card title="بحث الزبون بالهاتف" subtitle="اكتب جزءاً من الرقم فيظهر المتشابه فوراً — ثم اضغط بحث لعرض كل مبيعاته وإمكانية عمل فاتورة">
           <div className="flex gap-2 flex-wrap items-end">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-[200px] relative">
               <label className="block text-sm font-medium text-neutral-700 mb-1">رقم الهاتف</label>
               <div className="flex gap-2">
                 <input
                   type="tel"
                   value={phoneSearch}
-                  onChange={(e) => setPhoneSearch(e.target.value)}
+                  onChange={(e) => { setPhoneSearch(e.target.value); setHintsOpen(true); }}
                   onKeyDown={(e) => e.key === 'Enter' && handlePhoneSearch()}
+                  onBlur={() => setTimeout(() => setHintsOpen(false), 150)}
                   placeholder="أدخل رقم الهاتف"
                   className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
                 />
-                <Button onClick={handlePhoneSearch} loading={phoneLoading} disabled={!phoneSearch.trim()}>
+                <Button onClick={() => handlePhoneSearch()} loading={phoneLoading} disabled={!phoneSearch.trim()}>
                   <SearchIcon size={16} />
                   بحث
                 </Button>
               </div>
+              {hintsOpen && phoneHints.length > 0 && (
+                <ul className="absolute z-20 mt-1 w-full rounded-xl border border-sand-200 bg-surface shadow-lg overflow-hidden">
+                  {phoneHints.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => chooseHint(c)}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-right text-sm hover:bg-sand-50"
+                      >
+                        <span className="font-medium text-neutral-800 truncate">{c.name}</span>
+                        <span dir="ltr" className="text-neutral-500 tabular-nums">{c.phone}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
           {phoneMiss && (
