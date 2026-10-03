@@ -30,6 +30,36 @@ describe('formatNumber', () => {
   });
 });
 
+// «الأرقام في الشاشة الرئيسية كأنها مليون ريال».
+// The audit found no compact notation, no multiplier and no value over 6,638
+// in the database, so the money format is exonerated. These tests are the
+// proof, kept where a future edit has to break them to get in.
+describe('money is never abbreviated', () => {
+  beforeEach(() => {
+    configureCurrency({ symbol: 'ر.ع', decimals: 2, position: 'after' });
+  });
+
+  it('writes a million in full rather than as 1M or 1 مليون', () => {
+    expect(formatCurrency(1000000)).toBe('1,000,000.00 ر.ع');
+    expect(formatNumber(1000000)).toBe('1,000,000');
+  });
+
+  it('keeps every digit of a nine-figure figure', () => {
+    expect(formatCurrency(123456789)).toBe('123,456,789.00 ر.ع');
+  });
+
+  it('does not invent a scale for values the shop never sees', () => {
+    // The largest single line in the seeded shop is under 1,000; the largest
+    // day is under 7,000. Nothing here should read as a magnitude label.
+    expect(formatCurrency(955.63)).toBe('955.63 ر.ع');
+    expect(formatCurrency(6638.54)).toBe('6,638.54 ر.ع');
+  });
+
+  it('rounds to the configured decimals rather than to whole units', () => {
+    expect(formatCurrency(1000000.567)).toBe('1,000,000.57 ر.ع');
+  });
+});
+
 describe('formatDate', () => {
   beforeEach(() => {
     configureDateFormat('DD-MM-YYYY');
