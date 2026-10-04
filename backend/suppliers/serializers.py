@@ -4,6 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 from branches.models import Branch
 from core.branch_scope import assert_write_branch_allowed
+from core.money import percent
 from warehouses.models import Warehouse
 from warehouses.services import create_purchase_receipts
 
@@ -118,9 +119,7 @@ class FabricSerializer(serializers.ModelSerializer):
     def get_profit_margin_pct(self, obj):
         cost = obj.purchase_price or Decimal("0")
         sale = obj.sale_price_yard or Decimal("0")
-        if sale <= 0:
-            return 0
-        return float(((sale - cost) / sale) * 100)
+        return percent(sale - cost, sale)
 
     def get_sold_count(self, obj):
         return getattr(obj, "sold_count", 0)

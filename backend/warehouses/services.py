@@ -15,6 +15,7 @@ from rest_framework import serializers
 
 from sales.models import DailySale
 from branches.models import Branch
+from core.money import money
 from reports.cogs import fabric_average_costs
 from suppliers.models import Fabric
 
@@ -429,7 +430,7 @@ def count_summary(count, costs=None):
         "pending": total_items - counted_items,
         "variances": len(rows),
         "net_yards": float(stats["net"] or Decimal("0")),
-        "value": float(value),
+        "value": money(value),
         "complete": total_items > 0 and counted_items == total_items,
     }
 

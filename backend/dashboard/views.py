@@ -10,6 +10,7 @@ from appsettings.models import AppSettings
 from branches.models import Branch
 from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 from core.daterange import resolve_range
+from core.money import money, unit_price
 from expenses.models import Expense
 from partners.models import PartnerOperation
 from sale_sessions.models import SaleSession
@@ -91,7 +92,7 @@ class DashboardAlertsView(APIView):
                 "supplier_name": e.supplier.name,
                 "receipt_no": e.receipt_no,
                 "date": e.date.isoformat(),
-                "amount": float(e.amount),
+                "amount": money(e.amount),
                 "destination": e.destination_name,
             }
             for e in pending_purchases
@@ -115,11 +116,11 @@ class DashboardAlertsView(APIView):
             "pending_receipts": pending_receipts_data,
             "pending_receipts_count": len(pending_receipts_data),
             "today": {
-                "sales": float(sales),
-                "expenses": float(expenses),
-                "support": float(support),
-                "withdraw": float(withdraw),
-                "net": float(sales + support - expenses - withdraw),
+                "sales": money(sales),
+                "expenses": money(expenses),
+                "support": money(support),
+                "withdraw": money(withdraw),
+                "net": money(sales + support - expenses - withdraw),
             },
         })
 
@@ -202,11 +203,11 @@ class DashboardSummaryView(APIView):
             day_profit = Decimal(ds) - day_cogs
             chart_data.append({
                 "date": current.isoformat(),
-                "sales": float(ds),
-                "expenses": float(de),
-                "net": float(ds - de),
-                "cogs": float(day_cogs),
-                "gross_profit": float(day_profit),
+                "sales": money(ds),
+                "expenses": money(de),
+                "net": money(ds - de),
+                "cogs": money(day_cogs),
+                "gross_profit": money(day_profit),
             })
             current += timedelta(days=1)
 
@@ -247,11 +248,11 @@ class DashboardSummaryView(APIView):
             de = prev_expense_by_day.get(current) or 0
             chart_previous.append({
                 "date": current.isoformat(),
-                "sales": float(ds),
-                "expenses": float(de),
-                "net": float(ds - de),
-                "cogs": 0,
-                "gross_profit": 0,
+                "sales": money(ds),
+                "expenses": money(de),
+                "net": money(ds - de),
+                "cogs": 0.0,
+                "gross_profit": 0.0,
             })
             current += timedelta(days=1)
 
@@ -267,26 +268,26 @@ class DashboardSummaryView(APIView):
                 "fabric_name": f.name if f else "",
                 "fabric_code": f.code if f else "",
                 "yards_sold": float(yards),
-                "unit_cost": float(unit_cost),
-                "revenue": float(revenue_f),
-                "cogs": float(cogs_f),
-                "profit": float(revenue_f - cogs_f),
+                "unit_cost": unit_price(unit_cost),
+                "revenue": money(revenue_f),
+                "cogs": money(cogs_f),
+                "profit": money(revenue_f - cogs_f),
             })
         top.sort(key=lambda d: d["profit"], reverse=True)
 
         return Response({
-            "total_sales": float(total_sales),
-            "total_expenses": float(total_expenses),
-            "net": float(total_sales - total_expenses),
-            "gross_profit": float(gross_profit),
+            "total_sales": money(total_sales),
+            "total_expenses": money(total_expenses),
+            "net": money(total_sales - total_expenses),
+            "gross_profit": money(gross_profit),
             "margin_pct": round(float(margin), 1),
             "branches_count": branches_count,
             "suppliers_count": suppliers_count,
             "chart_data": chart_data,
             "chart_previous": chart_previous,
-            "previous_sales": float(previous_sales),
-            "previous_expenses": float(previous_expenses),
-            "previous_net": float(previous_net),
+            "previous_sales": money(previous_sales),
+            "previous_expenses": money(previous_expenses),
+            "previous_net": money(previous_net),
             "sales_delta_pct": _delta(total_sales, previous_sales),
             "expenses_delta_pct": _delta(total_expenses, previous_expenses),
             "net_delta_pct": _delta(total_sales - total_expenses, previous_net),
@@ -313,7 +314,7 @@ class DashboardActivityView(APIView):
                 "type": "sale",
                 "id": s.id,
                 "title": f"بيعة - {s.branch.name}",
-                "amount": float(s.total_sales),
+                "amount": money(s.total_sales),
                 "date": s.date.isoformat(),
                 "created_at": s.created_at.isoformat(),
                 "link": "/sales",
@@ -335,7 +336,7 @@ class DashboardActivityView(APIView):
                 "type": "purchase",
                 "id": e.id,
                 "title": f"شراء من {e.supplier.name}",
-                "amount": float(abs(e.amount)),
+                "amount": money(abs(e.amount)),
                 "date": e.date.isoformat(),
                 "created_at": e.created_at.isoformat(),
                 "link": f"/suppliers/{e.supplier_id}",
@@ -357,7 +358,7 @@ class DashboardActivityView(APIView):
                 "type": "payment",
                 "id": e.id,
                 "title": f"دفعة لـ {e.supplier.name}",
-                "amount": float(abs(e.amount)),
+                "amount": money(abs(e.amount)),
                 "date": e.date.isoformat(),
                 "created_at": e.created_at.isoformat(),
                 "link": f"/suppliers/{e.supplier_id}",
@@ -372,7 +373,7 @@ class DashboardActivityView(APIView):
                 "type": "expense",
                 "id": e.id,
                 "title": f"مصروف: {e.category.name}",
-                "amount": float(e.amount),
+                "amount": money(e.amount),
                 "date": e.date.isoformat(),
                 "created_at": e.created_at.isoformat(),
                 "link": "/expenses",

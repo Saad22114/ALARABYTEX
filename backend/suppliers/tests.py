@@ -240,6 +240,22 @@ class FabricAdvancedTests(TestCase):
         self.assertEqual(float(r.data["profit_yard"]), 2.0)
         self.assertGreater(float(r.data["profit_margin_pct"]), 39.9)
 
+    def test_profit_margin_is_one_decimal(self):
+        """ثلثان من ثلاثة: الهامشُ 33.333333333333336% على شارة القماش."""
+        r = self.c.post("/api/fabrics/", {
+            "name": "قماش", "unit": "yard",
+            "sale_price_yard": Decimal("3"), "purchase_price": Decimal("1"),
+        }, format="json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.data["profit_margin_pct"], 66.7)
+
+    def test_profit_margin_of_a_zero_price_is_zero(self):
+        r = self.c.post("/api/fabrics/", {
+            "name": "قماش", "unit": "yard", "sale_price_yard": 0,
+        }, format="json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.data["profit_margin_pct"], 0.0)
+
     def test_summary(self):
         self.c.post("/api/fabrics/", {
             "name": "قماش1", "unit": "yard", "sale_price_yard": 5, "min_stock": 10,
@@ -262,6 +278,31 @@ class FabricAdvancedTests(TestCase):
         self.assertEqual(float(r.data["totals"]["yards"]), 15.0)
         self.assertEqual(float(r.data["totals"]["cost_value"]), 30.0)
         self.assertEqual(r.data["items"][0]["warehouse_name"], "مخزن")
+
+    def test_stock_cost_value_is_cents(self):
+        """17 ياردة × تكلفة 2.571 = 43.707: خانةٌ ثالثة على باب المبلغ."""
+        f = Fabric.objects.create(name="قماش", code="F2", sale_price_yard=1, min_stock=5)
+        wh = Warehouse.objects.create(name="مخزن", code="W2")
+        FabricRoll.objects.create(
+            warehouse=wh, fabric=f, yards=20, remaining_yards=17, unit_cost=Decimal("2.571")
+        )
+        r = self.c.get(f"/api/fabrics/{f.id}/stock/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["totals"]["cost_value"], 43.71)
+
+    def test_summary_inventory_values_are_cents(self):
+        """قيمتا المخزون تُضربان في سعر بخاناتٍ ثلاث، فتجيئا بخمس خانات."""
+        f = Fabric.objects.create(
+            name="قماش", code="F3", sale_price_yard=Decimal("1.006"), min_stock=5,
+        )
+        wh = Warehouse.objects.create(name="مخزن", code="W3")
+        FabricRoll.objects.create(
+            warehouse=wh, fabric=f, yards=20, remaining_yards=7, unit_cost=Decimal("2.571")
+        )
+        r = self.c.get("/api/fabrics/summary/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["inventory_cost_value"], 18.0)
+        self.assertEqual(r.data["inventory_retail_value"], 7.04)
 
     def test_list_export_xlsx(self):
         self.c.post("/api/fabrics/", {

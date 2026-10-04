@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -10,9 +11,32 @@ from core.testsupport import authenticate_admin
 from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
 from sale_sessions.models import Employee, SaleSession
-from sales.models import DailySale
+from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric, LedgerEntry, Supplier
 from warehouses.models import FabricRoll, GoodsReceipt, Warehouse
+
+from core.money import money, unit_price
+
+
+class DashboardMoneyTest(TestCase):
+    def test_money_rounds_to_cents(self):
+        self.assertEqual(money(Decimal("1.006")), 1.01)
+        self.assertEqual(money(Decimal("0.1") + Decimal("0.2")), 0.3)
+        self.assertEqual(money(Decimal(1) / Decimal(3) * 3), 1.0)
+
+    def test_money_accepts_none_and_numbers(self):
+        self.assertEqual(money(None), 0.0)
+        self.assertEqual(money(5), 5.0)
+        self.assertEqual(money(2.5), 2.5)
+
+    def test_money_stays_a_json_number(self):
+        self.assertIsInstance(money(Decimal("1.006")), float)
+        self.assertIsInstance(money(None), float)
+
+    def test_unit_price_keeps_three_places(self):
+        self.assertEqual(unit_price(Decimal("0.6666")), 0.667)
+        self.assertEqual(unit_price(Decimal("2")), 2.0)
+        self.assertEqual(unit_price(None), 0.0)
 
 
 class DashboardAPITest(TestCase):
@@ -120,6 +144,52 @@ class DashboardAPITest(TestCase):
         self.assertIn("cogs", r.data["chart_data"][0])
         self.assertIn("gross_profit", r.data["chart_data"][0])
         self.assertIsInstance(r.data["top_fabrics"], list)
+
+    def _sell_a_yard_at_a_three_decimal_price(self):
+        """قماشٌ سعرُ ياردته 1.006 — ثلاثةُ خانات، والمبلغُ خانتان."""
+        fabric = Fabric.objects.create(
+            name="حرير", code="FAB-3", unit="yard", sale_price_yard=Decimal("1.006"),
+        )
+        sale = DailySale.objects.get(branch=self.branch, date=self.today)
+        DailySaleItem.objects.create(sale=sale, fabric=fabric, yards=1)
+        return fabric
+
+    def test_top_fabrics_revenue_is_a_cents_amount(self):
+        fabric = self._sell_a_yard_at_a_three_decimal_price()
+        r = self.c.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(r.status_code, 200)
+        row = next(x for x in r.data["top_fabrics"] if x["fabric"] == fabric.id)
+        self.assertEqual(row["revenue"], 1.01)
+        self.assertEqual(row["cogs"], 0.0)
+        self.assertEqual(row["profit"], 1.01)
+
+    def test_no_money_field_carries_a_third_decimal(self):
+        self._sell_a_yard_at_a_three_decimal_price()
+        r = self.c.get("/api/dashboard/summary/", {"period": "week"})
+        self.assertEqual(r.status_code, 200)
+
+        def check(value, where):
+            self.assertIsInstance(value, float, where)
+            self.assertEqual(value, round(value, 2), "%s = %r" % (where, value))
+
+        for key in (
+            "total_sales", "total_expenses", "net", "gross_profit",
+            "previous_sales", "previous_expenses", "previous_net",
+        ):
+            check(r.data[key], key)
+        for chart in ("chart_data", "chart_previous"):
+            for row in r.data[chart]:
+                for key in ("sales", "expenses", "net", "cogs", "gross_profit"):
+                    check(row[key], "%s/%s" % (chart, key))
+        for row in r.data["top_fabrics"]:
+            for key in ("revenue", "cogs", "profit"):
+                check(row[key], "top_fabrics/%s" % key)
+
+    def test_alert_amounts_are_cents(self):
+        self._sell_a_yard_at_a_three_decimal_price()
+        r = self.c.get("/api/dashboard/alerts/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(round(r.data["today"]["net"], 2), r.data["today"]["net"])
 
     def test_alerts_low_stock(self):
         wh = Warehouse.objects.create(name="W")

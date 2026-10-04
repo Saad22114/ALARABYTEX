@@ -331,6 +331,15 @@ class VarianceValueTests(CountTestCase):
         costs = fabric_average_costs([self.costed.pk])
         self.assertEqual(count_summary(count, costs=costs)["value"], -50.0)
 
+    def test_variance_value_is_cents_when_the_cost_divides_oddly(self):
+        """نقصٌ ب-yardتين، ومتوسطُ تكلفة مئتينٍ على سبعةٍ لا ينتهي: -57.142857142857..."""
+        data = self.make_count()
+        self.count_in(data["id"], fabric=self.fabric.pk, counted_yards="28")
+        count = StockCount.objects.get(pk=data["id"])
+        costs = {self.fabric.pk: Decimal(200) / Decimal(7)}
+        value = count_summary(count, costs=costs)["value"]
+        self.assertEqual(value, -57.14)
+
 
 class VarianceExpressionTests(CountTestCase):
     """تعبير الفرق في SQL: لا بدّ أن يجيب «لم يُعدّ» إجابةً صريحة."""

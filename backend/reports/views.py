@@ -24,6 +24,7 @@ from warehouses.models import (
 )
 
 from core import excel
+from core.money import money, unit_price
 from .cogs import (
     cogs_by_day_branch,
     cogs_by_fabric,
@@ -723,18 +724,18 @@ class CogsReportView(APIView):
                 "fabric_name": f.name,
                 "unit": f.unit,
                 "yards_sold": float(yards),
-                "avg_cost": float(avg_cost),
-                "revenue": float(revenue),
-                "cogs": float(cogs),
-                "profit": float(revenue - cogs),
+                "avg_cost": unit_price(avg_cost),
+                "revenue": money(revenue),
+                "cogs": money(cogs),
+                "profit": money(revenue - cogs),
             })
         data.sort(key=lambda d: d["fabric_name"])
 
         totals = {
             "yards_sold": float(sum(d["yards_sold"] for d in data)),
-            "revenue": float(sum(d["revenue"] for d in data)),
-            "cogs": float(sum(d["cogs"] for d in data)),
-            "profit": float(sum(d["profit"] for d in data)),
+            "revenue": money(sum(d["revenue"] for d in data)),
+            "cogs": money(sum(d["cogs"] for d in data)),
+            "profit": money(sum(d["profit"] for d in data)),
         }
 
         if request.query_params.get("export") == "xlsx":
@@ -913,13 +914,13 @@ class ProfitLossReportView(APIView):
         net_profit = gross_profit - salaries - total_expenses
 
         return {
-            "total_sales": float(total_sales),
-            "cogs": float(cogs),
-            "gross_profit": float(gross_profit),
-            "salaries": float(salaries),
-            "salaries_paid": float(salaries_paid),
-            "expenses": float(total_expenses),
-            "net_profit": float(net_profit),
+            "total_sales": money(total_sales),
+            "cogs": money(cogs),
+            "gross_profit": money(gross_profit),
+            "salaries": money(salaries),
+            "salaries_paid": money(salaries_paid),
+            "expenses": money(total_expenses),
+            "net_profit": money(net_profit),
             "gross_margin_pct": _pct(gross_profit, total_sales),
             "net_margin_pct": _pct(net_profit, total_sales),
         }
@@ -1063,11 +1064,11 @@ class ProfitLossReportView(APIView):
             rows.append({
                 "branch": b.id,
                 "branch_name": b.name,
-                "sales": float(bs),
-                "cogs": float(bcogs),
-                "salaries": float(bsal),
-                "expenses": float(be),
-                "net": float(net),
+                "sales": money(bs),
+                "cogs": money(bcogs),
+                "salaries": money(bsal),
+                "expenses": money(be),
+                "net": money(net),
                 "net_margin_pct": _pct(net, bs),
             })
         return rows

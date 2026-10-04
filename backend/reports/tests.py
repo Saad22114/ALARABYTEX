@@ -309,6 +309,49 @@ class AdvancedReportsAPITest(TestCase):
         q = next(x for x in r.data["items"] if x["fabric_name"] == "قطن")
         self.assertEqual(q["avg_cost"], 2.0)
 
+    def test_cogs_money_is_cents_even_when_cost_divides_oddly(self):
+        """مئتان على سبعة: متوسطُ تكلفة لا ينتهي، فيُمَدُّ ذيلُه إن لم يُقرَّب."""
+        receipt = GoodsReceipt.objects.create(number="GR-3", date=self.today, status="posted")
+        fabric = Fabric.objects.create(
+            name="كتان", code="FAB-7", unit="yard", sale_price_yard=Decimal("1.006"),
+        )
+        GoodsReceiptItem.objects.create(
+            receipt=receipt, fabric=fabric, yards=Decimal("7"),
+            unit_price=Decimal("28.571"), total=Decimal("200"),
+        )
+        sale = DailySale.objects.get(branch=self.branch, date=self.today)
+        DailySaleItem.objects.create(sale=sale, fabric=fabric, yards=Decimal("7"))
+
+        r = self.c.get("/api/reports/cogs/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.status_code, 200)
+        row = next(x for x in r.data["items"] if x["fabric_name"] == "كتان")
+        self.assertEqual(row["revenue"], 7.04)
+        self.assertEqual(row["cogs"], 200.0)
+        self.assertEqual(row["profit"], -192.96)
+        for value in (row["revenue"], row["cogs"], row["profit"]):
+            self.assertEqual(value, round(value, 2), repr(value))
+        for key in ("revenue", "cogs", "profit"):
+            self.assertEqual(r.data["totals"][key], round(r.data["totals"][key], 2))
+
+    def test_profit_loss_totals_are_cents(self):
+        r = self.c.get("/api/reports/profit-loss/", {
+            "date_from": self.today.isoformat(),
+            "date_to": self.today.isoformat(),
+        })
+        self.assertEqual(r.status_code, 200)
+        for key in ("total_sales", "cogs", "gross_profit", "salaries", "expenses", "net_profit"):
+            value = r.data["totals"][key]
+            self.assertIsInstance(value, float, key)
+            self.assertEqual(value, round(value, 2), "%s = %r" % (key, value))
+        for row in r.data["branches"]:
+            for key in ("sales", "cogs", "salaries", "expenses", "net"):
+                value = row[key]
+                self.assertIsInstance(value, float, key)
+                self.assertEqual(value, round(value, 2), "%s = %r" % (key, value))
+
     def test_cogs_xlsx_export(self):
         r = self.c.get("/api/reports/cogs/", {"export": "xlsx"})
         self.assertEqual(r.status_code, 200)

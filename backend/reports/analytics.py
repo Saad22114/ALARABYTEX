@@ -1,4 +1,4 @@
-﻿"""مولّدات التقارير التحليلية (Reports V2).
+"""مولّدات التقارير التحليلية (Reports V2).
 
 كل تقرير يُرجع «مظروفاً» موحّداً:
 {
@@ -20,6 +20,7 @@ from decimal import Decimal
 from django.utils import timezone
 
 from core.branch_scope import allowed_branch_ids
+from core.money import ZERO, q2
 from expenses.models import Expense
 from partners.models import PartnerOperation
 from sale_sessions.models import SaleSession
@@ -29,8 +30,6 @@ from warehouses.models import FabricRoll
 
 from .cogs import fabric_average_costs
 
-ZERO = Decimal("0")
-MONEY = Decimal("0.01")
 MAX_BUCKETS = 400
 
 GROUPINGS = {
@@ -51,10 +50,6 @@ AGING_BUCKETS = [
 # ---------------------------------------------------------------------------
 # أدوات عامة
 # ---------------------------------------------------------------------------
-
-
-def q2(value):
-    return Decimal(str(value if value is not None else 0)).quantize(MONEY)
 
 
 def pct(part, whole):

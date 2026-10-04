@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from suppliers.models import Fabric
 from core.admin_secret import require_admin_password
 from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
+from core.money import unit_price
 from reports.cogs import fabric_average_costs
 
 from .models import (
@@ -469,9 +470,9 @@ class StockCountViewSet(viewsets.ModelViewSet):
                 None if hide else float(item.difference),
                 "مطابق" if (item.counted_yards is not None and not item.is_variance)
                 else ("فروق" if item.counted_yards is not None else "لم يُرصد"),
-                float(costs.get(item.fabric_id) or 0),
-                float(item.fabric.purchase_price or 0),
-                float(item.fabric.sale_price_yard or 0),
+                unit_price(costs.get(item.fabric_id) or 0),
+                unit_price(item.fabric.purchase_price or 0),
+                unit_price(item.fabric.sale_price_yard or 0),
                 item.note or "",
             ])
         counted_rows = [

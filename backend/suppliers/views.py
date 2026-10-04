@@ -13,6 +13,7 @@ from rest_framework.response import Response
 
 from core.daterange import resolve_range
 from core.branch_scope import scope_queryset, scope_queryset_or
+from core.money import money
 from sale_sessions.models import SaleSessionItem
 from warehouses.models import FabricRoll
 from warehouses.services import create_purchase_receipts
@@ -192,8 +193,8 @@ class FabricViewSet(viewsets.ModelViewSet):
             "low_stock_count": low_stock_count,
             "total_rolls": agg["total_rolls"],
             "total_stock_yards": float(agg["stock_yards"]),
-            "inventory_cost_value": float(cost_value),
-            "inventory_retail_value": float(retail_value),
+            "inventory_cost_value": money(cost_value),
+            "inventory_retail_value": money(retail_value),
         })
 
     def list(self, request, *args, **kwargs):
@@ -297,7 +298,7 @@ class FabricViewSet(viewsets.ModelViewSet):
             "totals": {
                 "rolls": sum(r["rolls"] for r in rows),
                 "yards": float(sum(r["yards"] for r in rows)),
-                "cost_value": float(sum(r["cost_value"] for r in rows)),
+                "cost_value": money(sum(r["cost_value"] for r in rows)),
             },
         })
 
