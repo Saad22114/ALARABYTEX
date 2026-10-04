@@ -52,6 +52,7 @@ import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { saleGroupBadges, saleGroupKey } from '@/lib/saleGroups';
 import { todayISO } from '@/lib/date';
 import { printSessionReceipt } from '@/lib/receipt';
+import { enterMovesFocus } from '@/lib/keyFlow';
 import { useToast } from '@/components/ui/Toast';
 import Link from 'next/link';
 
@@ -1060,7 +1061,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
               const calc = lineCalc(line);
               const overStock = calc.quantityExceeds;
               return (
-                <div key={idx} className="rounded-xl border border-sand-300 bg-surface p-4 space-y-4">
+                <div key={idx} onKeyDown={enterMovesFocus} className="rounded-xl border border-sand-300 bg-surface p-4 space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-neutral-500">الصنف {idx + 1}</span>
                     <Button

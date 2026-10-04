@@ -31,6 +31,7 @@ import { useUrlState } from '@/lib/useUrlState';
 import SettlementAccountPicker, {
   SETTLEMENT_LABELS,
 } from '@/components/forms/SettlementAccountPicker';
+import CopyButton from '@/components/ui/CopyButton';
 
 export default function SuppliersPage() {
   const { toast } = useToast();
@@ -312,7 +313,12 @@ export default function SuppliersPage() {
                     <Tr key={s.id}>
                       <Td className="font-medium">{s.name}</Td>
                       <Td>{s.company_name || '-'}</Td>
-                      <Td dir="ltr" className="text-left">{s.phone || '-'}</Td>
+                      <Td dir="ltr" className="text-left">
+                        <div className="flex items-center gap-1">
+                          <span>{s.phone || '-'}</span>
+                          <CopyButton value={s.phone} title="نسخ رقم المورد" />
+                        </div>
+                      </Td>
                       <Td>{s.city || '-'}</Td>
                       <Td>{s.country || '-'}</Td>
                       <Td className={`tabular-nums font-medium ${s.current_balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>

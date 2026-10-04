@@ -30,6 +30,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
 import SessionCustomerInvoiceModal from '@/components/sessions/SessionCustomerInvoiceModal';
+import CopyButton from '@/components/ui/CopyButton';
 
 /**
  * «السعر الأعلى» ليس عموداً في جدول الزبائن، بل مجموعُ مشتريات الزبون في جدول
@@ -453,15 +454,18 @@ export default function CustomersPage() {
                         <div className="flex items-center gap-2">
                           <span dir="ltr" className="text-left">{c.phone || '-'}</span>
                           {c.phone ? (
-                            <a
-                              href={`https://wa.me/968${c.phone.replace(/[^\d]/g, '')}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="p-1 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors"
-                              title="تواصل عبر واتساب"
-                            >
-                              <MessageCircle size={15} />
-                            </a>
+                            <>
+                              <a
+                                href={`https://wa.me/968${c.phone.replace(/[^\d]/g, '')}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors"
+                                title="تواصل عبر واتساب"
+                              >
+                                <MessageCircle size={15} />
+                              </a>
+                              <CopyButton value={c.phone} title="نسخ رقم الزبون" />
+                            </>
                           ) : null}
                         </div>
                       </Td>

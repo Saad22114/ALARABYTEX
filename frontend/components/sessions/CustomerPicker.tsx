@@ -100,22 +100,22 @@ export default function CustomerPicker({ name, onChangeName, phone, onChangePhon
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-sm font-medium text-neutral-700">
           <Phone size={15} className="text-brand-600" />
-          Customer (optional)
+          الزبون (اختياري)
         </span>
         {searching ? (
           <span className="flex items-center gap-1 text-xs text-neutral-400">
             <Loader2 size={12} className="animate-spin" />
-            Searching...
+            جارٍ بالبحث...
           </span>
         ) : found ? (
           <span className="flex items-center gap-1 text-xs text-emerald-600">
             <Check size={12} />
-            Found: {found.name}
+            موجود: {found.name}
           </span>
         ) : checkDigits >= 7 ? (
           <span className="flex items-center gap-1 text-xs text-neutral-400">
             <Search size={12} />
-            New customer — will be saved
+            زبونٌ جديد — سيحفظ تقابًا
           </span>
         ) : null}
       </div>
@@ -130,7 +130,7 @@ export default function CustomerPicker({ name, onChangeName, phone, onChangePhon
                 setOpenList(true);
               }}
               onFocus={() => setOpenList(true)}
-              placeholder="Phone number"
+              placeholder="رقم الهاتف"
               inputMode="tel"
               className="pr-9"
             />
@@ -166,7 +166,7 @@ export default function CustomerPicker({ name, onChangeName, phone, onChangePhon
           <Input
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
-            placeholder="Customer name"
+            placeholder="اسم الزبون"
           />
         </div>
       </div>
