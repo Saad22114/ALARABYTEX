@@ -1,4 +1,4 @@
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -10,13 +10,21 @@ from rest_framework.test import APIClient
 from core.testsupport import authenticate_admin, make_admin_user
 
 from branches.models import Branch, FabricBranchPrice
+from appsettings.models import AppSettings
 from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric
 from warehouses.models import FabricRoll, StockMovement, Warehouse
 
 from .models import Employee, SaleSession, SaleSessionItem
 from .sections import SECTIONS, canonical_role, effective_permissions
-from .services import close_session, effective_sale_date
+from .services import (
+    AUTO_CLOSE_NOTE,
+    auto_close_stale_sessions,
+    close_session,
+    effective_sale_date,
+    elapsed_minutes,
+    session_sale_date,
+)
 
 
 class EffectiveDateTest(TestCase):
@@ -507,7 +515,7 @@ class SaleSessionAPITest(TestCase):
         sid = d["id"]
         r = self._add_item(sid, quantity=5)
         self.assertEqual(r.status_code, 201, r.data)
-        self.assertEqual(r.data["sale_date"], effective_sale_date().isoformat())
+        self.assertEqual(r.data["sale_date"], timezone.localtime(SaleSession.objects.get(pk=sid).opened_at).date().isoformat())
 
     def test_open_with_date_records_items_and_daily_sale_on_that_date(self):
         past = timezone.localdate() - timedelta(days=3)
@@ -579,20 +587,6 @@ class SaleSessionAPITest(TestCase):
         closed = timezone.localtime(session.closed_at)
         self.assertEqual(closed.date(), past)
         self.assertGreaterEqual(closed, opened)
-
-    def test_backdated_open_session_elapsed_is_minutes_not_days(self):
-        past = timezone.localdate() - timedelta(days=8)
-        r = self.c.post(
-            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
-        )
-        self.assertEqual(r.status_code, 201, r.data)
-        self.assertEqual(r.data["elapsed_minutes"], 0)
-        # تحديث القائمة بعد دقيقة — تبقى المدة بالدقائق
-        session = SaleSession.objects.get(pk=r.data["id"])
-        session.opened_at = session.opened_at - timedelta(minutes=5)
-        session.save(update_fields=["opened_at"])
-        r = self.c.get(f"/api/sale-sessions/{session.pk}/")
-        self.assertEqual(r.data["elapsed_minutes"], 5)
 
     def test_opened_date_filter_excludes_backdated_session_from_today(self):
         today = timezone.localdate()
@@ -2418,3 +2412,276 @@ class SaleGroupNumberingTest(TestCase):
         self.assertEqual(self._numbers(second), [1])
         # لا يبقى أي بند بلا رقم
         self.assertFalse(SaleSessionItem.objects.filter(group_no=None).exists())
+
+
+class ShiftCounterTest(TestCase):
+    """The shift counter must measure wall-clock time, not the same time on the shift's day.
+
+    The reference used to be "the current wall clock, moved onto the session's
+    own day". For a session opened yesterday that reference lands before the
+    opening time for most of the day, and the subtraction clamps to zero -- so a
+    shift left open overnight read "0 minutes", and the panel that opens to
+    look for it showed nothing to look for.
+    """
+
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="fr:B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(name="سالم", branch=self.branch)
+        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        FabricRoll.objects.create(warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500)
+
+    def _session(self, opened_at, session_date=None):
+        """An open session stamped at `opened_at` (auto_now_add ignores create values)."""
+        s = SaleSession.objects.create(
+            employee=self.emp, branch=self.branch, session_date=session_date,
+        )
+        SaleSession.objects.filter(pk=s.pk).update(opened_at=opened_at)
+        s.refresh_from_db()
+        return s
+
+    def _elapsed(self, session):
+        r = self.c.get(f"/api/sale-sessions/{session.pk}/")
+        self.assertEqual(r.status_code, 200, r.data)
+        return r.data["elapsed_minutes"]
+
+    def _ago(self, **kwargs):
+        return timezone.localtime() - timedelta(**kwargs)
+
+    def test_shift_open_overnight_reports_its_real_age(self):
+        """The regression: open for a day, and the counter said zero."""
+        s = self._session(self._ago(hours=24, minutes=5))
+        minutes = self._elapsed(s)
+        self.assertGreaterEqual(minutes, 1445)
+        self.assertLessEqual(minutes, 1447)
+
+    def test_shift_open_over_a_day_reports_hours_and_minutes(self):
+        s = self._session(self._ago(hours=25, minutes=30))
+        self.assertEqual(self._elapsed(s), 1530)
+
+    def test_shift_spanning_midnight_is_not_zero(self):
+        """Opened at 23:50 and read at 00:10 is twenty minutes, not zero.
+
+        Pinned on the service directly: the wall clock cannot be moved back to
+        half past midnight from an afternoon test run.
+        """
+        opened = timezone.make_aware(datetime(2026, 10, 3, 23, 50))
+        s = self._session(opened)
+        self.assertEqual(
+            elapsed_minutes(s, now=opened + timedelta(minutes=20)), 20
+        )
+
+    def test_elapsed_never_goes_negative(self):
+        s = self._session(self._ago(hours=-5))
+        self.assertEqual(self._elapsed(s), 0)
+
+    def test_closed_shift_reports_no_elapsed(self):
+        s = self._session(self._ago(hours=3))
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{s.pk}/close/").status_code, 200)
+        self.assertIsNone(self._elapsed(s))
+
+    def test_backdated_shift_counts_real_time_too(self):
+        """A shift nobody closed is a stale record and should look stale.
+
+        The old rule kept an eight-day-old shift reading as "minutes since I
+        opened it just now", which is what let it stay open unnoticed.
+        """
+        past = timezone.localdate() - timedelta(days=8)
+        r = self.c.post(
+            "/api/sale-sessions/", {"employee": self.emp.id, "date": past.isoformat()}, format="json"
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        session = SaleSession.objects.get(pk=r.data["id"])
+        minutes = self._elapsed(session)
+        self.assertGreaterEqual(minutes, 8 * 24 * 60 - 2)
+        self.assertLessEqual(minutes, 8 * 24 * 60 + 2)
+        # Moving the opening back five minutes moves the counter by exactly five
+        SaleSession.objects.filter(pk=session.pk).update(
+            opened_at=session.opened_at - timedelta(minutes=5)
+        )
+        self.assertEqual(self._elapsed(session), minutes + 5)
+
+
+class AutoCloseSessionTest(TestCase):
+    """A shift left open past its close time closes itself, on the day it was opened.
+
+    There is no scheduler in this project, so the sweep runs when the sessions
+    list is read. That is not a compromise: the page someone opens to look for a
+    forgotten shift is the page that closes it.
+    """
+
+    def setUp(self):
+        self.c = APIClient()
+        authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="B", code="B")
+        self.wh = Warehouse.objects.create(name="fr:B", code="BR-B", branch=self.branch)
+        self.emp = Employee.objects.create(name="سالم", branch=self.branch)
+        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        FabricRoll.objects.create(warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500)
+        self.row = AppSettings.load()
+        self.row.session_auto_close_enabled = True
+        self.row.session_auto_close_time = time(2, 0)
+        self.row.save()
+
+    def _session(self, opened_at, session_date=None, **extra):
+        """An open session stamped at `opened_at` (auto_now_add ignores create values)."""
+        s = SaleSession.objects.create(
+            employee=self.emp, branch=self.branch, session_date=session_date, **extra
+        )
+        SaleSession.objects.filter(pk=s.pk).update(opened_at=opened_at)
+        s.refresh_from_db()
+        return s
+
+    def _at(self, day, hour, minute=0):
+        return timezone.make_aware(datetime.combine(day, time(hour, minute)))
+
+    def _add_item(self, sid, quantity=10):
+        return self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": quantity,
+             "payment_method": "cash"},
+            format="json",
+        )
+
+    # ---- the sweep
+
+    def test_forgotten_shift_closes_itself_and_its_sales_land_on_the_opening_day(self):
+            day = timezone.localdate() - timedelta(days=1)
+            s = self._session(self._at(day, 20, 13), session_date=day)
+            self.assertEqual(self._add_item(s.pk).status_code, 201)
+
+            self.assertEqual(auto_close_stale_sessions(), [s.pk])
+
+            s.refresh_from_db()
+            self.assertEqual(s.status, SaleSession.Status.CLOSED)
+            # closed at the configured time, not at the moment the sweep happened to run
+            self.assertEqual(
+                timezone.localtime(s.closed_at), self._at(day + timedelta(days=1), 2, 0)
+            )
+            # and the sales are on the day it was opened, not the day it was closed
+            sale = DailySale.objects.get(branch=self.branch, date=day)
+            self.assertEqual(Decimal(str(sale.total_sales)), Decimal("50.00"))
+            self.assertFalse(DailySale.objects.filter(branch=self.branch, date=day + timedelta(days=1)).exists())
+
+    def test_the_reason_is_written_into_the_notes(self):
+        day = timezone.localdate() - timedelta(days=1)
+        s = self._session(self._at(day, 20, 13))
+        auto_close_stale_sessions()
+        s.refresh_from_db()
+        self.assertIn(AUTO_CLOSE_NOTE, s.notes)
+        # re-running finds nothing to do and does not append the reason twice
+        self.assertEqual(auto_close_stale_sessions(), [])
+        s.refresh_from_db()
+        self.assertEqual(s.notes.count(AUTO_CLOSE_NOTE), 1)
+
+    def test_a_manual_close_leaves_no_auto_note(self):
+        s = self._session(timezone.localtime() - timedelta(hours=2))
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{s.pk}/close/").status_code, 200)
+        s.refresh_from_db()
+        self.assertNotIn(AUTO_CLOSE_NOTE, s.notes or "")
+
+    def test_a_fresh_shift_is_left_alone(self):
+        s = self._session(timezone.localtime() - timedelta(minutes=5))
+        self.assertEqual(auto_close_stale_sessions(), [])
+        s.refresh_from_db()
+        self.assertEqual(s.status, SaleSession.Status.OPEN)
+
+    def test_the_close_time_is_respected(self):
+        """Opened at 23:00 with a 23:30 close time: due at 23:45, not at 23:15."""
+        day = timezone.localdate() - timedelta(days=2)
+        s = self._session(self._at(day, 23, 0))
+        self.row.session_auto_close_time = time(23, 30)
+        self.row.save()
+        self.assertEqual(auto_close_stale_sessions(self._at(day, 23, 15)), [])
+        self.assertEqual(auto_close_stale_sessions(self._at(day, 23, 45)), [s.pk])
+
+    def test_a_shift_opened_after_the_close_time_waits_for_the_next_day(self):
+            """Opened at 23:45 with a 23:30 close time: 23:45 is before it, then after it."""
+            day = timezone.localdate() - timedelta(days=2)
+            s = self._session(self._at(day, 23, 45))
+            self.row.session_auto_close_time = time(23, 30)
+            self.row.save()
+            self.assertEqual(auto_close_stale_sessions(self._at(day, 23, 59)), [])
+            s.refresh_from_db()
+            self.assertEqual(s.status, SaleSession.Status.OPEN)
+            # the next evening it is due
+            self.assertEqual(auto_close_stale_sessions(self._at(day + timedelta(days=1), 23, 45)), [s.pk])
+
+    def test_a_distantly_backdated_shift_still_closes(self):
+            day = timezone.localdate() - timedelta(days=20)
+            s = self._session(self._at(day, 9, 0), session_date=day)
+            self.assertEqual(self._add_item(s.pk).status_code, 201)
+            self.assertEqual(auto_close_stale_sessions(), [s.pk])
+            s.refresh_from_db()
+            self.assertEqual(
+                timezone.localtime(s.closed_at), self._at(day + timedelta(days=1), 2, 0)
+            )
+            self.assertTrue(DailySale.objects.filter(branch=self.branch, date=day).exists())
+
+    def test_the_sweep_can_be_switched_off(self):
+        day = timezone.localdate() - timedelta(days=1)
+        s = self._session(self._at(day, 20, 13))
+        self.row.session_auto_close_enabled = False
+        self.row.save()
+        self.assertEqual(auto_close_stale_sessions(), [])
+        s.refresh_from_db()
+        self.assertEqual(s.status, SaleSession.Status.OPEN)
+
+    def test_open_manual_sessions_are_never_auto_closed(self):
+        """A typed-in total has no opening moment to age, so it has no moment to close."""
+        day = timezone.localdate() - timedelta(days=3)
+        s = self._session(self._at(day, 20, 13), is_manual=True)
+        self.assertEqual(auto_close_stale_sessions(), [])
+        s.refresh_from_db()
+        self.assertEqual(s.status, SaleSession.Status.OPEN)
+
+    def test_reading_the_list_closes_the_shift(self):
+        day = timezone.localdate() - timedelta(days=1)
+        s = self._session(self._at(day, 20, 13), session_date=day)
+        self.assertEqual(self._add_item(s.pk).status_code, 201)
+        r = self.c.get("/api/sale-sessions/")
+        self.assertEqual(r.status_code, 200, r.data)
+        s.refresh_from_db()
+        self.assertEqual(s.status, SaleSession.Status.CLOSED)
+        # and it is no longer offered as an open shift
+        r = self.c.get("/api/sale-sessions/?status=open")
+        self.assertEqual([row["id"] for row in r.data["results"]], [])
+
+    def test_the_management_command_closes_and_reports(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        day = timezone.localdate() - timedelta(days=1)
+        s = self._session(self._at(day, 20, 13))
+        out = StringIO()
+        call_command("close_stale_sessions", stdout=out)
+        s.refresh_from_db()
+        self.assertEqual(s.status, SaleSession.Status.CLOSED)
+        self.assertIn(str(s.pk), out.getvalue())
+
+        out = StringIO()
+        call_command("close_stale_sessions", stdout=out)
+        self.assertIn("no stale sessions", out.getvalue())
+
+    # ---- every item stays on the day the shift was opened
+
+    def test_an_item_added_a_day_later_still_lands_on_the_opening_day(self):
+        """Opened at 23:50, item added the next afternoon: one shift, one day.
+
+        The item used to take `effective_sale_date`, so the day moved with the
+        hour of each addition and one shift could report on two days.
+        """
+        day = timezone.localdate() - timedelta(days=1)
+        s = self._session(self._at(day, 23, 50))
+        self.assertIsNone(s.session_date)
+        r = self._add_item(s.pk)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["sale_date"], day.isoformat())
+        self.assertEqual(session_sale_date(s), day)
+
+        self.assertEqual(self.c.post(f"/api/sale-sessions/{s.pk}/close/").status_code, 200)
+        sale = DailySale.objects.get(branch=self.branch, date=day)
+        self.assertEqual(Decimal(str(sale.total_sales)), Decimal("50.00"))

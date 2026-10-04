@@ -43,10 +43,19 @@ def effective_sale_date(now=None):
 
 
 def session_sale_date(session):
-    """تاريخ تسجيل أصناف الوردية: تاريخ الوردية إن حُدِّد عند فتحها، وإلا التاريخ الفعلي الحالي."""
-    if session is not None and getattr(session, "session_date", None):
-        return session.session_date
-    return effective_sale_date()
+    """تاريخ تسجيل أصناف الوردية: يوم فتحها دائماً، لا يوم إغلاقها.
+
+    الوردية تُقاس بيومها وتُقفل عليه: كل بند فيها يقع على اليوم الذي فُتحت فيه، ولو أُضيف
+    بندٌ بعد منتصف الليل، ولو بلغ وقتها ما بعد بداية اليوم المحاسبي.
+
+    والعبارة السابقة كانت تُعيد `effective_sale_date` لكل بند على حدة، فتعتتمد على لحظة
+    إضافة البند لا على لحظة فتح الوردية. والنتيجة أن وردية فُتحت الساعة العاشرة قد تُقسَّم
+    بيومين: بنودُ العاشرة على يومها، وبنودُ الواحدة بعد منتصف الليل على اليوم التالي إذا بلغ
+    وقتُ الإضافة ساعة بداية اليوم المحاسبي. وهي فجوة في حساب اليوم لا في العدّاد وحده.
+    """
+    if session is None:
+        return effective_sale_date()
+    return session_business_date(session)
 
 
 def session_business_date(session):
@@ -85,13 +94,82 @@ def stamp_session_creation(session, target_date, *, stamp=None):
     return stamp
 
 
-def elapsed_reference(session, now=None):
-    """مرجع حساب المدة: الساعة الحالية على يوم الوردية، فلا تظهر المدة بالأيام للورديات المؤرخة سابقاً."""
-    now = now or timezone.localtime()
+def elapsed_minutes(session, now=None):
+    """مدة الوردية المفتوحة بالدقائق: الوقت الحالي منقوص من وقت فتحها.
+
+    كان المرجع السابق يأخذ الساعة الحالية على يوم الوردية، حتى لا تظهر المدة بالأيام
+    للورديات المؤرخة سابقاً. لكن الوردية المفتوحة من البارح إلى صباح اليوم ليست يوماً
+    سابقاً صُدف، بل وردية نسيها صاحبها، فصار عمرها الحقيقي يُقاس على يومها بساعتها
+    الحالية: وردية مفتوحة منذ أربع وعشرين ساعة تُعرض بثلاث عشرة دقيقة، والوردية التي
+    امتدت فوق منتصف الليل تُعرض صفراً حتى تبلغ منتصف الليل.
+
+    عدّادُ الوردية وظيفته أن يُظهر أنها ما زالت مفتوحة. فإذا قِسناه بساعةٍ من يومٍ آخر
+    لتقدّمه صفراً، أخفى بالضبط ما وُجد ليُظهره. والمدة الصحيحة هي الوقت الحالي ناقصَ
+    وقت الفتح، بلا نظرٍ إلى تاريخ الوردية.
+    """
+    if session is None or not session.opened_at:
+        return 0
+    opened = timezone.localtime(session.opened_at)
+    return max(0, int(((now or timezone.localtime()) - opened).total_seconds() // 60))
+
+
+def business_timezone():
+    """نطاق العمل المحلي، ليُثبَّت وقت معلوم على تاريخه وإلا ساعته محلية."""
+    return timezone.get_current_timezone()
+
+
+def auto_close_moment(session, close_time):
+    """أوّل موعدٍ لهذا الوقت يقع بعد فتح الوردية.
+
+    الموعد يتكرّر يومياً بعد يوم الفتح: وردية فُتحت بعد موعد الإغلاق فيومها تنتقل إلى
+    موعد الغد، فلا تُغلق في يوم فتحها ولا تُترك مفتوحة بلا سبب.
+    """
     business = session_business_date(session)
-    if business >= now.date():
-        return now
-    return datetime.combine(business, now.timetz())
+    stamp = datetime.combine(business, close_time, tzinfo=business_timezone())
+    if session.opened_at:
+        opened = timezone.localtime(session.opened_at)
+        if stamp < opened:
+            days = int((opened - stamp).total_seconds() // 86400) + 1
+            stamp += timedelta(days=days)
+    return stamp
+
+
+AUTO_CLOSE_NOTE = "أُغلقت تلقائياً: بلغ موعد إغلاق الورديات المنسية ولم تُغلق يدوياً"
+
+
+def auto_close_stale_sessions(now=None):
+    """تغلق النظام الورديات المنسية وتُعيد مبيعاتها على يوم فتحها.
+
+    لا يجدول النظام شيئاً في الخلفية، فلم يكن هناك ما يغلق وردية نسيها صاحبها: لم تكن
+    تُغلق إلا حين يفتح أحد الصفحة. وأول من يذهب ليرى وردية منسية هو من يغلقها له.
+
+    تُغلق على موعد الإغلاق نفسه لا على لحظة الاكتشاف، حتى لا يتغير يومها المحاسبي بتغير
+    ساعة الدخول، ويبقى سبب الإغلاق مكتوباً في ملاحظاتها.
+    """
+    now = now or timezone.localtime()
+    conf = AppSettings.load()
+    if not conf.session_auto_close_enabled:
+        return []
+    due = []
+    rows = SaleSession.objects.filter(
+        status=SaleSession.Status.OPEN, is_manual=False
+    ).only("id", "opened_at", "session_date", "notes")
+    for session in rows:
+        if now < auto_close_moment(session, conf.session_auto_close_time):
+            continue
+        try:
+            close_session(session, auto=True)
+        except Exception:
+            logger.exception(
+                "فشل إغلاق الوردية تلقائياً (id=%s)", session.pk
+            )
+            continue
+        due.append(session.pk)
+    if due:
+        logger.info(
+            "أغلق النظام %s وردية منسية تلقائياً: %s", len(due), due
+        )
+    return due
 
 
 def _item_yards(item):
@@ -284,8 +362,13 @@ def recompute_commission(session):
     return session.commission_amount
 
 
-def close_session(session):
-    """تحويل بنود الوردية إلى سندات مبيعات يومية مع خصم المخزون، ثم إغلاق الوردية."""
+def close_session(session, *, auto=False):
+    """تحويل بنود الوردية إلى سندات مبيعات يومية مع خصم المخزون، ثم إغلاق الوردية.
+
+    وكلاهما يُبقي مبيعات الوردية على يوم فتحها؛ والفرق في وقت الإغلاق نفسه: الإغلاق
+    اليدوي يُختم بساعة اللحظة على يوم الوردية، والإغلاق التلقائي بموعد الإغلاق المضبوط
+    بعده — فترتفع ساعة الوردية الليلية إلى صباح الغد بدل أن تُقطع عند منتصف الليل.
+    """
     if session.status == SaleSession.Status.CLOSED:
         raise ValueError("الوردية مغلقة بالفعل")
     rows = list(session.items.select_related("fabric").filter(is_returned=False))
@@ -332,10 +415,20 @@ def close_session(session):
                     existing[fabric_id] = DailySaleItem.objects.create(sale=sale, fabric_id=fabric_id, yards=yards)
 
         session.status = SaleSession.Status.CLOSED
-        # وقت الإغلاق يُسجَّل على تاريخ الوردية بنفس الساعة — يبقى التسلسل والمدة متسقة
-        session.closed_at = now_on(session_business_date(session), floor=session.opened_at)
+        if auto:
+            stamp = auto_close_moment(session, AppSettings.load().session_auto_close_time)
+            note = AUTO_CLOSE_NOTE
+        else:
+            # وقت الإغلاق اليدوي يُسجَّل على تاريخ الوردية بنفس الساعة ليبقى التسلسل متسقاً
+            stamp = now_on(session_business_date(session), floor=session.opened_at)
+            note = ""
+        session.closed_at = stamp
         recompute_commission(session)
-        session.save(update_fields=["status", "closed_at", "commission_amount"])
+        fields = ["status", "closed_at", "commission_amount"]
+        if note and note not in (session.notes or ""):
+            session.notes = f"{(session.notes or '').strip()}\n{note}".strip()
+            fields.append("notes")
+        session.save(update_fields=fields)
         _post_session(session)
     return session
 

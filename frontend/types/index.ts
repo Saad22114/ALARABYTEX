@@ -638,6 +638,8 @@ export interface AppSettings {
   previous_day_cutoff_hour: number;
   session_warn_hours: number;
   session_danger_hours: number;
+  session_auto_close_enabled: boolean;
+  session_auto_close_time: string;
   default_payment_method: SessionPaymentMethod;
   discount_max_percent: number;
   min_sale_percent: number;

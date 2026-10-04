@@ -25,6 +25,7 @@ from .serializers import (
     SaleSessionUpdateSerializer,
 )
 from .services import (
+    auto_close_stale_sessions,
     close_session,
     clear_session_items,
     delete_session,
@@ -122,6 +123,17 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
             headers=self.get_success_headers(serializer.data),
         )
+
+    def list(self, request, *args, **kwargs):
+        """تُغلق الورديات المنسية قبل العرض، فهي أول ما يبحث فيه المدير.
+
+        الصفحةُ التي يذهب إليها المشرف ليتفرّج على وردية نسيها موظف هي نفسها الصفحةُ
+        التي تُصلحها، فمن لم يفتحها لا معنى أن تُغلق له وردية. والقراءةُ أرخص من
+        الكتابة: لا تُلمس إلا ورديةٌ تجاوزت موعدها، والإغلاقُ عليها يتم في معاملةٍ
+        واحدة يكفي أن يفشل أحدها فلا يتوقف الباقي.
+        """
+        auto_close_stale_sessions()
+        return super().list(request, *args, **kwargs)
 
     def get_queryset(self):
         qs = super().get_queryset()

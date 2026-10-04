@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import EmptyState from '@/components/ui/EmptyState';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format';
+import { elapsedLabel } from '@/lib/shiftClock';
 import { reopenSaleSession } from '@/services/sessions';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -28,15 +29,6 @@ function fmtTime(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })}`;
-}
-
-function elapsedText(minutes: number | null): string {
-  if (minutes == null) return '';
-  const m = Math.max(0, minutes);
-  if (m < 60) return `${formatNumber(m)} دقيقة`;
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  return r === 0 ? `${formatNumber(h)} ساعة` : `${formatNumber(h)} ساعة و ${formatNumber(r)} دقيقة`;
 }
 
 const num = (n: number): string =>
@@ -148,7 +140,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
     <span>الفرع: <b>${session.branch_name}</b></span>
     <span>الفُتحت: <b>${fmtTime(session.opened_at)}</b></span>
     <span>أُغلقت: <b>${session.closed_at ? fmtTime(session.closed_at) : '—'}</b></span>
-    <span>المدة: <b>${elapsedText(session.elapsed_minutes) || '—'}</b></span>
+    <span>المدة: <b>${elapsedLabel(session.elapsed_minutes, '') || '—'}</b></span>
     <span>الحالة: <b>${session.status_label}</b></span>
     ${settings?.receipt_show_phone && settings?.business_phone ? `<span>الهاتف: <b>${settings.business_phone}</b></span>` : ''}
     ${settings?.business_address ? `<span>العنوان: <b>${settings.business_address}</b></span>` : ''}
@@ -261,7 +253,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                 </div>
                 <div>
                   <p className="text-xs text-neutral-400">المدة</p>
-                  <p className="mt-0.5 tabular-nums">{elapsedText(session.elapsed_minutes) || '—'}</p>
+                  <p className="mt-0.5 tabular-nums">{elapsedLabel(session.elapsed_minutes, '') || '—'}</p>
                 </div>
               </div>
               {session.notes && (

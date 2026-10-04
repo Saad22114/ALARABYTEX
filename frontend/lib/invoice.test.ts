@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import { buildSalesInvoice, arabicWords, sessionToDailySales } from './invoice';
 import { DailySale, AppSettings, SaleSession } from '@/types';
 
@@ -64,6 +64,8 @@ function makeSettings(): AppSettings {
     previous_day_cutoff_hour: 3,
     session_warn_hours: 6,
     session_danger_hours: 12,
+    session_auto_close_enabled: true,
+    session_auto_close_time: '02:00',
     default_payment_method: 'transfer',
     discount_max_percent: 20,
     min_sale_percent: 15,

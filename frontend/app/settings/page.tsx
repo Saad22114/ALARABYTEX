@@ -117,6 +117,8 @@ export default function SettingsPage() {
     low_stock_alert_enabled: boolean;
     session_warn_hours: number;
     session_danger_hours: number;
+    session_auto_close_enabled: boolean;
+    session_auto_close_time: string;
     default_payment_method: 'cash' | 'transfer' | 'card';
     discount_max_percent: number;
     min_sale_percent: number;
@@ -131,6 +133,8 @@ export default function SettingsPage() {
     low_stock_alert_enabled: true,
     session_warn_hours: 2,
     session_danger_hours: 4,
+    session_auto_close_enabled: true,
+    session_auto_close_time: '02:00',
     default_payment_method: 'transfer',
     discount_max_percent: 100,
     min_sale_percent: 15,
@@ -168,6 +172,8 @@ export default function SettingsPage() {
         low_stock_alert_enabled: settings.low_stock_alert_enabled,
         session_warn_hours: settings.session_warn_hours ?? 2,
         session_danger_hours: settings.session_danger_hours ?? 4,
+        session_auto_close_enabled: settings.session_auto_close_enabled ?? true,
+        session_auto_close_time: (settings.session_auto_close_time || '02:00').slice(0, 5),
         default_payment_method: settings.default_payment_method || 'transfer',
         discount_max_percent: Number(settings.discount_max_percent ?? 100),
         min_sale_percent: Number(settings.min_sale_percent ?? 15),
@@ -768,6 +774,38 @@ export default function SettingsPage() {
               </div>
               <p className="text-xs text-neutral-400 -mt-2">
                 بعد أول عدد ساعات تظهر شارة تحذير على الوردية المفتوحة، وبعد الثاني تظهر شارة حمراء.
+              </p>
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-sm font-medium text-neutral-700">إغلاق الورديات المنسية تلقائياً</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">
+                    إن بقيت وردية مفتوحة حتى الموعد التالي يغلقها النظام وحدّث مبيعاتها على يوم فتحها
+                  </p>
+                </div>
+                <Switch
+                  checked={prefsForm.session_auto_close_enabled}
+                  onChange={(v) => setPrefsForm({ ...prefsForm, session_auto_close_enabled: v })}
+                />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-neutral-500 block mb-1">موعد إغلاق الوردية المنسية</label>
+                  <input
+                    type="time"
+                    value={prefsForm.session_auto_close_time}
+                    disabled={!prefsForm.session_auto_close_enabled}
+                    onChange={(e) => setPrefsForm({ ...prefsForm, session_auto_close_time: e.target.value })}
+                    className="w-full rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:opacity-50"
+                  />
+                </div>
+                <p className="text-xs text-neutral-400 self-end">
+                  أول موعد لهذا الوقت بعد فتح الوردية. وردية فُتحت قبله يُغلق ميعادها في اليوم نفسه، وردية فُتحت
+                  بعده فيوم الغد — فلا تُقطع وردية ليلية في ذروتها.
+                </p>
+              </div>
+              <p className="text-xs text-neutral-400 -mt-2">
+                يغلق النظام الورديات المنسية حين تفتح صفحة الورديات، أو دائماً بمهمة مجدولة تشغّل
+                <span className="font-mono text-[11px] bg-sand-100 px-1.5 py-0.5 rounded mx-1" dir="ltr">python manage.py close_stale_sessions</span>
               </p>
               <div className="grid sm:grid-cols-2 gap-4">
                 <Select

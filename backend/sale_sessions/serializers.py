@@ -20,7 +20,7 @@ from .sections import effective_permissions
 from .services import (
     create_manual_session,
     deduct_item_stock,
-    elapsed_reference,
+    elapsed_minutes,
     next_sale_group_no,
     reopen_session,
     session_sale_date,
@@ -298,11 +298,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
     def get_elapsed_minutes(self, obj):
         if obj.status == SaleSession.Status.CLOSED:
             return None
-        if not obj.opened_at:
-            return 0
-        opened = timezone.localtime(obj.opened_at)
-        reference = max(elapsed_reference(obj), opened)
-        return max(0, int((reference - opened).total_seconds() // 60))
+        return elapsed_minutes(obj)
 
     def get_items(self, obj):
         return SaleSessionItemSerializer(obj.items.all(), many=True).data

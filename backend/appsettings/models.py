@@ -1,3 +1,4 @@
+from datetime import time
 from decimal import Decimal
 
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -159,6 +160,16 @@ class AppSettings(TimeStampedModel):
         validators=[MinValueValidator(1), MaxValueValidator(72)],
         verbose_name="تحذير الوردية الطويلة (ساعات)",
         help_text="بعد هذه المدة تظهر شارة تحذير حمراء للوردية المفتوحة",
+    )
+    session_auto_close_enabled = models.BooleanField(
+        default=True,
+        verbose_name="إغلاق الورديات المنسية تلقائياً",
+        help_text="عند بلوغ الموعد تغلق النظام الورديات التي تجاوزته ولا تزال مفتوحة",
+    )
+    session_auto_close_time = models.TimeField(
+        default=time(2, 0),
+        verbose_name="موعد إغلاق الوردية المنسية",
+        help_text="أول موعد لهذا الوقت بعد فتح الوردية؛ إن بقت مفتوحة عنده أغلقها النظام وحدّث مبيعاتها على يوم فتحها",
     )
     default_payment_method = models.CharField(
         max_length=10,

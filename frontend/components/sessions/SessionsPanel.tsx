@@ -50,6 +50,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { saleGroupBadges, saleGroupKey } from '@/lib/saleGroups';
+import { elapsedLabel, elapsedMinutes } from '@/lib/shiftClock';
 import { todayISO } from '@/lib/date';
 import { printSessionReceipt } from '@/lib/receipt';
 import { enterMovesFocus } from '@/lib/keyFlow';
@@ -89,15 +90,6 @@ const SORT_OPTIONS: { value: SessionSortKey; label: string }[] = [
   { value: 'total', label: 'الأعلى مبيعات' },
   { value: 'employee', label: 'باسم الموظف' },
 ];
-
-function elapsedText(minutes: number | null): string {
-  if (minutes == null) return '';
-  const m = Math.max(0, minutes);
-  if (m < 60) return `منذ ${formatNumber(m)} دقيقة`;
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  return r === 0 ? `منذ ${formatNumber(h)} ساعة` : `منذ ${formatNumber(h)} ساعة و ${formatNumber(r)} دقيقة`;
-}
 
 export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChanged?: () => void; onSaleGenerated?: (session: SaleSession) => void }) {
   const { toast } = useToast();
@@ -255,24 +247,16 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     const d = new Date(s.opened_at);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
-  /** المدة بالدقائق: تُقاس بنفس الساعة على يوم الوردية حتى لا تظهر بالأيام للورديات المؤرخة سابقاً. */
-  const liveMinutes = (s: SaleSession) => {
-    const opened = new Date(s.opened_at);
-    const now = new Date(tick);
-    const day = sessionDay(s);
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const reference = day >= today
-      ? now
-      : new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)),
-          now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
-    return Math.max(0, Math.floor((reference.getTime() - opened.getTime()) / 60000));
-  };
+  /** المدة بالدقائق: الوقت الحالي ناقص وقت الفتح، بلا نظر إلى تاريخ الوردية.
+   *  قِسناها سابقاً بالساعة الحالية على يوم الوردية، فظهرت ورديةٌ مفتوحة منذ يوم
+   *  صفراً أو بثلاث عشرة دقيقة، وعند منتصف الليل صفراً صريحاً. */
+  const liveMinutes = (s: SaleSession) => elapsedMinutes(s.opened_at, tick || Date.now());
   /** تاريخ الوردية المحاسبي إن كان مختلفاً عن يوم الفتح الفعلي (وردية قديمة سُجِّلت قبل ضبط وقت الفتح). */
   const backdatedLabel = (s: SaleSession): string | null => {
     if (!s.session_date) return null;
     const d = new Date(s.opened_at);
     const openedISO = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    return s.session_date.slice(0, 10) === openedISO ? null : formatDate(s.session_date);
+    return sessionDay(s) === openedISO ? null : formatDate(s.session_date);
   };
   const warnMinutes = (settings?.session_warn_hours ?? 2) * 60;
   const dangerMinutes = (settings?.session_danger_hours ?? 4) * 60;
@@ -781,7 +765,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                 </div>
                 <div className="mt-1 text-sm text-neutral-500">{s.branch_name}</div>
                 <div className="mt-2 text-xs text-neutral-400">
-                  فُتحت {formatDate(s.opened_at)} {new Date(s.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(live)}
+                  فُتحت {formatDate(s.opened_at)} {new Date(s.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedLabel(live)}
                 </div>
                 {backdatedLabel(s) && (
                   <div className="mt-1.5">
@@ -825,7 +809,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
             <div>
               <h2 className="font-semibold">وردية {selected.employee_name} — {selected.branch_name}</h2>
               <p className="text-sm text-neutral-500">
-                فُتحت {formatDate(selected.opened_at)} {new Date(selected.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedText(liveMinutes(selected))}
+                فُتحت {formatDate(selected.opened_at)} {new Date(selected.opened_at).toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' })} • {elapsedLabel(liveMinutes(selected))}
               </p>
               {backdatedLabel(selected) && (
                 <p className="mt-1 text-sm font-medium text-amber-700">
