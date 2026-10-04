@@ -286,9 +286,10 @@ export default function SalesPage() {
     setExpandedClosed((prev) => (prev.size === 0 ? new Set(closedSessions.map((s) => s.id)) : new Set()));
   }, [closedSessions]);
 
+  const summaryClosedSessions = selectedClosed.size > 0 ? selectedClosedSessions : closedSessions;
   const sTotals = useMemo(() => {
     let items = 0, yards = 0, cash = 0, transfer = 0, card = 0, total = 0;
-    for (const s of closedSessions) {
+    for (const s of summaryClosedSessions) {
       items += s.items.length;
       yards += s.totals.yards;
       cash += s.totals.cash;
@@ -296,8 +297,8 @@ export default function SalesPage() {
       card += s.totals.card;
       total += s.totals.total;
     }
-    return { items, yards, cash, transfer, card, total };
-  }, [closedSessions]);
+    return { sessions: summaryClosedSessions.length, items, yards, cash, transfer, card, total };
+  }, [summaryClosedSessions]);
 
   const handleSaleGenerated = useCallback(async (session: SaleSession) => {
     const dates = Array.from(new Set(session.items.map((i) => i.sale_date))).sort();
@@ -541,7 +542,7 @@ export default function SalesPage() {
               </div>
               {closedSessions.length > 0 && (
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-sand-100 bg-sand-50/60 dark:bg-neutral-900/40">
-                <SummaryChip label="ورديات" value={String(closedSessions.length)} />
+                <SummaryChip label="ورديات" value={String(sTotals.sessions)} />
                 <SummaryChip label="بنود" value={formatNumber(sTotals.items)} />
                 <SummaryChip label="ياردات" value={formatNumber(sTotals.yards)} />
                 <SummaryChip label="كاش" value={formatCurrency(sTotals.cash)} color="text-emerald-600" />
