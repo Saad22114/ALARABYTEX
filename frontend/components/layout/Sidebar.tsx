@@ -25,6 +25,7 @@ import {
   Landmark,
   CircleDollarSign,
 } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { logoUrl } from '@/services/settings';
@@ -58,8 +59,16 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const navRef = useRef<HTMLElement>(null);
   const { settings } = useSettings();
   const { session } = useAuth();
+
+  useLayoutEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('sidebar-scroll-top');
+      if (saved !== null && navRef.current) navRef.current.scrollTop = Number(saved) || 0;
+    } catch {}
+  }, [pathname]);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -141,7 +150,13 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           </div>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav
+          ref={navRef}
+          onScroll={(event) => {
+            try { sessionStorage.setItem('sidebar-scroll-top', String(event.currentTarget.scrollTop)); } catch {}
+          }}
+          className="flex-1 px-3 py-4 space-y-1 overflow-y-auto"
+        >
           {visibleItems.map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;
