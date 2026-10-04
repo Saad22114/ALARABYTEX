@@ -6,7 +6,7 @@ from django.db import models
 
 from core.models import TimeStampedModel, ActiveModel
 
-from .sections import ROLE_CHOICES, PERMISSION_ACTIONS
+from .sections import ROLE_CHOICES, PERMISSION_ACTIONS, effective_permissions
 
 
 class Employee(TimeStampedModel, ActiveModel):
@@ -110,14 +110,22 @@ class Employee(TimeStampedModel, ActiveModel):
         self.hidden_sections = list(preset["hidden_sections"])
 
     def has_permission(self, section_key, action="view"):
-        try:
-            return bool(self.permissions[section_key].get(action))
-        except (KeyError, AttributeError, TypeError):
+        """الفتحُ يُقاسُ بالخريطة المُملَأة، لا بما هو مكتوبٌ في الصفّ.
+
+        كان هذا يقرأ `self.permissions` مباشرةً، والخانةُ الناقصةُ تُقرأ
+        لا مفتاحَ لها فتردّ `False`. فالقسمُ الذي يُملأ على القراءة يظهر في
+        القائمة، ثم يرفضه هذا البابُ نفسُه ويقول للواجهة «لا تملك صلاحية».
+        والحكمُ في مكانين يجب أن يكون واحداً، وإلّا صار القسمُ مرئياً
+        مرفوضاً في اللحظة نفسِها، وهو أهدأُ من الغياب وأربكُ منه.
+        """
+        entry = effective_permissions(self.role, self.permissions).get(section_key)
+        if not isinstance(entry, dict):
             return False
+        return bool(entry.get(action))
 
     def has_window(self, section_key, window_key):
         """يعيد هل يملك الموظف نافذةً داخل قسم — غياب قائمة النوافذ يعني عدم التقييد."""
-        perms = self.permissions.get(section_key, {}) if isinstance(self.permissions, dict) else {}
+        perms = effective_permissions(self.role, self.permissions).get(section_key)
         windows = perms.get("windows") if isinstance(perms, dict) else None
         if windows is None:
             return True

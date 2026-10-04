@@ -7,7 +7,7 @@ from django.db.models import Sum
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
-from core.testsupport import authenticate_admin
+from core.testsupport import authenticate_admin, make_admin_user
 
 from branches.models import Branch, FabricBranchPrice
 from sales.models import DailySale, DailySaleItem
@@ -15,6 +15,7 @@ from suppliers.models import Fabric
 from warehouses.models import FabricRoll, StockMovement, Warehouse
 
 from .models import Employee, SaleSession, SaleSessionItem
+from .sections import SECTIONS, canonical_role, effective_permissions
 from .services import close_session, effective_sale_date
 
 
@@ -239,6 +240,202 @@ class SectionsAPITest(TestCase):
                 if section["key"] in role["permissions"]:
                     for action in actions:
                         self.assertIn(action, role["permissions"][section["key"]])
+
+
+class EffectivePermissionsTest(TestCase):
+    """قسمٌ أُضيف بعدَ إنشاء الحساب لا يصل إلى موظفٍ قديم، فيختفي.
+
+    والأثرُ ليس مُجرّدَ إخفاء: القائمةُ تتجاهلُ المفتاحَ الغائب، وصفحتُه
+    تُصفِّي تبويباتها بـ«hasWindow» فلا يبقى فيها شيء. فالموظفُ يقابل
+    قسماً معلناً ولا يجده، ويظنّ أنّ النظامَ نسيه.
+    """
+
+    def setUp(self):
+        self.sections = SECTIONS
+        self.declared = {s["key"] for s in SECTIONS}
+
+    def test_every_declared_section_is_present_for_an_old_row(self):
+        # صفُّ موظفٍ كُتب قبل قسم الحضور: خانةُ الحضور غائبةٌ فيه.
+        stale = {"sales": {"view": True, "create": False, "edit": False, "delete": False}}
+        perms = effective_permissions("admin", stale)
+        self.assertEqual(set(perms), self.declared)
+        self.assertTrue(perms["attendance"]["view"])
+        self.assertTrue(perms["attendance"]["edit"])
+
+    def test_the_missing_section_comes_from_the_role_not_from_blanks(self):
+        rows = {
+            "admin": True, "supervisor": True, "viewer": True,
+            "sales": True, "accountant": True, "custom": False,
+        }
+        for role, expected_view in rows.items():
+            perms = effective_permissions(role, {})
+            self.assertEqual(
+                perms["attendance"]["view"], expected_view, role,
+            )
+
+    def test_a_stored_permission_is_never_overwritten(self):
+        # المديرُ يأخذ كلَّ شيءٍ من دوره، لكنّ ما حُفظ للموظفِ مقدَّمٌ على
+        # الدور: هنا سطرُ المبيعات محذوفٌ عمداً.
+        stale = {"sales": {"view": True, "create": False, "edit": False, "delete": False}}
+        perms = effective_permissions("admin", stale)
+        self.assertFalse(perms["sales"]["create"])
+        self.assertFalse(perms["sales"]["delete"])
+
+    def test_a_granted_section_takes_all_its_windows_when_none_are_listed(self):
+        # «view» وعدٌ بصفحةٍ فيها شيء. الأدوارُ المكتوبةُ يدوياً تعطي العرض
+        # بلا نوافذ، فتصير الصفحةُ فراغاً: القسمُ ظاهرٌ ولا يُرى منه شيء.
+        perms = effective_permissions("sales", {})
+        declared = {
+            w["key"]
+            for s in self.sections if s["key"] == "attendance"
+            for w in (s.get("windows") or [])
+        }
+        self.assertEqual(set(perms["attendance"]["windows"]), declared)
+
+    def test_a_narrow_window_list_is_kept_but_pruned_of_ghosts(self):
+        perms = effective_permissions("admin", {
+            "attendance": {
+                "view": True, "create": True, "edit": True, "delete": True,
+                "windows": ["daily", "قسم لم يعد له أثر"],
+            },
+        })
+        self.assertEqual(perms["attendance"]["windows"], ["daily"])
+
+    def test_a_section_no_role_mentions_stays_closed(self):
+        # دورُ مندوبِ المبيعات لا يذكر «التسويات المالية»، فغيابُه قصدٌ
+        # لا نقصٌ في الخريطة. والقسمُ المُقفَلُ يُكتب صريحاً لا غائباً.
+        perms = effective_permissions("sales", {})
+        self.assertIn("machine_account", perms)
+        self.assertFalse(perms["machine_account"]["view"])
+
+    def test_null_and_rubbish_stored_maps_do_not_break_the_read(self):
+        for junk in (None, [], "nonsense", {"attendance": "yes"}):
+            perms = effective_permissions("admin", junk)
+            self.assertEqual(set(perms), self.declared)
+            self.assertTrue(perms["attendance"]["view"])
+
+    def test_the_session_endpoint_carries_the_filled_map(self):
+        # هذا هو الطريقُ الذي تسير عليه الواجهة: لا الخريطةُ في القاعدة
+        # بل التي في الجلسة. ولولاه لبقيت القاعدةُ نظيفةً والشاشةُ خاوية.
+        user, emp = make_admin_user()
+        # نُحاكي صفّاً كُتب قبل قسم الحضور: خانةُ الحضور غائبةٌ فيه.
+        stale = {k: v for k, v in (emp.permissions or {}).items() if k != "attendance"}
+        Employee.objects.filter(pk=emp.pk).update(permissions=stale)
+        emp.refresh_from_db()
+        self.assertNotIn("attendance", (emp.permissions or {}))
+
+        c = APIClient()
+        c.force_authenticate(user)
+        r = c.get("/api/auth/me/")
+        self.assertEqual(r.status_code, 200)
+        perms = r.data["employee"]["permissions"]
+        self.assertTrue(perms["attendance"]["view"])
+        self.assertEqual(
+            set(perms["attendance"]["windows"]),
+            {"daily", "records", "summary", "policy"},
+        )
+
+    def test_the_gate_agrees_with_the_map_it_published(self):
+        """الحكمُ في مكانين: الخريطةُ التي في الجلسة، والبابُ الذي يردّ.
+
+        أصلحت الأولى فظهر القسمُ في القائمة، وبقي الثاني على حاله يقرأ
+        الصفَّ خاماً فيرفض. فالقسمُ صار مرئياً ومرفوضاً في اللحظة نفسِها،
+        وهو أسوأ من غيابه لأنّ المستخدمَ لا يجد ما يُبلّغه به. فالمقارنةُ
+        هنا على كلِّ قسمٍ وفعلٍ معاً: ما تعلنه الجلسةُ يفتحه البابُ نفسُه.
+        """
+        user, emp = make_admin_user()
+        stale = {k: v for k, v in (emp.permissions or {}).items() if k != "attendance"}
+        Employee.objects.filter(pk=emp.pk).update(permissions=stale)
+        emp.refresh_from_db()
+
+        self.assertTrue(emp.has_permission("attendance", "view"))
+        self.assertTrue(emp.has_permission("attendance", "edit"))
+        self.assertTrue(emp.has_window("attendance", "daily"))
+
+        c = APIClient()
+        c.force_authenticate(user)
+        published = c.get("/api/auth/me/").data["employee"]["permissions"]
+        for section, entry in published.items():
+            for action in ("view", "create", "edit", "delete"):
+                if action not in entry:
+                    continue
+                self.assertEqual(
+                    emp.has_permission(section, action), entry[action],
+                    f"{section}.{action} is published as {entry[action]} "
+                    f"but the gate says {emp.has_permission(section, action)}",
+                )
+
+    def test_the_attendance_api_opens_for_a_row_that_predates_the_section(self):
+        # الاختبارُ السابق يقول إنّ الخريطةَ صارت صحيحة. وهذا يقول إنّ
+        # الصفحةَ صارت تُفتح فعلاً، فبينهما بابٌ قد يُغلق بمفرده.
+        user, emp = make_admin_user()
+        stale = {k: v for k, v in (emp.permissions or {}).items() if k != "attendance"}
+        Employee.objects.filter(pk=emp.pk).update(permissions=stale)
+
+        c = APIClient()
+        c.force_authenticate(user)
+        for url in ("/api/attendance/policy/", "/api/attendance/records/"):
+            r = c.get(url)
+            self.assertEqual(r.status_code, 200, url)
+
+    def test_a_role_in_the_wrong_case_still_reaches_its_sections(self):
+        # الحقلُ نصٌّ حرٌّ، فالصفوفُ المكتوبةُ `ADMIN` ليست نادرةً. وهي
+        # ليست نيّةً: `ROLE_PRESETS` لا يعرف إلا الحروفَ الصغيرة، فالعيبُ
+        # يقع على كلِّ قسمٍ ناقصٍ في الوقت نفسِه، لا على الحضور وحده.
+        user, emp = make_admin_user()
+        Employee.objects.filter(pk=emp.pk).update(
+            role="ADMIN",
+            permissions={k: v for k, v in (emp.permissions or {}).items()
+                         if k != "attendance"},
+        )
+        emp.refresh_from_db()
+        self.assertEqual(canonical_role(emp.role), "admin")
+        self.assertTrue(emp.has_permission("attendance", "view"))
+
+        c = APIClient()
+        c.force_authenticate(user)
+        self.assertEqual(c.get("/api/attendance/policy/").status_code, 200)
+
+    def test_a_role_outside_the_choices_gets_nothing(self):
+        # لا تُرقَّع قيمةٌ لا معنى لها. `admin` ليست تخميناً معقولاً لـ
+        # `nonsense`، فمنعُها أصدقُ من اختراعِ دورٍ لم يكتبه أحد.
+        self.assertIsNone(canonical_role("nonsense"))
+        self.assertEqual(effective_permissions("nonsense", {})["attendance"]["view"],
+                         False)
+
+    def test_the_audit_command_names_the_rows_it_found(self):
+        # The command names the row that is wrong; it does not invent a right
+        # one. So it names it by id and name, and it leaves the map alone: a
+        # permission map is a set of decisions, not a calculation, and nothing
+        # here second-guesses it.
+        user, emp = make_admin_user()
+        Employee.objects.filter(pk=emp.pk).update(
+            role="ADMIN",
+            permissions={k: v for k, v in (emp.permissions or {}).items()
+                         if k != "attendance"},
+        )
+        before = run_audit()
+        self.assertIn("role the choices do not define", before)
+        self.assertIn(emp.name, before)
+
+        # After --apply the role failure is gone. The map gap stays, and stays
+        # reported, because it is still true: the row does not name the
+        # section. What changed is that the section is reachable regardless.
+        run_audit("--apply")
+        emp.refresh_from_db()
+        self.assertEqual(emp.role, "admin")
+        after = run_audit()
+        self.assertIn("ok    every role is one of the defined choices", after)
+        self.assertIn("recovered on read: attendance", after)
+
+
+def run_audit(*args) -> str:
+    from django.core.management import call_command
+    from io import StringIO
+
+    out = StringIO()
+    call_command("audit_access", *args, stdout=out)
+    return out.getvalue()
 
 
 class SaleSessionAPITest(TestCase):

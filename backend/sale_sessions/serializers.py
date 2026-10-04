@@ -16,6 +16,7 @@ from suppliers.models import Fabric
 from warehouses.models import FabricRoll, Warehouse
 
 from .models import Employee, SaleSession, SaleSessionItem
+from .sections import effective_permissions
 from .services import (
     create_manual_session,
     deduct_item_stock,
@@ -196,6 +197,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data["username"] = instance.user.username if instance.user_id else ""
         data["branch_name"] = instance.branch.name if instance.branch_id else None
+        # الصلاحياتُ تُقرأ مُملَّأةً من الدور: خانةُ قسمٍ أُضيف بعدَ إنشاء
+        # الحسابِ غائبةٌ في الصفّ، والقسمُ الغائبُ يختفي من القائمة وتفرغ
+        # صفحتُه من تبويباتها. والإملاءُ هنا لا في الكتابة، فيبقى
+        # الاختيارُ المحفوظ كما هو.
+        data["permissions"] = effective_permissions(
+            instance.role, instance.permissions
+        )
         return data
 
 

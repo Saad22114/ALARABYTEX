@@ -233,3 +233,77 @@ ROLE_PRESETS = {
 }
 
 ROLE_CHOICES = [(k, v["label"]) for k, v in ROLE_PRESETS.items()]
+
+
+def canonical_role(role):
+    """الدورُ كما تعرّفه `Employee.Role`، أو `None` إن كان خارجَ الاختيارات.
+
+    الحقلُ نصٌّ حرٌّ لا مفاتيحَ مقيَّدة، فالصفوفُ المكتوبةُ بغير
+    الاختيارات تمرّ. وهي خطأٌ لا نيّة: `ADMIN` لا تعني شيئاً في هذا
+    المشروع، فلا يصلح أن تُقرأ ولا أن تُعرض.
+    """
+    text = str(role or "").strip().lower()
+    return text if text in ROLE_PRESETS else None
+
+
+def role_preset(role):
+    """إعدادُ الدور، يُقرأ بلا حساسيةٍ لحالة الحروف.
+
+    كانت الصفوفُ المكتوبةُ `ADMIN` لا `admin` بلا إعدادٍ أصلاً، لأنّ
+    `ROLE_PRESETS` لا يعرف إلا الحروفَ الصغيرة. و«لا أعرف هذا الدور» في
+    هذا المشروع تعني «مقفَلٌ كلُّ شيء»، فالموظفُ يخسر ما يملكه باردةً
+    بسبب حرفٍ واحدٍ في خانة.
+    """
+    preset = ROLE_PRESETS.get(role)
+    if preset is not None:
+        return preset
+    return ROLE_PRESETS.get(str(role or "").strip().lower(), {})
+
+
+def effective_permissions(role, stored=None):
+    """صلاحياتُ الموظف كما تُقرأ في الجلسة، لا كما هي مخزَّنة في صفّه.
+
+    الخريطةُ المخزَّنة كُتبت لحظةَ إنشاء الحساب، فكلُّ قسمٍ أُضيف إلى
+    `SECTIONS` بعد ذلك الحين غائبٌ منها. والقسمُ الغائبُ يُخفى من القائمة،
+    وصفحتُه تخرجُ بلا تبويباتٍ لأنّ `hasWindow` لا يجد مفتاحاً أصلاً.
+    فالموظفُ الذي أُعطي القسمَ يظنّ أنّ النظامَ نسي قسماً موجوداً، والسببُ
+    خانةٌ لم تُملأ لا خطأٌ في الصلاحيات ولا قرارٌ اتُّخذ.
+
+    فالقسمُ الناقصُ يُؤخَذُ من دوره: مديرٌ يأخذه كاملاً، ومندوبُ مبيعاتٍ
+    يأخذ عرضَه وحده. ولا يُكتب فوق مفتاحٍ موجودٍ أبداً، فاختيارُ الموظف
+    في شاشة الصلاحيات يبقى قائمًا، وهذا يملأ الغائبَ ولا يمسّ الحاضر.
+
+    وقاعدةٌ ثانية في الباب نفسِه: القسمُ الممنوحُ بلا قائمةِ نوافذ يأخذ
+    كلَّ نوافذه المعلنة. فحرفُ «view» وعدٌ بصفحةٍ فيها شيء، ولو تُرك بلا
+    نافذةٍ لكانت الصفحةُ فضاءً والوعدُ كذباً. وهذا ما تفعله الواجهةُ عند
+    تطبيع صلاحيات دورٍ في `normalizePermissions`، فالحكمُ هنا وعلى هناك
+    واحد، وإلّا صار لكلِّ طرفٍ قانونُه فيُعطى الموظفُ ما لا يرى فيه شيئاً.
+    """
+    stored = stored if isinstance(stored, dict) else {}
+    preset = role_preset(role).get("permissions", {})
+    out = {}
+    for s in SECTIONS:
+        key = s["key"]
+        declared = {w["key"] for w in (s.get("windows") or [])}
+        cur = stored.get(key)
+        if not isinstance(cur, dict):
+            cur = preset.get(key)
+        actions = s["actions"]
+        if not isinstance(cur, dict):
+            # لا دورَ يذكره ولا سطرٌ في الصفّ: مُقفَلٌ كلُّه، وهو ما يريده
+            # من لم يذكره. والمُقفَلُ يُكتب صريحاً لا غائباً، فيرى الفهرسُ
+            # القسمَ كلَّه في كلِّ مرّة.
+            out[key] = {a: False for a in actions}
+            continue
+        entry = {a: bool(cur.get(a)) for a in actions}
+        windows = cur.get("windows")
+        if declared:
+            entry["windows"] = (
+                [w for w in windows if w in declared]
+                if isinstance(windows, list) and windows
+                else sorted(declared)
+            )
+        elif isinstance(windows, list):
+            entry["windows"] = list(windows)
+        out[key] = entry
+    return out

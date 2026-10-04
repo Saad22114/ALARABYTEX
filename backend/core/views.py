@@ -17,7 +17,7 @@ from sale_sessions.avatars import (
     validate_avatar_image,
 )
 from sale_sessions.models import Employee
-from sale_sessions.sections import ROLE_PRESETS, SECTIONS
+from sale_sessions.sections import ROLE_PRESETS, SECTIONS, effective_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,11 @@ def employee_payload(emp):
         "branch_name": emp.branch.name if emp.branch_id else None,
         "role": emp.role,
         "role_label": emp.get_role_display(),
-        "permissions": emp.permissions,
+        # مُملأةً من الدور، لا كما هي في الصفّ. فالخريطةُ المخزَّنة كُتبت عند
+        # إنشاء الحساب، فكلُّ قسمٍ أُضيف بعدَ ذلك غائبٌ فيها: يُخفى من
+        # القائمة، وصفحتُه تخرجُ بلا تبويبات. والشاشةُ لا تقرأ القاعدةَ بل
+        # هذه الحقيبة، فالإملاءُ هنا أو لا أين.
+        "permissions": effective_permissions(emp.role, emp.permissions),
         "hidden_sections": emp.hidden_sections,
         "allowed_branches": list(
             emp.allowed_branches.values_list("id", flat=True)
