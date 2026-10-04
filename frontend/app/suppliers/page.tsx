@@ -23,6 +23,7 @@ import { listSuppliers, createSupplier, updateSupplier, deleteSupplier, getSuppl
 import { listWarehouses } from '@/services/warehouses';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import Input from '@/components/ui/Input';
 import { openSuppliersOverviewReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
@@ -234,35 +235,35 @@ export default function SuppliersPage() {
                 iconBg="bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"
                 label="إجمالي الموردين"
                 value={overview.total_suppliers}
-                sub={`${overview.active_count} نشط`}
+                sub={counted(overview.active_count, 'نشط', 'ناشطان', 'نشطون')}
               />
               <StatCard
                 icon={<ShoppingBag size={22} />}
                 iconBg="bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
                 label="إجمالي المشتريات"
                 value={formatCurrency(overview.total_purchases)}
-                sub={`${overview.purchases_count} فاتورة`}
+                sub={counted(overview.purchases_count, 'فاتورة', 'فاتورتان', 'فواتير')}
               />
               <StatCard
                 icon={<Wallet size={22} />}
                 iconBg="bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400"
                 label="إجمالي المدفوعات"
                 value={formatCurrency(overview.total_payments)}
-                sub={`${overview.payments_count} دفعة`}
+                sub={counted(overview.payments_count, 'دفعة', 'دفعتان', 'دفعات')}
               />
               <StatCard
                 icon={<Undo2 size={22} />}
                 iconBg="bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400"
                 label="المرتجعات"
                 value={formatCurrency(overview.total_returns)}
-                sub={`${overview.returns_count} مرتجع`}
+                sub={counted(overview.returns_count, 'مرتجع', 'مرتجعان', 'مرتجعات')}
               />
               <StatCard
                 icon={<Scale size={22} />}
                 iconBg="bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400"
                 label="المستحق للموردين"
                 value={formatCurrency(overview.outstanding_debit)}
-                sub={`${overview.owing_count} مورد بمديونية`}
+                sub={`${counted(overview.owing_count, 'مورد', 'موردان', 'موردون')} بمديونية`}
               />
             </div>
 

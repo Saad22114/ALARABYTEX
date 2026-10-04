@@ -40,6 +40,7 @@ import {
 } from '@/services/machine';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { downloadCsv, csvFilename } from '@/lib/csv';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
@@ -279,7 +280,7 @@ export default function MachineAccountPage() {
         { header: 'المرجع', value: (r) => r.reference },
         { header: 'ملاحظات', value: (r) => r.notes },
       ], rows);
-      toast('success', `تم تصدير ${rows.length} دفعة`);
+      toast('success', `تم تصدير ${counted(rows.length, 'دفعة', 'دفعتان', 'دفعات')}`);
     } catch (err: any) {
       toast('error', err.message);
     } finally {

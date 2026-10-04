@@ -5,6 +5,7 @@ import { AlertTriangle, Clock, PackageOpen } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import { DashboardAlertsResult } from '@/types';
 import { formatCurrency } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 
 interface AlertsPanelProps {
   alerts: DashboardAlertsResult;
@@ -30,7 +31,7 @@ export default function AlertsPanel({ alerts }: AlertsPanelProps) {
   }
 
   return (
-    <Card title="التنبيهات" subtitle={`${total} تنبيه يحتاج انتباهك`}>
+    <Card title="التنبيهات" subtitle={`${counted(total, 'تنبيه', 'تنبيهان', 'تنبيهات')} يحتاج انتباهك`}>
       <div className="space-y-4">
         {alerts.low_stock_count > 0 && (
           <div className="flex items-start justify-between gap-4">

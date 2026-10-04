@@ -209,6 +209,28 @@ describe('buildSupplierReport', () => {
     const html = buildSupplierReport(makeSupplier(), [], makeSummary(), makeSettings());
     expect(html).toContain('لا توجد قيود مسجلة لهذا المورد');
   });
+
+  /**
+   * «3 فاتورة» في كشفٍ يُطبع ويُؤرشف جملةٌ ناقصة: «فاتورة» مفردٌ و«فواتير» جمعٌ
+   * تكسيرٌ لا مفردُه بالزيادة. العددُ هنا مطبوعٌ على ورقٍ قد يُقرأ بعد سنوات،
+   * فسهوُه يبقى في الملف بخلاف ما يُمسح من الشاشة.
+   */
+  it('counts the stats in the face the number demands', () => {
+    const one = buildSupplierReport(makeSupplier(), makeEntries(), makeSummary(), makeSettings());
+    expect(one).toContain('1 فاتورة');
+    expect(one).toContain('1 دفعة');
+    expect(one).toContain('0 مرتجع');
+
+    const many = buildSupplierReport(
+      makeSupplier(),
+      makeEntries(),
+      { ...makeSummary(), purchases_count: 3, payments_count: 2, returns_count: 5 },
+      makeSettings(),
+    );
+    expect(many).toContain('3 فواتير');
+    expect(many).toContain('2 دفعتان');
+    expect(many).toContain('5 مرتجعات');
+  });
 });
 
 describe('buildSuppliersOverviewReport', () => {
@@ -238,5 +260,27 @@ describe('buildSuppliersOverviewReport', () => {
     expect(html).toContain('مصنع الصباح');
     expect(html).toContain('600');
     expect(html).toContain('أعلى الموردين رصيداً');
+  });
+
+  it('counts the overview stats in the face the number demands', () => {
+    const overview: SuppliersOverview = {
+      total_suppliers: 7,
+      active_count: 2,
+      total_purchases: 1000,
+      purchases_count: 5,
+      total_payments: 400,
+      payments_count: 3,
+      total_returns: 50,
+      returns_count: 1,
+      outstanding_debit: 600,
+      owing_count: 1,
+      top_suppliers: [],
+    };
+    const html = buildSuppliersOverviewReport(overview, [makeSupplier()], makeSettings());
+    expect(html).toContain('2 ناشطان');
+    expect(html).toContain('5 فواتير');
+    expect(html).toContain('3 دفعات');
+    expect(html).toContain('1 مرتجع');
+    expect(html).toContain('1 مورد');
   });
 });

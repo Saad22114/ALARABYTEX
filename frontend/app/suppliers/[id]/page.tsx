@@ -37,6 +37,7 @@ import {
 import { Supplier, LedgerEntry, LedgerSummary, CreateLedgerEntry } from '@/types';
 import { getSupplier, updateSupplier, getSupplierSummary, getSupplierLedger, createLedgerEntry, deleteLedgerEntry, receiveLedgerEntry } from '@/services/suppliers';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { openSupplierReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -288,21 +289,21 @@ export default function SupplierDetailPage() {
               iconBg="bg-brand-50 text-brand-600"
               label="إجمالي المشتريات"
               value={formatCurrency(summary.total_purchases)}
-              sub={`${summary.purchases_count} فاتورة`}
+              sub={counted(summary.purchases_count, 'فاتورة', 'فاتورتان', 'فواتير')}
             />
             <StatCard
               icon={<Wallet size={20} />}
               iconBg="bg-emerald-50 text-emerald-600"
               label="إجمالي المدفوعات"
               value={formatCurrency(summary.total_payments)}
-              sub={`${summary.payments_count} دفعة`}
+              sub={counted(summary.payments_count, 'دفعة', 'دفعتان', 'دفعات')}
             />
             <StatCard
               icon={<Undo2 size={20} />}
               iconBg="bg-amber-50 text-amber-600"
               label="المرتجعات"
               value={formatCurrency(summary.total_returns)}
-              sub={`${summary.returns_count} مرتجع`}
+              sub={counted(summary.returns_count, 'مرتجع', 'مرتجعان', 'مرتجعات')}
             />
             <div className="rounded-2xl bg-surface border border-sand-200 shadow-sm p-5 card-hover">
               <div className="flex items-start gap-4">

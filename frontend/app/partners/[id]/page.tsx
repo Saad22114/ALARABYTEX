@@ -25,6 +25,7 @@ import {
 import { PartnerMovementsResult, PartnerMovementRecord, PartnerDistributionResult, PartnerOperationType, PartnerPaymentMethod } from '@/types';
 import { getPartnerMovements, getPartnerDistribution, createPartnerOperation, updatePartnerOperation, deletePartnerOperation } from '@/services/partners';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { useToast } from '@/components/ui/Toast';
 
 const OPERATION_TYPE_OPTIONS = [
@@ -292,7 +293,7 @@ export default function PartnerDetailPage() {
               </div>
             )}
 
-            <Card title={`حركة الحساب — ${data?.movements.length ?? 0} حركة`}>
+            <Card title={`حركة الحساب — ${counted(data?.movements.length ?? 0, 'حركة', 'حركتان', 'حركات')}`}>
               {loading ? (
                 <div className="flex justify-center py-12"><Spinner size={32} /></div>
               ) : !data || data.movements.length === 0 ? (

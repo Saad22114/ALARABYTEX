@@ -34,6 +34,7 @@ import { getDashboardSummary } from '@/services/dashboard';
 import { getSalesReport, getInventoryReport, getInventoryMovementsReport } from '@/services/reports';
 import { getStockBalances } from '@/services/warehouses';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 
@@ -426,7 +427,7 @@ export default function BranchDetailPage() {
                   ? [{ type: 'warning' as const, icon: <AlertTriangle size={15} />, text: 'لا توجد مبيعات في الفترة المحددة' }]
                   : []),
                 ...(deficitDays.length > 0
-                  ? [{ type: 'warning' as const, icon: <AlertTriangle size={15} />, text: `${deficitDays.length} يوم بها مصاريف تتجاوز المبيعات (عجز صافي)` }]
+                  ? [{ type: 'warning' as const, icon: <AlertTriangle size={15} />, text: `${counted(deficitDays.length, 'يوم', 'يومان', 'أيام')} بها مصاريف تتجاوز المبيعات (عجز صافي)` }]
                   : []),
                 ...(lowStockItems.length > 0
                   ? [{ type: 'warning' as const, icon: <AlertTriangle size={15} />, text: `${lowStockItems.length} ${lowStockItems.length === 1 ? 'صنف تحت' : 'أصناف تحت'} الحد الأدنى في مخزون الفرع` }]

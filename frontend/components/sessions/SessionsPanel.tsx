@@ -49,6 +49,7 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { saleGroupBadges, saleGroupKey } from '@/lib/saleGroups';
 import { elapsedLabel, elapsedMinutes } from '@/lib/shiftClock';
 import { todayISO } from '@/lib/date';
@@ -514,7 +515,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         };
       });
       const created = await addSessionItems(selected.id, payload);
-      toast('success', `تمت إضافة ${created.length > 1 ? `${created.length} أصناف` : 'البند'} — المجموع ${formatCurrency(linesTotal)}`);
+      toast('success', `تمت إضافة ${counted(created.length, 'بند', 'بندان', 'بنود')} — المجموع ${formatCurrency(linesTotal)}`);
       if (custPhone.trim()) {
         saveContact(custPhone, custName);
         void ensureCustomer(custName, custPhone, selected.branch);
@@ -617,7 +618,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           icon={<Users size={20} />}
           label="الورديات المفتوحة"
           value={summary ? formatNumber(summary.open_count) : '—'}
-          sub={summary ? `${formatNumber(summary.items_count)} بند معلّق` : undefined}
+          sub={summary ? `${counted(summary.items_count, 'بند', 'بندان', 'بنود')} معلّق` : undefined}
         />
         <StatCard
           icon={<Layers size={20} />}
@@ -631,7 +632,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           iconBg="bg-blue-50 text-blue-600"
           label="مبيعات الورديات المعلّقة"
           value={summary ? formatCurrency(summary.total) : '—'}
-          sub={summary ? `${formatNumber(summary.count)} وردية` : undefined}
+          sub={summary ? counted(summary.count, 'وردية', 'ورديتان', 'ورديات') : undefined}
         />
         <StatCard
           icon={<Package size={20} />}
@@ -774,7 +775,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                 )}
                 <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                   <div>
-                    <div className="text-xs text-neutral-400">{s.items.length} بند</div>
+                    <div className="text-xs text-neutral-400">{counted(s.items.length, 'بند', 'بندان', 'بنود')}</div>
                     <div className="text-xs text-neutral-400 tabular-nums">{formatNumber(s.totals.yards)} ياردة</div>
                   </div>
                   <div className="col-span-2 text-left">
@@ -1310,7 +1311,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         confirmLabel="حذف الوردية"
         message={
           deletingSession
-            ? `هل أنت متأكد من حذف وردية ${deletingSession.employee_name} (${deletingSession.items.length} بند — إجمالي ${formatCurrency(deletingSession.totals.total)})؟ سيتم إلغاء الوردية وبنودها.`
+            ? `هل أنت متأكد من حذف وردية ${deletingSession.employee_name} (${counted(deletingSession.items.length, 'بند', 'بندان', 'بنود')} — إجمالي ${formatCurrency(deletingSession.totals.total)})؟ سيتم إلغاء الوردية وبنودها.`
             : ''
         }
       />

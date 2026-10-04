@@ -20,6 +20,7 @@ import { Expense, Branch, ExpenseCategory, Paginated } from '@/types';
 import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { downloadCsv, csvFilename } from '@/lib/csv';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
@@ -57,7 +58,7 @@ export default function ExpensesPage() {
     setRecurringLoading(true);
     try {
       const res = await runRecurringExpenses();
-      toast('success', res.count > 0 ? `تم ترحيل ${res.count} مصروف متكرر` : 'لا توجد مصاريف مستحقة للترحيل');
+      toast('success', res.count > 0 ? `تم ترحيل ${counted(res.count, 'مصروف متكرر', 'مصروفان متكرران', 'مصروفات متكررة')}` : 'لا توجد مصاريف مستحقة للترحيل');
       fetchData();
     } catch (err: any) {
       toast('error', err.message);
@@ -179,7 +180,7 @@ export default function ExpensesPage() {
         { header: 'متكررة', value: (e: Expense) => (e.is_recurring ? 'نعم' : 'لا') },
         { header: 'ملاحظات', value: (e: Expense) => e.notes || '' },
       ], res.results);
-      toast('success', `تم تصدير ${res.results.length} مصروف`);
+      toast('success', `تم تصدير ${counted(res.results.length, 'مصروف', 'مصروفان', 'مصروفات')}`);
     } catch (err: any) {
       toast('error', err.message);
     }

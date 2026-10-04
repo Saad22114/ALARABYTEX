@@ -41,6 +41,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
 import { formatNumber } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import {
   countedDifference, dirtyFabrics as computeDirty, progressPercent,
   rowStatus, ROW_STATUS_LABEL, type DraftMap,
@@ -183,7 +184,7 @@ function NewCountForm({
           {scope === 'all'
             ? 'تُؤخذ الأرصدة الدفترية من كل قماش له رصيد في هذا المخزن.'
             : picked.length
-              ? `${picked.length} صنف في نطاق الجرد.`
+              ? `${counted(picked.length, 'صنف', 'صنفان', 'أصناف')} في نطاق الجرد.`
               : 'اختر الصنف أو الأصناف المراد جردها.'}
         </p>
       </div>
@@ -355,7 +356,7 @@ export default function CountsPage() {
       const fresh = await getCount(working.id);
       setWorking(fresh);
       setDraft(draftOf(fresh));
-      toast('success', `تم حفظ ${items.length} سطر`);
+      toast('success', `تم حفظ ${counted(items.length, 'سطر', 'سطران', 'أسطر')}`);
       fetchData();
     } catch (err: any) {
       toast('error', err.message);
@@ -565,7 +566,7 @@ export default function CountsPage() {
               <Tile
                 label="صافي الفروق"
                 value={`${working.summary.net_yards > 0 ? '+' : ''}${formatNumber(working.summary.net_yards)}`}
-                sub={`${formatNumber(working.summary.variances)} صنف · بقيمة ${formatNumber(working.summary.value)}`}
+                sub={`${counted(working.summary.variances, 'صنف', 'صنفان', 'أصناف')} · بقيمة ${formatNumber(working.summary.value)}`}
                 tone={working.summary.variances ? 'warn' : 'plain'}
               />
             </div>

@@ -11,6 +11,7 @@ import { CustomerSalesResult } from '@/types';
 import { getCustomerSales, returnSessionItems } from '@/services/sessions';
 import { useToast } from '@/components/ui/Toast';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 
 interface Props {
   open: boolean;
@@ -73,7 +74,7 @@ export default function CustomerSalesReturnModal({ open, onClose, onChanged }: P
     setReturning(true);
     try {
       await returnSessionItems(selected, reason.trim());
-      toast('success', `تم استرجاع ${selected.length} بند وترجيع الكمية للمخزون`);
+      toast('success', `تم استرجاع ${counted(selected.length, 'بند', 'بندان', 'بنود')} وترجيع الكمية للمخزون`);
       setResult((cur) => {
         if (!cur) return cur;
         return {

@@ -25,6 +25,7 @@ import {
 import { listBranches } from '@/services/branches';
 import { getCustomerSales, getSaleSession } from '@/services/sessions';
 import { formatDate, formatCurrency } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { downloadCsv, csvFilename } from '@/lib/csv';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -274,8 +275,8 @@ export default function CustomersPage() {
       toast(
         'success',
         filtered
-          ? `تم تصدير ${res.results.length} زبوناً ممّا تعرضه الشاشة`
-          : `تم تصدير ${res.results.length} زبون`
+          ? `تم تصدير ${counted(res.results.length, 'زبون', 'زبونان', 'زبائن')} ممّا تعرضه الشاشة`
+          : `تم تصدير ${counted(res.results.length, 'زبون', 'زبونان', 'زبائن')}`
       );
     } catch (err: any) {
       toast('error', err.message);
@@ -310,7 +311,7 @@ export default function CustomersPage() {
 
         {summary && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={<Users size={22} />} label="إجمالي الزبائن" value={summary.total_customers} sub={`${summary.active_count} نشط`} />
+            <StatCard icon={<Users size={22} />} label="إجمالي الزبائن" value={summary.total_customers} sub={counted(summary.active_count, 'نشط', 'ناشطان', 'نشطون')} />
             <StatCard icon={<UserCheck size={22} />} iconBg="bg-emerald-50 text-emerald-600" label="الزبائن النشطون" value={summary.active_count} />
             <StatCard icon={<UserPlus size={22} />} iconBg="bg-amber-50 text-amber-600" label="الجدد في الفترة" value={summary.new_count} />
             <StatCard icon={<Phone size={22} />} iconBg="bg-indigo-50 text-indigo-600" label="لديهم رقم هاتف" value={summary.with_phone_count} />

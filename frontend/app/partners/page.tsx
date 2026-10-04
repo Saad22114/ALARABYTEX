@@ -37,6 +37,7 @@ import {
   getPartnerDistribution,
 } from '@/services/partners';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
@@ -389,7 +390,7 @@ export default function PartnersPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">الشركاء</h1>
-            <Badge variant="neutral">{partners.length} شريك</Badge>
+            <Badge variant="neutral">{counted(partners.length, 'شريك', 'شريكان', 'شركاء')}</Badge>
           </div>
           <div className="flex items-center gap-2">
             {tab === 'operations' && (
@@ -432,10 +433,10 @@ export default function PartnersPage() {
           <Card><div className="flex justify-center py-10"><Spinner size={28} /></div></Card>
         ) : summary ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            <StatCard icon={<Receipt size={20} />} label="عمليات الفترة" value={summary.count} sub={summary.count === 1 ? 'عملية واحدة' : `${summary.count} عملية`} />
+            <StatCard icon={<Receipt size={20} />} label="عمليات الفترة" value={summary.count} sub={counted(summary.count, 'عملية واحدة', 'عمليتان', 'عمليات')} />
             <StatCard icon={<Wallet size={20} />} label="إجمالي العمليات" value={formatCurrency(summary.total_amount)} sub="مجموع كل العمليات في الفترة" />
-            <StatCard icon={<TrendingUp size={20} />} iconBg="bg-emerald-50 text-emerald-600" label="الدعم في الفترة" value={formatCurrency(summary.support_amount)} sub={`${summary.support_count} عملية دعم`} />
-            <StatCard icon={<TrendingDown size={20} />} iconBg="bg-red-50 text-red-600" label="السحب في الفترة" value={formatCurrency(summary.withdraw_amount)} sub={`${summary.withdraw_count} عملية سحب`} />
+            <StatCard icon={<TrendingUp size={20} />} iconBg="bg-emerald-50 text-emerald-600" label="الدعم في الفترة" value={formatCurrency(summary.support_amount)} sub={counted(summary.support_count, 'عملية دعم', 'عمليتان دعم', 'عمليات دعم')} />
+            <StatCard icon={<TrendingDown size={20} />} iconBg="bg-red-50 text-red-600" label="السحب في الفترة" value={formatCurrency(summary.withdraw_amount)} sub={counted(summary.withdraw_count, 'عملية سحب', 'عمليتان سحب', 'عمليات سحب')} />
             <StatCard
               icon={<Scale size={20} />}
               iconBg={summary.net < 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}
@@ -559,7 +560,7 @@ export default function PartnersPage() {
             ) : (
               <>
                 <div className="p-3 border-b border-sand-100 flex items-center justify-between">
-                  <span className="text-sm text-neutral-500">{data.count} عملية</span>
+                  <span className="text-sm text-neutral-500">{counted(data.count, 'عملية', 'عمليتان', 'عمليات')}</span>
                   <span className="text-sm text-neutral-500">
                     إجمالي الصفحة: <span className="font-bold text-neutral-800 tabular-nums">{formatCurrency(opsTotal)}</span>
                   </span>

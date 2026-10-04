@@ -1,5 +1,6 @@
 import { AppSettings, LedgerEntry, LedgerSummary, Supplier, SuppliersOverview } from '@/types';
 import { formatNumber, formatDate } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { logoUrl } from '@/services/settings';
 
 const sym = (settings: AppSettings | null) => settings?.currency_symbol || '';
@@ -207,9 +208,9 @@ export function buildSupplierReport(
 
   <div class="stats">
     ${stats('رصيد افتتاحي', `${num(summary.opening_balance)} ${sym(settings)}`)}
-    ${stats('إجمالي المشتريات', `${num(summary.total_purchases)} ${sym(settings)}`, `${summary.purchases_count} فاتورة`)}
-    ${stats('إجمالي الدفعات', `${num(summary.total_payments)} ${sym(settings)}`, `${summary.payments_count} دفعة`)}
-    ${stats('المرتجعات', `${num(summary.total_returns)} ${sym(settings)}`, `${summary.returns_count} مرتجع`)}
+    ${stats('إجمالي المشتريات', `${num(summary.total_purchases)} ${sym(settings)}`, counted(summary.purchases_count, 'فاتورة', 'فاتورتان', 'فواتير'))}
+    ${stats('إجمالي الدفعات', `${num(summary.total_payments)} ${sym(settings)}`, counted(summary.payments_count, 'دفعة', 'دفعتان', 'دفعات'))}
+    ${stats('المرتجعات', `${num(summary.total_returns)} ${sym(settings)}`, counted(summary.returns_count, 'مرتجع', 'مرتجعان', 'مرتجعات'))}
     ${stats('الرصيد الحالي', `${num(summary.balance)} ${sym(settings)}`, summary.balance > 0 ? 'مستحق للمورد' : summary.balance < 0 ? 'مستحق لنا' : '')}
   </div>
 
@@ -250,11 +251,11 @@ export function buildSuppliersOverviewReport(
 
   const content = `
   <div class="stats" style="grid-template-columns: repeat(5, 1fr);">
-    ${stats('إجمالي الموردين', `${overview.total_suppliers}`, `${overview.active_count} نشط`)}
-    ${stats('إجمالي المشتريات', `${num(overview.total_purchases)} ${sym(settings)}`, `${overview.purchases_count} فاتورة`)}
-    ${stats('إجمالي الدفعات', `${num(overview.total_payments)} ${sym(settings)}`, `${overview.payments_count} دفعة`)}
-    ${stats('المرتجعات', `${num(overview.total_returns)} ${sym(settings)}`, `${overview.returns_count} مرتجع`)}
-    ${stats('المستحق للموردين', `${num(overview.outstanding_debit)} ${sym(settings)}`, `${overview.owing_count} مورد`)}
+    ${stats('إجمالي الموردين', `${overview.total_suppliers}`, counted(overview.active_count, 'نشط', 'ناشطان', 'نشطون'))}
+    ${stats('إجمالي المشتريات', `${num(overview.total_purchases)} ${sym(settings)}`, counted(overview.purchases_count, 'فاتورة', 'فاتورتان', 'فواتير'))}
+    ${stats('إجمالي الدفعات', `${num(overview.total_payments)} ${sym(settings)}`, counted(overview.payments_count, 'دفعة', 'دفعتان', 'دفعات'))}
+    ${stats('المرتجعات', `${num(overview.total_returns)} ${sym(settings)}`, counted(overview.returns_count, 'مرتجع', 'مرتجعان', 'مرتجعات'))}
+    ${stats('المستحق للموردين', `${num(overview.outstanding_debit)} ${sym(settings)}`, counted(overview.owing_count, 'مورد', 'موردان', 'موردون'))}
   </div>
 
   <table>

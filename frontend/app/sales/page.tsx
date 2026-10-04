@@ -594,7 +594,7 @@ export default function SalesPage() {
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="text-sm text-neutral-500 tabular-nums">
-                            {s.is_manual ? 'مجموع يدوي' : `${s.items.length} بند · ${formatNumber(s.totals.yards)} ياردة`}
+                            {s.is_manual ? 'مجموع يدوي' : `${counted(s.items.length, 'بند', 'بندان', 'بنود')} · ${formatNumber(s.totals.yards)} ياردة`}
                           </span>
                           <span className="font-bold tabular-nums text-brand-700">{formatCurrency(s.totals.total)}</span>
                         </div>
@@ -872,7 +872,7 @@ export default function SalesPage() {
             deleteClosedSession
               ? deleteClosedSession.is_manual
                 ? `هل أنت متأكد من حذف وردية ${deleteClosedSession.employee_name} اليدوية (إجمالي ${formatCurrency(deleteClosedSession.totals.total)})؟ سيتم عكس مبالغها من السجل اليومي.`
-                : `هل أنت متأكد من حذف وردية ${deleteClosedSession.employee_name} (${deleteClosedSession.items.length} بند — إجمالي ${formatCurrency(deleteClosedSession.totals.total)})؟ سيتم حذف سجلاتها اليومية وإرجاع المخزون المستهلك.`
+                : `هل أنت متأكد من حذف وردية ${deleteClosedSession.employee_name} (${counted(deleteClosedSession.items.length, 'بند', 'بندان', 'بنود')} — إجمالي ${formatCurrency(deleteClosedSession.totals.total)})؟ سيتم حذف سجلاتها اليومية وإرجاع المخزون المستهلك.`
               : ''
           }
         />
@@ -896,7 +896,7 @@ export default function SalesPage() {
                 <CheckCircle size={20} className="text-emerald-500 mt-0.5 shrink-0" />
                 <div className="text-sm text-emerald-800">
                   <p className="font-medium">
-                    تم توليد {generatedSales.length === 1 ? 'بيعة' : `${generatedSales.length} بيعات`} بنجاح
+                    تم توليد {counted(generatedSales.length, 'بيعة', 'بيعتان', 'بيعات')} بنجاح
                   </p>
                   <ul className="mt-2 space-y-1 text-emerald-700">
                     {generatedSales.map((s) => (

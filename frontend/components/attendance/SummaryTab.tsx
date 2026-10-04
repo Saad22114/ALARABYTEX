@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { getAttendancePolicy, getAttendanceSummary } from '@/services/attendance';
 import { formatNumber } from '@/lib/format';
+import { counted } from '@/lib/arabic';
 import { attainmentPercent, minutesLabel } from '@/lib/attendance';
 import type { AttendancePolicy, AttendanceSummary } from '@/types';
 
@@ -98,21 +99,21 @@ export default function SummaryTab({ from, to, onRangeChange }: SummaryTabProps)
           iconBg="bg-red-50 text-red-600"
           label="أيام الغياب"
           value={formatNumber(s?.absent ?? 0)}
-          sub={`${absenceRate}% من ${formatNumber(measurableDays)} يوماً`}
+          sub={`${absenceRate}% من ${counted(measurableDays, 'يوم', 'يومان', 'أيام')}`}
         />
         <StatCard
           icon={<Clock4 size={22} />}
           iconBg="bg-amber-50 text-amber-600"
           label="التأخير"
           value={minutesLabel(s?.late_minutes ?? 0)}
-          sub={`${formatNumber(s?.late_count ?? 0)} يوماً تأخّر فيها`}
+          sub={`${counted(s?.late_count ?? 0, 'يوم', 'يومان', 'أيام')} تأخّر فيها`}
         />
         <StatCard
           icon={<Timer size={22} />}
           iconBg="bg-violet-50 text-violet-600"
           label="الخروج المبكر"
           value={minutesLabel(s?.early_minutes ?? 0)}
-          sub={`${formatNumber(s?.early_count ?? 0)} مرةً خرج فيها مبكراً`}
+          sub={`${counted(s?.early_count ?? 0, 'مرة', 'مرتان', 'مرات')} خرج فيها مبكراً`}
         />
       </div>
 
@@ -121,7 +122,7 @@ export default function SummaryTab({ from, to, onRangeChange }: SummaryTabProps)
           icon={<CalendarDays size={22} />}
           label="ساعات العمل"
           value={formatNumber(Math.round((s?.worked_minutes ?? 0) / 60))}
-          sub={`المُتوقَّع ${formatNumber(Math.round((s?.expected_minutes ?? 0) / 60))} ساعة`}
+          sub={`المُتوقَّع ${counted(Math.round((s?.expected_minutes ?? 0) / 60), 'ساعة', 'ساعتان', 'ساعات')}`}
         />
         <StatCard
           icon={<Flame size={22} />}
@@ -153,7 +154,7 @@ export default function SummaryTab({ from, to, onRangeChange }: SummaryTabProps)
           </p>
           {s && s.excused > 0 && (
             <p>
-              <Badge variant="neutral">{formatNumber(s.excused)} يوماً مبرَّراً</Badge>{' '}
+              <Badge variant="neutral">{counted(s.excused, 'يوم', 'يومان', 'أيام')} مبرَّراً</Badge>{' '}
               الغياب المُبرَّر لا يُحسب نقصاً، وهو مُستبعَد من نسبة الغياب أعلاه
               حتى لا يُقارَن غيابٌ باختيارٍ بغيابٍ دون تبرير.
             </p>
