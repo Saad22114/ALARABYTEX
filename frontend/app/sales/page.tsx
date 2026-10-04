@@ -40,6 +40,13 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { hasWindow } from '@/lib/permissions';
 import { useUrlState } from '@/lib/useUrlState';
+import { counted } from '@/lib/arabic';
+import {
+  averagePerSellingDay,
+  nonCashTotal,
+  recordsInDaysNote,
+  sellingDaysNote,
+} from '@/lib/salesSummary';
 
 export default function SalesPage() {
   const { toast } = useToast();
@@ -330,7 +337,9 @@ export default function SalesPage() {
     fetchSummary();
   }, [fetchClosedSessions, fetchSummary]);
 
-  const avgPerDay = summary && summary.days_count > 0 ? summary.total_sales / summary.days_count : 0;
+  const avgPerDay = summary
+    ? averagePerSellingDay(summary.total_sales, summary.days_count)
+    : 0;
 
   return (
     <AppShell>
@@ -377,7 +386,7 @@ export default function SalesPage() {
             icon={<IndianRupee size={20} />}
             label="إجمالي المبيعات"
             value={summary ? formatCurrency(summary.total_sales) : '—'}
-            sub={summary ? `${summary.sales_count} سجل في ${summary.days_count} يوم` : undefined}
+            sub={summary ? recordsInDaysNote(summary.sales_count, summary.days_count) : undefined}
           />
           <StatCard
             icon={<Banknote size={20} />}
@@ -389,16 +398,16 @@ export default function SalesPage() {
           <StatCard
             icon={<Banknote size={20} />}
             iconBg="bg-blue-50 text-blue-600"
-            label="التحويل والبطاقة"
-            value={summary ? formatCurrency((summary.transfer || 0) + (summary.card || 0)) : '—'}
-            sub={summary && summary.total_sales > 0 ? `${((((summary.transfer || 0) + (summary.card || 0)) / summary.total_sales) * 100).toFixed(0)}% من الإجمالي` : undefined}
+            label="تحويل وبطاقة وأخرى"
+            value={summary ? formatCurrency(nonCashTotal(summary)) : '—'}
+            sub={summary && summary.total_sales > 0 ? `${((nonCashTotal(summary) / summary.total_sales) * 100).toFixed(0)}% من الإجمالي` : undefined}
           />
           <StatCard
             icon={<IndianRupee size={20} />}
             iconBg="bg-amber-50 text-amber-600"
-            label="متوسط اليوم"
+            label="متوسط يومِ البيع"
             value={summary ? formatCurrency(avgPerDay) : '—'}
-            sub={summary ? `أخرى: ${formatCurrency(summary.other || 0)}` : undefined}
+            sub={summary ? sellingDaysNote(summary.days_count) : undefined}
           />
         </div>
 
@@ -420,7 +429,9 @@ export default function SalesPage() {
                 <Archive size={18} className="text-brand-600" />
                 الورديات المحفوظة
               </span>
-              <Badge variant="neutral">{closedSessions.length} وردية</Badge>
+              <Badge variant="neutral">
+                {counted(closedSessions.length, 'وردية', 'ورديتان', 'ورديات')}
+              </Badge>
               <span className="text-sm text-neutral-500 tabular-nums">
                 الإجمالي: <b className="text-brand-700">{formatCurrency(closedSessions.reduce((sum, s) => sum + s.totals.total, 0))}</b>
               </span>
@@ -466,7 +477,9 @@ export default function SalesPage() {
                 </label>
                 {selectedClosed.size > 0 ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="neutral">{selectedClosed.size} وردية</Badge>
+                    <Badge variant="neutral">
+                      {counted(selectedClosed.size, 'وردية', 'ورديتان', 'ورديات')}
+                    </Badge>
                     <span className="text-sm text-neutral-500 tabular-nums">
                       الإجمالي: <b className="text-brand-700">{formatCurrency(selectedClosedSessions.reduce((sum, s) => sum + s.totals.total, 0))}</b>
                     </span>
@@ -710,7 +723,12 @@ export default function SalesPage() {
                 توزيع المبيعات على الموظفين
                 <ChevronDown size={15} className={`text-neutral-400 transition-transform ${showByEmployee ? '' : '-rotate-180'}`} />
               </button>
-              <Badge variant="neutral">{byEmployee ? byEmployee.items.length : 0} موظف</Badge>
+              <Badge variant="neutral">
+                {counted(
+                  byEmployee ? byEmployee.items.length : 0,
+                  'موظف', 'موظفان', 'موظفون',
+                )}
+              </Badge>
             </div>
             <span className="text-sm text-neutral-500 tabular-nums">
               الإجمالي: <b className="text-brand-700">{byEmployee ? formatCurrency(byEmployee.grand_total) : '—'}</b>

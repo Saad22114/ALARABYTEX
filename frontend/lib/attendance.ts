@@ -9,6 +9,7 @@
 
 import type { BadgeVariant } from '@/components/ui/Badge';
 import type { AttendanceRecord, AttendanceStatus } from '@/types';
+import { counted } from './arabic';
 
 /**
  * الحالة تُترجم مرة واحدة في هذا الملف. الخريطة تقيم بثلاثة لا بأربعة:
@@ -104,28 +105,11 @@ export function workedText(minutes: number | null | undefined): string {
   if (minutes <= 0) return 'لا عمل';
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  if (hours === 0) return `${rest} دقيقة`;
-  if (rest === 0) return `${hours} ساعة`;
-  return `${hours} ساعة و${rest} دقيقة`;
-}
-
-/**
- * صيغة العدد: واحدٌ ومثنًى وجمع.
- *
- * ثلاثةٌ وعشرةٌ يقعان في «دقائق»، والخمسةُ والعشرون في «دقيقة». من كتب
- * «دقيقتان» بجوار الرقم 2 كتب جملةً عربيةً جُرّدت من العدد، فيقرأها
- * العربي «دقيقتين» فيبحث عن رقمٍ ليس في السطر.
- */
-export function pluralize(
-  count: number,
-  singular: string,
-  dual: string,
-  plural: string,
-): string {
-  if (count === 1) return singular;
-  if (count === 2) return dual;
-  if (count >= 3 && count <= 10) return plural;
-  return singular;
+  if (hours === 0) return counted(rest, 'دقيقة', 'دقيقتان', 'دقائق');
+  if (rest === 0) return counted(hours, 'ساعة', 'ساعتان', 'ساعات');
+  return `${counted(hours, 'ساعة', 'ساعتان', 'ساعات')} و${
+    counted(rest, 'دقيقة', 'دقيقتان', 'دقائق')
+  }`;
 }
 
 /**
@@ -136,7 +120,7 @@ export function pluralize(
  */
 export function minutesLabel(minutes: number | null | undefined): string {
   if (!minutes) return 'لا شيء';
-  return `${minutes} ${pluralize(minutes, 'دقيقة', 'دقيقتان', 'دقائق')}`;
+  return counted(minutes, 'دقيقة', 'دقيقتان', 'دقائق');
 }
 
 /**
