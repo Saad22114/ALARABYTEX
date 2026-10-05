@@ -518,7 +518,9 @@ export interface TopFabricProfit {
 
 export interface DashboardSummary {
   total_sales: number;
+  total_cogs: number;
   total_expenses: number;
+  total_salaries: number;
   net: number;
   gross_profit: number;
   margin_pct: number;
@@ -528,6 +530,7 @@ export interface DashboardSummary {
   chart_previous: DashboardChartPoint[];
   previous_sales: number;
   previous_expenses: number;
+  previous_salaries: number;
   previous_net: number;
   sales_delta_pct: number | null;
   expenses_delta_pct: number | null;

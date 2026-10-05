@@ -129,6 +129,10 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, [monthSpans, branch]);
 
+  const periodNet = data
+    ? data.total_sales - data.total_cogs - data.total_expenses - data.total_salaries
+    : 0;
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -158,13 +162,20 @@ export default function DashboardPage() {
         ) : data ? (
           <>
             {/* Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               <StatCard
                 icon={<Banknote size={22} />}
                 iconBg="bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"
                 label="إجمالي المبيعات"
                 value={formatCurrency(data.total_sales)}
                 sub={deltaText(data.sales_delta_pct)}
+              />
+              <StatCard
+                icon={<ReceiptText size={22} />}
+                iconBg="bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
+                label="تكلفة القماش المباع"
+                value={formatCurrency(data.total_cogs)}
+                sub="تكلفة شراء الأقمشة المباعة"
               />
               <StatCard
                 icon={<ReceiptText size={22} />}
@@ -175,9 +186,9 @@ export default function DashboardPage() {
               />
               <StatCard
                 icon={<TrendingUp size={22} />}
-                iconBg={data.net >= 0 ? 'bg-gold-400/20 text-gold-700 dark:text-gold-400' : 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400'}
-                label="صافي الفترة"
-                value={formatCurrency(data.net)}
+                iconBg={periodNet >= 0 ? 'bg-gold-400/20 text-gold-700 dark:text-gold-400' : 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400'}
+                label="صافي الربح للفترة"
+                value={formatCurrency(periodNet)}
                 sub={deltaText(data.net_delta_pct)}
               />
               <StatCard

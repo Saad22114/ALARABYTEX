@@ -13,7 +13,7 @@ from expenses.models import Expense, ExpenseCategory
 from sale_sessions.models import Employee, SaleSession
 from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric, LedgerEntry, Supplier
-from warehouses.models import FabricRoll, GoodsReceipt, Warehouse
+from warehouses.models import FabricRoll, GoodsReceipt, GoodsReceiptItem, Warehouse
 
 from core.money import money, unit_price
 
@@ -144,6 +144,43 @@ class DashboardAPITest(TestCase):
         self.assertIn("cogs", r.data["chart_data"][0])
         self.assertIn("gross_profit", r.data["chart_data"][0])
         self.assertIsInstance(r.data["top_fabrics"], list)
+
+    def test_net_includes_cost_of_goods_sold_expenses_and_salaries(self):
+        from payroll.models import Payslip, PayrollRun
+
+        sold_fabric = Fabric.objects.create(name="مباع", code="SOLD", unit="yard")
+        unsold_fabric = Fabric.objects.create(name="غير مباع", code="UNSOLD", unit="yard")
+        receipt = GoodsReceipt.objects.create(
+            number="DASH-COGS-1", date=self.today, status="posted",
+        )
+        GoodsReceiptItem.objects.create(
+            receipt=receipt, fabric=sold_fabric, rolls_count=1,
+            yards=100, unit_price=2, total=200,
+        )
+        GoodsReceiptItem.objects.create(
+            receipt=receipt, fabric=unsold_fabric, rolls_count=1,
+            yards=100, unit_price=90, total=9000,
+        )
+        sale = DailySale.objects.get(branch=self.branch, date=self.today)
+        DailySaleItem.objects.create(sale=sale, fabric=sold_fabric, yards=10)
+
+        employee = Employee.objects.create(name="موظف الراتب", branch=self.branch)
+        run = PayrollRun.objects.create(
+            month=self.today.replace(day=1), branch=self.branch,
+            status=PayrollRun.Status.APPROVED,
+        )
+        Payslip.objects.create(
+            run=run, employee=employee, branch=self.branch, base_salary=100,
+        )
+
+        response = self.c.get("/api/dashboard/summary/", {"period": "today"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total_cogs"], 20.0)
+        self.assertEqual(response.data["gross_profit"], 980.0)
+        self.assertEqual(response.data["total_expenses"], 200.0)
+        self.assertEqual(response.data["total_salaries"], 100.0)
+        self.assertEqual(response.data["net"], 680.0)
 
     def _sell_a_yard_at_a_three_decimal_price(self):
         """قماشٌ سعرُ ياردته 1.006 — ثلاثةُ خانات، والمبلغُ خانتان."""

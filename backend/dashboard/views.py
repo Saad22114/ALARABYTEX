@@ -21,6 +21,32 @@ from warehouses.models import FabricRoll
 from reports.cogs import fabric_average_costs, sold_by_fabric
 
 
+def _last_day_of_month(value):
+    if value.month == 12:
+        return date(value.year + 1, 1, 1) - timedelta(days=1)
+    return date(value.year, value.month + 1, 1) - timedelta(days=1)
+
+
+def _salary_cost(request, date_from, date_to, branch_id=None):
+    """راتب الفترة المستحق من مسيّرات الرواتب غير الملغاة المتداخلة معها."""
+    from payroll.models import Payslip, PayrollRun
+
+    runs = scope_queryset(
+        request,
+        PayrollRun.objects.filter(month__lte=date_to).exclude(
+            status=PayrollRun.Status.CANCELLED
+        ),
+        "branch",
+    )
+    if branch_id:
+        runs = runs.filter(branch_id=branch_id)
+    run_ids = [run.id for run in runs if _last_day_of_month(run.month) >= date_from]
+    payslips = Payslip.objects.filter(run_id__in=run_ids) if run_ids else Payslip.objects.none()
+    if branch_id:
+        payslips = payslips.filter(branch_id=branch_id)
+    return sum((slip.net_pay for slip in payslips), Decimal("0"))
+
+
 class DashboardAlertsView(APIView):
     """تنبيهات لوحة التحكم: نقص المخزون + ورديات مفتوحة + مشتريات غير مستلمة + ملخص اليوم."""
     permission_section = "dashboard"
@@ -162,11 +188,12 @@ class DashboardSummaryView(APIView):
         ).count()
         suppliers_count = Supplier.objects.filter(is_active=True).count()
 
-        costs = fabric_average_costs()
         sold = sold_by_fabric(start_date, end_date, branch_pk)
+        costs = fabric_average_costs(sold.keys())
         cogs_map = {fid: (costs.get(fid) or Decimal("0")) * yards for fid, yards in sold.items()}
         total_cogs = sum(cogs_map.values(), Decimal("0"))
         gross_profit = Decimal(total_sales) - total_cogs
+        total_salaries = _salary_cost(request, start_date, end_date, branch_pk)
         margin = (gross_profit / Decimal(total_sales) * 100) if total_sales else Decimal("0")
 
         sales_by_day = {
@@ -226,7 +253,16 @@ class DashboardSummaryView(APIView):
             prev_expense_qs = prev_expense_qs.filter(branch_id=branch_id)
         previous_sales = prev_sales_qs.aggregate(total=Sum("total_sales"))["total"] or 0
         previous_expenses = prev_expense_qs.aggregate(total=Sum("amount"))["total"] or 0
-        previous_net = Decimal(previous_sales) - Decimal(previous_expenses)
+        previous_sold = sold_by_fabric(prev_start, prev_end, branch_pk)
+        previous_costs = fabric_average_costs(previous_sold.keys())
+        previous_cogs = sum(
+            ((previous_costs.get(fid) or Decimal("0")) * yards for fid, yards in previous_sold.items()),
+            Decimal("0"),
+        )
+        previous_salaries = _salary_cost(request, prev_start, prev_end, branch_pk)
+        previous_gross_profit = Decimal(previous_sales) - previous_cogs
+        previous_net = previous_gross_profit - Decimal(previous_expenses) - previous_salaries
+        current_net = gross_profit - Decimal(total_expenses) - total_salaries
 
         def _delta(current_value, previous_value):
             if previous_value:
@@ -277,8 +313,10 @@ class DashboardSummaryView(APIView):
 
         return Response({
             "total_sales": money(total_sales),
+            "total_cogs": money(total_cogs),
             "total_expenses": money(total_expenses),
-            "net": money(total_sales - total_expenses),
+            "total_salaries": money(total_salaries),
+            "net": money(current_net),
             "gross_profit": money(gross_profit),
             "margin_pct": round(float(margin), 1),
             "branches_count": branches_count,
@@ -287,10 +325,11 @@ class DashboardSummaryView(APIView):
             "chart_previous": chart_previous,
             "previous_sales": money(previous_sales),
             "previous_expenses": money(previous_expenses),
+            "previous_salaries": money(previous_salaries),
             "previous_net": money(previous_net),
             "sales_delta_pct": _delta(total_sales, previous_sales),
             "expenses_delta_pct": _delta(total_expenses, previous_expenses),
-            "net_delta_pct": _delta(total_sales - total_expenses, previous_net),
+            "net_delta_pct": _delta(current_net, previous_net),
             "top_fabrics": top[:5],
             "period": period,
             "start_date": start_date.isoformat(),

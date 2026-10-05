@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
@@ -1029,7 +1030,7 @@ class SaleSessionAPITest(TestCase):
         self.assertEqual(session.status, SaleSession.Status.CLOSED)
         self.assertIsNotNone(session.closed_at)
 
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         # 20*5 + 10*5 + 1*250 = 400
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("400"))
@@ -1054,7 +1055,7 @@ class SaleSessionAPITest(TestCase):
         self._add_item(sid2, quantity=10)
         self.c.post(f"/api/sale-sessions/{sid2}/close/")
 
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid1))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("150"))
         item = DailySaleItem.objects.get(sale=sale, fabric=self.fabric)
@@ -1252,7 +1253,7 @@ class ClosedSessionEditDeleteTest(TestCase):
 
     def test_edit_closed_item_updates_daily_sale_and_stock(self):
         sid = self._closed_session()
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         # الحصول على البند الأول (ياردات 20) وتعديله
         items = list(SaleSessionItem.objects.filter(session_id=sid).order_by("id"))
@@ -1280,7 +1281,7 @@ class ClosedSessionEditDeleteTest(TestCase):
         r = self.c.patch(f"/api/sale-sessions/{sid}/items/{items[1].id}/",
                          {"payment_method": "transfer"}, format="json")
         self.assertEqual(r.status_code, 200, r.data)
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         self.assertEqual(Decimal(str(sale.card_amount)), Decimal("0"))
         self.assertEqual(Decimal(str(sale.transfer_amount)), Decimal("50"))
@@ -1294,7 +1295,7 @@ class ClosedSessionEditDeleteTest(TestCase):
                        {"fabric": self.fabric.id, "sale_type": "yard", "quantity": -5,
                         "unit_price": 5, "payment_method": "cash"}, format="json")
         self.assertEqual(r.status_code, 400)
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("150"))
 
@@ -1303,7 +1304,7 @@ class ClosedSessionEditDeleteTest(TestCase):
         items = list(SaleSessionItem.objects.filter(session_id=sid).order_by("id"))
         r = self.c.delete(f"/api/sale-sessions/{sid}/items/{items[0].id}/")
         self.assertEqual(r.status_code, 200)
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         # بند واحد متبقٍ: 10*5 = 50
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("50"))
@@ -1320,7 +1321,7 @@ class ClosedSessionEditDeleteTest(TestCase):
         item = SaleSessionItem.objects.get(session_id=sid)
         r = self.c.delete(f"/api/sale-sessions/{sid}/items/{item.id}/")
         self.assertEqual(r.status_code, 200)
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         self.assertFalse(DailySale.objects.filter(branch=self.branch, date=sale_date).exists())
         # رصيد عاد كاملاً
         self.roll.refresh_from_db()
@@ -1355,7 +1356,7 @@ class ClosedSessionEditDeleteTest(TestCase):
 
     def test_delete_closed_session_restores_daily_sale_and_stock(self):
         sid = self._closed_session()
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         r = self.c.delete(f"/api/sale-sessions/{sid}/")
         self.assertEqual(r.status_code, 200)
         self.assertFalse(SaleSession.objects.filter(pk=sid).exists())
@@ -1386,7 +1387,7 @@ class ClosedSessionEditDeleteTest(TestCase):
 
     def test_reopen_closed_session_keeps_stock_deducted(self):
         sid = self._closed_session()
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         r = self.c.post(f"/api/sale-sessions/{sid}/reopen/")
         self.assertEqual(r.status_code, 200, r.data)
         session = SaleSession.objects.get(pk=sid)
@@ -1410,7 +1411,7 @@ class ClosedSessionEditDeleteTest(TestCase):
         self.assertEqual(r.status_code, 201, r.data)
         r2 = self.c.post(f"/api/sale-sessions/{sid}/close/")
         self.assertEqual(r2.status_code, 200, r2.data)
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         # القديمة 20 + 10 + الجديدة 25 = 55 * 5 = 275
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("275"))
@@ -1463,7 +1464,7 @@ class SessionItemExtrasTest(TestCase):
                     {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
                      "unit_price": 5, "discount_amount": 5, "payment_method": "cash"}, format="json")
         self.c.post(f"/api/sale-sessions/{sid}/close/")
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("45"))
         self.assertEqual(Decimal(str(sale.cash_amount)), Decimal("45"))
@@ -1996,7 +1997,7 @@ class ReturnAndRollOverrideTest(TestCase):
         self._add_item(sid, quantity=20, payment_method="cash", phone="055222")
         self._add_item(sid, quantity=10, payment_method="card", phone="055222")
         self.c.post(f"/api/sale-sessions/{sid}/close/")
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("150"))
         self.roll.refresh_from_db()
@@ -2029,7 +2030,7 @@ class ReturnAndRollOverrideTest(TestCase):
         r = self.c.post("/api/sale-sessions/return-items/",
                         {"item_ids": [item.id]}, format="json")
         self.assertEqual(r.status_code, 200, r.data)
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         self.assertFalse(DailySale.objects.filter(branch=self.branch, date=sale_date).exists())
         self.roll.refresh_from_db()
         self.assertEqual(Decimal(str(self.roll.remaining_yards)), Decimal("500"))
@@ -2058,7 +2059,7 @@ class ReturnAndRollOverrideTest(TestCase):
                     {"item_ids": [items[0].id]}, format="json")
         r = self.c.post(f"/api/sale-sessions/{sid}/close/")
         self.assertEqual(r.status_code, 200, r.data)
-        sale_date = effective_sale_date()
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
         sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("50"))
         self.roll.refresh_from_db()
@@ -2151,7 +2152,8 @@ class CardMachineFeeTest(TestCase):
         self.assertEqual(r.data["card_type"], "credit")
         self.assertEqual(r.data["card_type_label"], "إئتماني / Credit")
         self.c.post(f"/api/sale-sessions/{sid}/close/")
-        sale = DailySale.objects.get(branch=self.branch, date=effective_sale_date())
+        sale_date = session_sale_date(SaleSession.objects.get(pk=sid))
+        sale = DailySale.objects.get(branch=self.branch, date=sale_date)
         self.assertEqual(Decimal(str(sale.card_amount)), Decimal("98.00"))
         self.assertEqual(Decimal(str(sale.total_sales)), Decimal("98.00"))
 
@@ -2552,7 +2554,7 @@ class AutoCloseSessionTest(TestCase):
             s = self._session(self._at(day, 20, 13), session_date=day)
             self.assertEqual(self._add_item(s.pk).status_code, 201)
 
-            self.assertEqual(auto_close_stale_sessions(), [s.pk])
+            self.assertEqual(auto_close_stale_sessions(self._at(day + timedelta(days=1), 3)), [s.pk])
 
             s.refresh_from_db()
             self.assertEqual(s.status, SaleSession.Status.CLOSED)
@@ -2568,11 +2570,12 @@ class AutoCloseSessionTest(TestCase):
     def test_the_reason_is_written_into_the_notes(self):
         day = timezone.localdate() - timedelta(days=1)
         s = self._session(self._at(day, 20, 13))
-        auto_close_stale_sessions()
+        now = self._at(day + timedelta(days=1), 3)
+        auto_close_stale_sessions(now)
         s.refresh_from_db()
         self.assertIn(AUTO_CLOSE_NOTE, s.notes)
         # re-running finds nothing to do and does not append the reason twice
-        self.assertEqual(auto_close_stale_sessions(), [])
+        self.assertEqual(auto_close_stale_sessions(now), [])
         s.refresh_from_db()
         self.assertEqual(s.notes.count(AUTO_CLOSE_NOTE), 1)
 
@@ -2613,7 +2616,7 @@ class AutoCloseSessionTest(TestCase):
             day = timezone.localdate() - timedelta(days=20)
             s = self._session(self._at(day, 9, 0), session_date=day)
             self.assertEqual(self._add_item(s.pk).status_code, 201)
-            self.assertEqual(auto_close_stale_sessions(), [s.pk])
+            self.assertEqual(auto_close_stale_sessions(self._at(day + timedelta(days=1), 3)), [s.pk])
             s.refresh_from_db()
             self.assertEqual(
                 timezone.localtime(s.closed_at), self._at(day + timedelta(days=1), 2, 0)
@@ -2641,7 +2644,12 @@ class AutoCloseSessionTest(TestCase):
         day = timezone.localdate() - timedelta(days=1)
         s = self._session(self._at(day, 20, 13), session_date=day)
         self.assertEqual(self._add_item(s.pk).status_code, 201)
-        r = self.c.get("/api/sale-sessions/")
+        now = self._at(day + timedelta(days=1), 3)
+        with patch(
+            "sale_sessions.views.auto_close_stale_sessions",
+            side_effect=lambda: auto_close_stale_sessions(now),
+        ):
+            r = self.c.get("/api/sale-sessions/")
         self.assertEqual(r.status_code, 200, r.data)
         s.refresh_from_db()
         self.assertEqual(s.status, SaleSession.Status.CLOSED)
@@ -2657,13 +2665,22 @@ class AutoCloseSessionTest(TestCase):
         day = timezone.localdate() - timedelta(days=1)
         s = self._session(self._at(day, 20, 13))
         out = StringIO()
-        call_command("close_stale_sessions", stdout=out)
+        now = self._at(day + timedelta(days=1), 3)
+        with patch(
+            "sale_sessions.management.commands.close_stale_sessions.auto_close_stale_sessions",
+            side_effect=lambda: auto_close_stale_sessions(now),
+        ):
+            call_command("close_stale_sessions", stdout=out)
         s.refresh_from_db()
         self.assertEqual(s.status, SaleSession.Status.CLOSED)
         self.assertIn(str(s.pk), out.getvalue())
 
         out = StringIO()
-        call_command("close_stale_sessions", stdout=out)
+        with patch(
+            "sale_sessions.management.commands.close_stale_sessions.auto_close_stale_sessions",
+            side_effect=lambda: auto_close_stale_sessions(now),
+        ):
+            call_command("close_stale_sessions", stdout=out)
         self.assertIn("no stale sessions", out.getvalue())
 
     # ---- every item stays on the day the shift was opened
