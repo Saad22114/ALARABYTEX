@@ -144,7 +144,8 @@ def auto_close_stale_sessions(now=None):
     تُغلق إلا حين يفتح أحد الصفحة. وأول من يذهب ليرى وردية منسية هو من يغلقها له.
 
     تُغلق على موعد الإغلاق نفسه لا على لحظة الاكتشاف، حتى لا يتغير يومها المحاسبي بتغير
-    ساعة الدخول، ويبقى سبب الإغلاق مكتوباً في ملاحظاتها.
+    ساعة الدخول، ويبقى سبب الإغلاق مكتوباً في ملاحظاتها. الورديات التي أُنشئت
+    عمداً بتاريخ محاسبي سابق تُترك للإغلاق اليدوي حتى لا تُغلق عند أول تحديث للقائمة.
     """
     now = now or timezone.localtime()
     conf = AppSettings.load()
@@ -152,7 +153,7 @@ def auto_close_stale_sessions(now=None):
         return []
     due = []
     rows = SaleSession.objects.filter(
-        status=SaleSession.Status.OPEN, is_manual=False
+        status=SaleSession.Status.OPEN, is_manual=False, is_backdated=False
     ).only("id", "opened_at", "session_date", "notes")
     for session in rows:
         if now < auto_close_moment(session, conf.session_auto_close_time):
@@ -504,9 +505,10 @@ def reopen_session(session):
     _unpost_session(session)
     _reverse_closed_items(session)
     session.status = SaleSession.Status.OPEN
+    session.is_backdated = bool(session.session_date and session.session_date < timezone.localdate())
     session.closed_at = None
     session.commission_amount = Decimal("0")
-    session.save(update_fields=["status", "closed_at", "commission_amount"])
+    session.save(update_fields=["status", "closed_at", "commission_amount", "is_backdated"])
 
 
 @transaction.atomic

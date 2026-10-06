@@ -756,6 +756,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                   <span className="font-semibold">{s.employee_name}</span>
                   <span className="flex items-center gap-1.5">
                     <Badge variant="success">مفتوحة</Badge>
+                    {s.is_backdated && <Badge variant="warning">تُغلق يدويًا</Badge>}
                     {aging === 'warn' && (
                       <Badge variant="warning"><TriangleAlert size={11} /> ساعتان</Badge>
                     )}

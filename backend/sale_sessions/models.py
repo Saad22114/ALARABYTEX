@@ -156,6 +156,11 @@ class SaleSession(TimeStampedModel):
         null=True, blank=True, verbose_name="تاريخ الوردية",
         help_text="التاريخ المحاسبي الذي تُسجَّل عليه مبيعات الوردية؛ فارغ = يُحسب تلقائياً من وقت البيع",
     )
+    is_backdated = models.BooleanField(
+        default=False,
+        verbose_name="وردية بتاريخ سابق أُنشئت يدوياً",
+        help_text="تبقى مفتوحة حتى الإغلاق اليدوي ولا تُغلق فوراً ضمن إغلاق الورديات المنسية",
+    )
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.OPEN, verbose_name="الحالة"
     )

@@ -1415,6 +1415,8 @@ export interface SaleSession {
   closed_at: string | null;
   /** التاريخ المحاسبي للوردية (اختياري عند الفتح؛ null = تلقائي من وقت البيع) */
   session_date: string | null;
+  /** الورديات المؤرخة للماضي تحتاج إلى إغلاق يدوي حتى لا تُغلق عند أول تحديث. */
+  is_backdated?: boolean;
   notes: string;
   commission_amount: number;
   elapsed_minutes: number | null;

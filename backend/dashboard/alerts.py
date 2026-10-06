@@ -174,7 +174,11 @@ def _open_sessions(request):
     sessions = list(
         scope_queryset(
             request,
-            SaleSession.objects.filter(status=SaleSession.Status.OPEN, opened_at__date__lt=cutoff),
+            SaleSession.objects.filter(
+                status=SaleSession.Status.OPEN,
+                is_backdated=False,
+                opened_at__date__lt=cutoff,
+            ),
         )
         .select_related("employee", "branch")
         .order_by("opened_at")

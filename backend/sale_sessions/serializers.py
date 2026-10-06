@@ -290,7 +290,7 @@ class SaleSessionReadSerializer(serializers.ModelSerializer):
         model = SaleSession
         fields = [
             "id", "employee", "employee_name", "branch", "branch_name", "branch_code",
-            "status", "status_label", "opened_at", "closed_at", "session_date", "notes",
+            "status", "status_label", "opened_at", "closed_at", "session_date", "is_backdated", "notes",
             "commission_amount", "elapsed_minutes", "items", "totals",
             "is_manual", "manual_date", "manual_cash", "manual_transfer", "manual_card",
         ]
@@ -381,7 +381,10 @@ class SaleSessionOpenSerializer(serializers.Serializer):
             closed_same_day._reopened = True
             return closed_same_day
         session = SaleSession.objects.create(
-            employee=employee, branch=employee.branch, session_date=session_date
+            employee=employee,
+            branch=employee.branch,
+            session_date=session_date,
+            is_backdated=bool(session_date and session_date < timezone.localdate()),
         )
         # الوردية بتاريخ سابق تُسجَّل بتاريخها المختار في وقت الفتح ووقت الإنشاء
         # حتى تحافظ على ترتيبها في القائمة وفي تقارير ذلك اليوم.
