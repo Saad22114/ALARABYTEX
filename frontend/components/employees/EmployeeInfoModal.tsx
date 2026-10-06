@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Avatar from '@/components/ui/Avatar';
+import ImagePreview from '@/components/ui/ImagePreview';
 import Badge from '@/components/ui/Badge';
 import Spinner from '@/components/ui/Spinner';
 import ImageCropper from '@/components/ui/ImageCropper';
@@ -56,6 +57,7 @@ export default function EmployeeInfoModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** الصورة المختارة من الجهاز — بانتظار تحديد المستخدم لمنطقة القصّ. */
   const [cropSource, setCropSource] = useState<AvatarSource | null>(null);
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!open || !employee) return;
@@ -163,6 +165,8 @@ export default function EmployeeInfoModal({
               avatarImage={profile.avatar_image}
               size="lg"
               className="ring-2 ring-sand-200"
+              onClick={profile.avatar_image ? () => setImagePreviewOpen(true) : undefined}
+              title={profile.avatar_image ? 'تكبير الصورة الشخصية' : undefined}
             />
             <div className="min-w-0">
               <p className="text-base font-semibold truncate">{profile.name}</p>
@@ -201,6 +205,8 @@ export default function EmployeeInfoModal({
                     avatar={profile.avatar}
                     avatarImage={profile.avatar_image}
                     size="lg"
+                    onClick={profile.avatar_image ? () => setImagePreviewOpen(true) : undefined}
+                    title={profile.avatar_image ? 'تكبير الصورة الشخصية' : undefined}
                   />
                   <div className="min-w-0 flex-1">
                     {profile.avatar_image ? (
@@ -289,6 +295,11 @@ export default function EmployeeInfoModal({
         saving={saving}
         onConfirm={handleConfirmCrop}
         onCancel={handleCancelCrop}
+      />
+      <ImagePreview
+        src={imagePreviewOpen ? profile?.avatar_image || null : null}
+        alt={`الصورة الشخصية لـ ${profile?.name || ''}`}
+        onClose={() => setImagePreviewOpen(false)}
       />
     </Modal>
   );

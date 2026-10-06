@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import Link from 'next/link';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
@@ -152,6 +153,7 @@ export default function WarehousesPage() {
   }, [page, pageSize, search, toast]);
 
   useEffect(() => fetchData(), [fetchData]);
+  useAutoRefresh(fetchData);
 
   useEffect(() => {
     if (!viewing) return;

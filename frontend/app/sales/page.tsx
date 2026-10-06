@@ -40,6 +40,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { hasWindow } from '@/lib/permissions';
 import { useUrlState } from '@/lib/useUrlState';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { counted } from '@/lib/arabic';
 import {
   averagePerSellingDay,
@@ -208,6 +209,12 @@ export default function SalesPage() {
   }, [byEmployeeParams]);
 
   useEffect(() => { return fetchByEmployee(); }, [fetchByEmployee]);
+
+  useAutoRefresh(useCallback(() => {
+    fetchSummary();
+    if (tab === 'sales') fetchClosedSessions();
+    if (showByEmployee) fetchByEmployee();
+  }, [fetchSummary, fetchClosedSessions, fetchByEmployee, tab, showByEmployee]), 20_000);
 
   const refreshSalesTab = useCallback(() => {
     fetchClosedSessions();

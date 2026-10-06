@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -181,6 +182,7 @@ export default function ReceiptsPage() {
   }, [page, pageSize]);
 
   useEffect(() => fetchData(), [fetchData]);
+  useAutoRefresh(fetchData);
 
   useEffect(() => {
     listWarehouses({ page_size: 100 }).then((r) => setWarehouses(r.results)).catch(() => {});

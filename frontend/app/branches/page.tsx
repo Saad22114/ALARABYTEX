@@ -25,6 +25,7 @@ import { formatCurrency } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 
 export default function BranchesPage() {
   const { toast } = useToast();
@@ -68,6 +69,7 @@ export default function BranchesPage() {
 
   useEffect(() => fetchData(), [fetchData]);
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
+  useAutoRefresh(useCallback(() => { fetchData(); fetchSummary(); }, [fetchData, fetchSummary]));
 
   const totals = summary
     ? summary.reduce(

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -183,6 +184,11 @@ export default function PartnersPage() {
     const c2 = fetchSummary();
     return () => { c1(); c2(); };
   }, [fetchOperations, fetchSummary]);
+  useAutoRefresh(useCallback(() => {
+    fetchOperations();
+    fetchSummary();
+    if (tab === 'distribution') fetchDistribution();
+  }, [fetchOperations, fetchSummary, fetchDistribution, tab]));
 
   useEffect(() => {
     if (tab === 'distribution') return fetchDistribution();

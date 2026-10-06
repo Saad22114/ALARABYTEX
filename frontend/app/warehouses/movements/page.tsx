@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
@@ -63,6 +64,7 @@ export default function MovementsPage() {
   }, [page, pageSize, search, warehouse, movementType, dateFrom, dateTo]);
 
   useEffect(() => fetchData(), [fetchData]);
+  useAutoRefresh(fetchData);
 
   useEffect(() => {
     listWarehouses({ page_size: 100 }).then((r) => setWarehouses(r.results)).catch(() => {});

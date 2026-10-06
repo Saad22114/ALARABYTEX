@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
@@ -33,6 +33,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useUrlState } from '@/lib/useUrlState';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 
 export default function DashboardPage() {
   const { toast } = useToast();
@@ -50,6 +51,8 @@ export default function DashboardPage() {
   const [activities, setActivities] = useState<DashboardActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
+  const refreshDashboard = useCallback(() => setReloadKey((key) => key + 1), []);
+  useAutoRefresh(refreshDashboard);
 
   const [monthA, setMonthA] = useState<string>(currentMonthKey());
   const [monthB, setMonthB] = useState<string>(() => shiftMonthKey(currentMonthKey(), -1));
@@ -86,7 +89,7 @@ export default function DashboardPage() {
       if (!cancelled) setActivities(res.activities);
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadKey]);
 
   useEffect(() => {
     if (isScoped && me?.branch && !branch) {
@@ -97,7 +100,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     const params: Record<string, string | number | undefined> = {};
     if (branch) params.branch = branch;
     if (dateFrom) params.date_from = dateFrom;
@@ -127,7 +129,7 @@ export default function DashboardPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setMonthLoading(false); });
     return () => { cancelled = true; };
-  }, [monthSpans, branch]);
+  }, [monthSpans, branch, reloadKey]);
 
   const periodNet = data
     ? data.total_sales - data.total_cogs - data.total_expenses - data.total_salaries

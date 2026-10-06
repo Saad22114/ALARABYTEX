@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -32,6 +32,7 @@ import { formatCurrency } from '@/lib/format';
 import { counted } from '@/lib/arabic';
 import { downloadCsv, csvFilename } from '@/lib/csv';
 import { useToast } from '@/components/ui/Toast';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { useUrlState } from '@/lib/useUrlState';
 
 interface EmployeeForm {
@@ -158,7 +159,7 @@ export default function EmployeesPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     listEmployees({
@@ -170,9 +171,10 @@ export default function EmployeesPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  };
+  }, [search, filterBranch, toast]);
 
-  useEffect(fetchData, [search, filterBranch]);
+  useEffect(() => fetchData(), [fetchData]);
+  useAutoRefresh(fetchData);
 
   useEffect(() => {
     let cancelled = false;

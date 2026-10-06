@@ -199,7 +199,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     const id = setInterval(() => {
       fetchSessions(true);
       fetchSummary();
-    }, 60000);
+    }, 20000);
     return () => clearInterval(id);
   }, [fetchSessions, fetchSummary]);
 

@@ -27,6 +27,7 @@ import { getCustomerSales, getSaleSession } from '@/services/sessions';
 import { formatDate, formatCurrency } from '@/lib/format';
 import { counted } from '@/lib/arabic';
 import { downloadCsv, csvFilename } from '@/lib/csv';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
@@ -110,6 +111,7 @@ export default function CustomersPage() {
   }, [page, pageSize, listParams, toast]);
 
   useEffect(() => fetchData(), [fetchData]);
+  useAutoRefresh(fetchData);
 
   useEffect(() => {
     getCustomersSummary({

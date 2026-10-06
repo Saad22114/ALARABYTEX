@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { ArrowLeft, ChevronDown, ChevronUp, Copy, CornerUpLeft, Forward, Pencil, Plus, Search, Send, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, CornerUpLeft, Forward, Info, Pencil, Plus, Search, Send, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { getConversations, getMessageThread, sendMessage, editMessage, deleteMessage, searchMessages, EDIT_WINDOW_MINUTES } from '@/services/messages';
 import { ChatMessage, ChatContactSummary, MessagingContact, MessageSearchGroup } from '@/types';
 import { formatLastSeen } from '@/lib/format';
 import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
+import ImagePreview from '@/components/ui/ImagePreview';
 import EmployeeInfoModal from '@/components/employees/EmployeeInfoModal';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
@@ -69,10 +70,30 @@ function PresenceAvatar({
   onClick?: () => void;
   title?: string;
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
   const dotSize = size === 'lg' ? 'w-3 h-3' : size === 'xs' ? 'w-2 h-2' : 'w-2.5 h-2.5';
   return (
     <span className="relative inline-flex shrink-0">
-      <Avatar name={name} avatar={avatar} avatarImage={avatarImage} size={size} onClick={onClick} title={title} />
+      <Avatar
+        name={name}
+        avatar={avatar}
+        avatarImage={avatarImage}
+        size={size}
+        onClick={avatarImage ? () => setPreviewOpen(true) : onClick}
+        title={avatarImage ? 'تكبير الصورة الشخصية' : title}
+      />
+      <ImagePreview src={previewOpen ? avatarImage || null : null} alt={`الصورة الشخصية لـ ${name}`} onClose={() => setPreviewOpen(false)} />
+      {avatarImage && onClick && (
+        <button
+          type="button"
+          aria-label={`معلومات ${name}`}
+          title={`معلومات ${name}`}
+          onClick={(event) => { event.stopPropagation(); onClick(); }}
+          className="absolute -top-1 -start-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-white text-brand-700 shadow ring-1 ring-sand-200"
+        >
+          <Info size={11} />
+        </button>
+      )}
       {online && (
         <span className={`absolute bottom-0 end-0 ${dotSize} rounded-full bg-emerald-500 ring-2 ring-surface`} title="متصل الآن" />
       )}
@@ -346,7 +367,7 @@ export default function MessagesPage() {
       >
         {/* identity bar */}
         <div className="px-4 py-3 border-b border-sand-200 flex items-center gap-3 bg-sand-50">
-          <Avatar name={me.name} avatar={me.avatar} avatarImage={me.avatar_image} size="sm" onClick={() => openInfo(me, true)} title="معلوماتي وتغيير الأفاتار" />
+          <PresenceAvatar name={me.name} avatar={me.avatar} avatarImage={me.avatar_image} size="sm" onClick={() => openInfo(me, true)} title="معلوماتي وتغيير الأفاتار" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold truncate">{me.name}</p>
           </div>

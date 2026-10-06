@@ -1,13 +1,14 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, Sun, Moon, LogOut } from 'lucide-react';
+import { Menu, Sun, Moon, LogOut, UserRound } from 'lucide-react';
 import { formatArabicDate } from '@/lib/format';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import NotificationsBell from './NotificationsBell';
 import Avatar from '@/components/ui/Avatar';
 import EmployeeInfoModal from '@/components/employees/EmployeeInfoModal';
+import ImagePreview from '@/components/ui/ImagePreview';
 import { useEffect, useState } from 'react';
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
@@ -39,6 +40,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const { session, logout, updateEmployee } = useAuth();
   const router = useRouter();
   const [infoOpen, setInfoOpen] = useState(false);
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
   const me = session?.employee ?? null;
 
   useEffect(() => {
@@ -96,10 +98,10 @@ export default function Header({ onMenuClick }: HeaderProps) {
               avatar={me?.avatar}
               avatarImage={me?.avatar_image}
               size="md"
-              onClick={() => setInfoOpen(true)}
-              title="معلوماتي وتغيير الأفاتار"
+              onClick={() => me?.avatar_image ? setImagePreviewOpen(true) : setInfoOpen(true)}
+              title={me?.avatar_image ? 'تكبير الصورة الشخصية' : 'معلوماتي وتغيير الأفاتار'}
             />
-            <div className="hidden sm:block leading-tight">
+            <button type="button" onClick={() => setInfoOpen(true)} title="معلوماتي وتغيير الصورة" className="hidden sm:block leading-tight text-right">
               <span className="block text-sm font-medium text-neutral-600 dark:text-neutral-300">
                 مرحباً، {session?.employee.name || '—'}
               </span>
@@ -107,7 +109,16 @@ export default function Header({ onMenuClick }: HeaderProps) {
                 {session?.employee.role_label}
                 {session?.employee.branch_name ? ` · ${session.employee.branch_name}` : ''}
               </span>
-            </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setInfoOpen(true)}
+              title="معلوماتي وتغيير الصورة"
+              aria-label="معلوماتي وتغيير الصورة"
+              className="sm:hidden p-2 rounded-xl hover:bg-sand-100 text-neutral-500 dark:text-neutral-300"
+            >
+              <UserRound size={18} />
+            </button>
             <button
               onClick={handleLogout}
               title="تسجيل الخروج"
@@ -136,6 +147,11 @@ export default function Header({ onMenuClick }: HeaderProps) {
           }}
         />
       )}
+      <ImagePreview
+        src={imagePreviewOpen ? me?.avatar_image || null : null}
+        alt={`الصورة الشخصية لـ ${me?.name || ''}`}
+        onClose={() => setImagePreviewOpen(false)}
+      />
     </header>
   );
 }

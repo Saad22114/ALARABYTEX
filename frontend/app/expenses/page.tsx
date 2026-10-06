@@ -22,6 +22,7 @@ import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { counted } from '@/lib/arabic';
 import { downloadCsv, csvFilename } from '@/lib/csv';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -123,6 +124,7 @@ export default function ExpensesPage() {
   }, [page, pageSize, search, filterBranch, filterCategory, dateFrom, dateTo, toast]);
 
   useEffect(() => fetchData(), [fetchData]);
+  useAutoRefresh(fetchData);
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 

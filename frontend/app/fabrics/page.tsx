@@ -17,6 +17,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import StatCard from '@/components/ui/StatCard';
 import FabricForm from '@/components/forms/FabricForm';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import {
   Plus, Pencil, Trash2, Eye, Package, AlertTriangle,
   IndianRupee, Boxes, Tags, TrendingUp, Percent,
@@ -126,6 +127,7 @@ export default function FabricsPage() {
   }, []);
 
   useEffect(() => fetchSummary(), [fetchSummary]);
+  useAutoRefresh(useCallback(() => { fetchData(); fetchSummary(); }, [fetchData, fetchSummary]));
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 

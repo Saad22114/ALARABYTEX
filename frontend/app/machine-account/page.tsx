@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import AppShell from '@/components/layout/AppShell';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
@@ -142,6 +143,8 @@ export default function MachineAccountPage() {
       cancelled = true;
     };
   }, [fetchData, toast]);
+
+  useAutoRefresh(useCallback(() => fetchData().then(setData), [fetchData]));
 
   // الحسابات المعروضة في التبويب الحالي، بالترتيب الثابت.
   const visibleKeys: SettlementAccountKey[] =

@@ -27,6 +27,7 @@ import { counted } from '@/lib/arabic';
 import Input from '@/components/ui/Input';
 import { openSuppliersOverviewReport } from '@/lib/supplierReport';
 import { useToast } from '@/components/ui/Toast';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
 import SettlementAccountPicker, {
@@ -91,6 +92,7 @@ export default function SuppliersPage() {
   }, [page, pageSize, search, toast]);
 
   useEffect(() => fetchData(), [fetchData]);
+  useAutoRefresh(fetchData);
 
   useEffect(() => {
     let cancelled = false;
