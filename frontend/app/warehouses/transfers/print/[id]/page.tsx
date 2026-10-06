@@ -82,7 +82,7 @@ export default function TransferPrintPage() {
         <div className="grid grid-cols-2 gap-6 mb-6">
           <div className="border border-sand-200 rounded-xl p-4">
             <p className="text-xs font-semibold text-neutral-500 mb-2">من المخزن (المُرسِل)</p>
-            <p className="font-bold text-neutral-900">{transfer.from_warehouse_name}</p>
+            <p className="font-bold text-neutral-900">{transfer.source_name || transfer.from_warehouse_name}</p>
             {transfer.requested_by && <p className="text-xs text-neutral-500 mt-2">مقدّم الطلب: {transfer.requested_by}</p>}
           </div>
           <div className="border border-sand-200 rounded-xl p-4">
@@ -127,7 +127,7 @@ export default function TransferPrintPage() {
         <div className="grid grid-cols-3 gap-6 pt-6 mt-6 border-t border-neutral-200">
           <div className="text-center">
             <p className="text-xs text-neutral-500 mb-8">توقيع أمين المخزن المُرسِل</p>
-            <div className="border-t border-neutral-400 pt-2 text-xs text-neutral-500">من: {transfer.from_warehouse_name}</div>
+            <div className="border-t border-neutral-400 pt-2 text-xs text-neutral-500">من: {transfer.source_name || transfer.from_warehouse_name}</div>
           </div>
           <div className="text-center">
             <p className="text-xs text-neutral-500 mb-8">توقيع أمين المخزن المُستقبِل</p>

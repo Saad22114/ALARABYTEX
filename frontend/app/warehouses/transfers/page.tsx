@@ -16,16 +16,18 @@ import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Textarea from '@/components/ui/Textarea';
-import { Plus, Send, Check, X, CheckCircle2, Ban, Printer, Eye, SendHorizonal } from 'lucide-react';
-import { StockTransfer, Paginated, Warehouse, Fabric, TransferItem, TransferStatus, Branch, TransferQuantityMode } from '@/types';
-import { listTransfers, createTransfer, deleteTransfer, changeTransferStatus, TransferWrite } from '@/services/warehouses';
+import { Plus, Send, Check, X, CheckCircle2, Ban, Printer, Eye, SendHorizonal, RotateCcw } from 'lucide-react';
+import { StockTransfer, Paginated, Warehouse, Fabric, TransferItem, TransferStatus, Branch, TransferQuantityMode, Employee, SessionEmployee } from '@/types';
+import { listTransfers, createTransfer, deleteTransfer, changeTransferStatus, reverseTransfer, TransferWrite } from '@/services/warehouses';
 import { listWarehouses } from '@/services/warehouses';
 import { listBranches } from '@/services/branches';
 import { listFabrics } from '@/services/fabrics';
+import { listEmployees } from '@/services/employees';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
 import { formatNumber } from '@/lib/format';
+import { useAuth } from '@/components/providers/AuthProvider';
 
 const STATUS_VARIANT: Record<TransferStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
   draft: 'neutral',
@@ -34,9 +36,10 @@ const STATUS_VARIANT: Record<TransferStatus, 'success' | 'warning' | 'danger' | 
   rejected: 'danger',
   completed: 'success',
   cancelled: 'danger',
+  reversed: 'neutral',
 };
 
-type TransferActionType = 'request' | 'approve' | 'reject' | 'complete' | 'cancel' | 'delete';
+type TransferActionType = 'request' | 'approve' | 'reject' | 'complete' | 'cancel' | 'delete' | 'reverse';
 
 /** مسودة الصنف: الأرقام نصوص كما يكتبها المستخدم، حتى لا يظهر «0» في خانة فارغة. */
 type TransferDraft = Omit<TransferItem, 'yards' | 'rolls_count'> & { yards: string; rolls_count: string };
@@ -45,23 +48,55 @@ function TransferForm({
   warehouses,
   branches,
   fabrics,
+  employees,
+  sessionEmployee,
   onSubmit,
   loading,
 }: {
   warehouses: Warehouse[];
   branches: Branch[];
   fabrics: Fabric[];
+  employees: Employee[];
+  sessionEmployee: SessionEmployee | null;
   onSubmit: (d: TransferWrite) => void;
   loading: boolean;
 }) {
-  const [from, setFrom] = useState<number | undefined>(warehouses[0]?.id);
+  const [sourceType, setSourceType] = useState<'warehouse' | 'branch'>('warehouse');
+  const [from, setFrom] = useState<number | undefined>();
+  const [fromBranch, setFromBranch] = useState<number | undefined>();
   const [destType, setDestType] = useState<'warehouse' | 'branch'>('warehouse');
-  const [toWarehouse, setToWarehouse] = useState<number | undefined>(warehouses[1]?.id ?? warehouses[0]?.id);
-  const [toBranch, setToBranch] = useState<number | undefined>(branches[0]?.id);
+  const [toWarehouse, setToWarehouse] = useState<number | undefined>();
+  const [toBranch, setToBranch] = useState<number | undefined>();
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [requestedBy, setRequestedBy] = useState('');
+  const [requestedByEmployee, setRequestedByEmployee] = useState<number | undefined>();
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<TransferDraft[]>([{ fabric: fabrics[0]?.id ?? 0, yards: '', rolls_count: '', quantity_mode: 'yard' }]);
+  const canChooseRequester = sessionEmployee?.role === 'admin' || sessionEmployee?.role === 'supervisor';
+
+  const physicalWarehouses = warehouses.filter((w) => !w.is_branch_stock);
+  const eligibleDestinationWarehouses = physicalWarehouses.filter(
+    (w) => (sourceType !== 'warehouse' || w.id !== from) && (sourceType !== 'branch' || w.branch !== fromBranch),
+  );
+  const eligibleDestinationBranches = branches.filter((b) => sourceType !== 'branch' || b.id !== fromBranch);
+
+  useEffect(() => {
+    if (!from && physicalWarehouses.length) setFrom(physicalWarehouses[0].id);
+    if (!fromBranch && branches.length) setFromBranch(branches[0].id);
+  }, [physicalWarehouses, branches, from, fromBranch]);
+
+  useEffect(() => {
+    if (destType === 'warehouse') {
+      if (!eligibleDestinationWarehouses.some((w) => w.id === toWarehouse)) {
+        setToWarehouse(eligibleDestinationWarehouses[0]?.id);
+      }
+    } else if (!eligibleDestinationBranches.some((b) => b.id === toBranch)) {
+      setToBranch(eligibleDestinationBranches[0]?.id);
+    }
+  }, [destType, eligibleDestinationWarehouses, eligibleDestinationBranches, toWarehouse, toBranch]);
+
+  useEffect(() => {
+    if (sessionEmployee?.id) setRequestedByEmployee(sessionEmployee.id);
+  }, [sessionEmployee?.id]);
 
   const updateItem = (i: number, patch: Partial<TransferDraft>) => {
     setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -72,11 +107,9 @@ function TransferForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!from) return;
+    if ((sourceType === 'warehouse' && !from) || (sourceType === 'branch' && !fromBranch)) return;
     const payload: TransferWrite = {
-      from_warehouse: from,
       date,
-      requested_by: requestedBy,
       notes,
       items: items.map((it) =>
         it.quantity_mode === 'roll'
@@ -84,31 +117,38 @@ function TransferForm({
           : { fabric: it.fabric, yards: Number(it.yards) || 0, rolls_count: Number(it.rolls_count) || 0, quantity_mode: 'yard' }
       ),
     };
+    if (sourceType === 'branch') {
+      payload.from_branch = fromBranch;
+      const branchWarehouse = warehouses.find((w) => w.is_branch_stock && w.branch === fromBranch);
+      if (branchWarehouse) payload.from_warehouse = branchWarehouse.id;
+    }
+    else payload.from_warehouse = from;
+    if (canChooseRequester && requestedByEmployee) {
+      payload.requested_by_employee = requestedByEmployee;
+    }
     if (destType === 'branch') {
-      if (!toBranch) return;
+      if (!toBranch || !eligibleDestinationBranches.some((b) => b.id === toBranch)) return;
       payload.to_branch = toBranch;
     } else {
-      if (!toWarehouse) return;
+      if (!toWarehouse || !eligibleDestinationWarehouses.some((w) => w.id === toWarehouse)) return;
       payload.to_warehouse = toWarehouse;
     }
     onSubmit(payload);
   };
 
-  const destOptions =
-    destType === 'warehouse'
-      ? warehouses.filter((w) => w.id !== from).map((w) => ({ value: w.id, label: w.name }))
-      : branches.map((b) => ({ value: b.id, label: b.name }));
+  const destOptions = destType === 'warehouse'
+    ? eligibleDestinationWarehouses.map((w) => ({ value: w.id, label: w.name }))
+    : eligibleDestinationBranches.map((b) => ({ value: b.id, label: b.name }));
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">المخزن المُرسِل *</label>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">نوع المصدر *</label>
           <Select
-            value={from ?? ''}
-            onChange={(e) => setFrom(Number(e.target.value))}
-            options={warehouses.filter((w) => !w.is_branch_stock).map((w) => ({ value: w.id, label: w.name }))}
-            required
+            value={sourceType}
+            onChange={(e) => setSourceType(e.target.value as 'warehouse' | 'branch')}
+            options={[{ value: 'warehouse', label: 'مخزن' }, { value: 'branch', label: 'فرع' }]}
           />
         </div>
         <div>
@@ -123,6 +163,15 @@ function TransferForm({
           />
         </div>
       </div>
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 mb-1">{sourceType === 'branch' ? 'الفرع المُرسِل *' : 'المخزن المُرسِل *'}</label>
+        <Select
+          value={sourceType === 'branch' ? (fromBranch ?? '') : (from ?? '')}
+          onChange={(e) => sourceType === 'branch' ? setFromBranch(Number(e.target.value)) : setFrom(Number(e.target.value))}
+          options={sourceType === 'branch' ? branches.map((b) => ({ value: b.id, label: b.name })) : warehouses.filter((w) => !w.is_branch_stock).map((w) => ({ value: w.id, label: w.name }))}
+          required
+        />
+      </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1">
@@ -132,8 +181,10 @@ function TransferForm({
             value={destType === 'warehouse' ? (toWarehouse ?? '') : (toBranch ?? '')}
             onChange={(e) => (destType === 'warehouse' ? setToWarehouse(Number(e.target.value)) : setToBranch(Number(e.target.value)))}
             options={destOptions}
+            placeholder="اختر الوجهة"
             required
           />
+          {destOptions.length === 0 && <p className="mt-1 text-xs text-red-600">لا توجد وجهة متاحة غير المصدر؛ اختر نوع وجهة أو مصدراً آخر.</p>}
         </div>
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1">تاريخ التحويل</label>
@@ -142,7 +193,16 @@ function TransferForm({
       </div>
       <div>
         <label className="block text-sm font-medium text-neutral-700 mb-1">مقدّم الطلب</label>
-        <Input value={requestedBy} onChange={(e) => setRequestedBy(e.target.value)} />
+        {canChooseRequester ? (
+          <Select
+            value={requestedByEmployee ?? ''}
+            onChange={(e) => setRequestedByEmployee(Number(e.target.value))}
+            options={employees.map((employee) => ({ value: employee.id, label: employee.name }))}
+            required
+          />
+        ) : (
+          <Input value={sessionEmployee?.name ?? ''} readOnly placeholder="يُحدد من حساب تسجيل الدخول" />
+        )}
       </div>
 
       <div className="space-y-2">
@@ -220,6 +280,7 @@ function TransferForm({
 
 export default function TransfersPage() {
   const { toast } = useToast();
+  const { session } = useAuth();
   const { settings } = useSettings();
   const pageSize = settings?.default_page_size ?? 10;
   const [data, setData] = useState<Paginated<StockTransfer> | null>(null);
@@ -230,10 +291,11 @@ export default function TransfersPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [action, setAction] = useState<{ transfer: StockTransfer; type: TransferActionType } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [viewing, setViewing] = useState<StockTransfer | null>(null);
-  const [requestedByInput, setRequestedByInput] = useState('');
+  const [reasonInput, setReasonInput] = useState('');
 
   const fetchData = useCallback(() => {
     let cancelled = false;
@@ -254,6 +316,12 @@ export default function TransfersPage() {
     listFabrics({ page_size: 100 }).then((r) => setFabrics(r.results)).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (session?.employee.role === 'admin' || session?.employee.role === 'supervisor') {
+      listEmployees({ page_size: 200 }).then((r) => setEmployees(r.results)).catch((err: any) => toast('error', err.message));
+    }
+  }, [session?.employee.role, toast]);
+
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 
   const handleCreate = async (d: TransferWrite) => {
@@ -272,24 +340,35 @@ export default function TransfersPage() {
 
   const runAction = async () => {
     if (!action) return;
+    if (['reject', 'cancel', 'delete', 'reverse'].includes(action.type) && !reasonInput.trim()) {
+      toast('error', 'اكتب السبب أولاً لتوثيقه في سجل التحويل');
+      return;
+    }
     setActionLoading(true);
     try {
       if (action.type === 'delete') {
-        await deleteTransfer(action.transfer.id);
-        toast('success', 'تم حذف التحويل');
+        await deleteTransfer(action.transfer.id, reasonInput.trim());
+        toast('success', 'تمت أرشفة التحويل مع حفظ سجله');
         setAction(null);
+        setReasonInput('');
         fetchData();
         return;
       }
-      const payload: Record<string, string> = {};
-      if (action.type === 'request') {
-        const name = requestedByInput.trim() || action.transfer.requested_by;
-        if (name) payload.requested_by = name;
+      if (action.type === 'reverse') {
+        const r = await reverseTransfer(action.transfer.id, reasonInput.trim());
+        toast('success', `تم: ${r.status_label}`);
+        setAction(null);
+        setReasonInput('');
+        fetchData();
+        if (viewing) setViewing((v) => (v && v.id === r.id ? r : v));
+        return;
       }
-      if (action.type === 'approve') payload.approved_by = 'المدير';
+      const payload: Record<string, string> = {};
+      if (action.type === 'reject' || action.type === 'cancel') payload.reason = reasonInput.trim();
       const r = await changeTransferStatus(action.transfer.id, action.type, payload);
       toast('success', `تم: ${r.status_label}`);
       setAction(null);
+      setReasonInput('');
       fetchData();
       if (viewing) setViewing((v) => (v && v.id === r.id ? r : v));
     } catch (err: any) {
@@ -303,9 +382,10 @@ export default function TransfersPage() {
     request: { title: 'تقديم طلب التحويل', message: 'سيتم إرسال طلب التحويل للموافقة.', confirm: 'تقديم الطلب' },
     approve: { title: 'الموافقة على التحويل', message: 'سيتم اعتماد طلب التحويل ليصبح جاهزاً للتنفيذ.', confirm: 'اعتماد' },
     reject: { title: 'رفض التحويل', message: 'سيتم رفض طلب التحويل وإعادته لحالة المرفوض.', confirm: 'رفض' },
-    complete: { title: 'تنفيذ التحويل', message: 'سيتم خصم البضاعة من المخزن المُرسِل وإضافتها للمُستقبِل مع تسجيل الحركات. لا يمكن التراجع.', confirm: 'تنفيذ التحويل' },
+    complete: { title: 'تنفيذ التحويل', message: 'سيتم خصم البضاعة من المصدر وإضافتها للمُستقبِل مع تسجيل الحركات.', confirm: 'تنفيذ التحويل' },
     cancel: { title: 'إلغاء التحويل', message: 'سيتم إلغاء التحويل دون أي أثر على المخزون.', confirm: 'إلغاء' },
-    delete: { title: 'حذف التحويل', message: 'هل أنت متأكد من حذف هذا التحويل؟', confirm: 'حذف' },
+    delete: { title: 'أرشفة التحويل', message: 'سيُلغى التحويل وتُحفظ تفاصيله في السجل دون أثر على المخزون.', confirm: 'أرشفة' },
+    reverse: { title: 'عكس التحويل المنفذ', message: 'سيُعاد المخزون إلى المصدر الأصلي بحركة موثقة. يلزم توفر الكمية في الوجهة الحالية.', confirm: 'عكس التحويل' },
   };
 
   const runRequestWithName = () => runAction();
@@ -347,7 +427,7 @@ export default function TransfersPage() {
                   {data.results.map((t) => (
                     <Tr key={t.id}>
                       <Td><span className="font-mono text-xs bg-sand-100 px-2 py-1 rounded" dir="ltr">{t.number}</span></Td>
-                      <Td>{t.from_warehouse_name}</Td>
+                      <Td>{t.source_name || t.from_warehouse_name}</Td>
                       <Td>
                         {t.dest_type === 'branch' ? (
                           <span className="inline-flex items-center gap-1">
@@ -384,20 +464,12 @@ export default function TransfersPage() {
                               <button onClick={() => setAction({ transfer: t, type: 'reject' })} className="p-2 rounded-lg text-red-600 hover:bg-red-50" title="رفض">
                                 <Ban size={16} />
                               </button>
-                              <button onClick={() => setAction({ transfer: t, type: 'complete' })} className="p-2 rounded-lg text-brand-600 hover:bg-brand-50" title="تنفيذ">
-                                <CheckCircle2 size={16} />
-                              </button>
                             </>
                           )}
                           {t.status === 'approved' && (
-                            <>
-                              <button onClick={() => setAction({ transfer: t, type: 'complete' })} className="p-2 rounded-lg text-brand-600 hover:bg-brand-50" title="تنفيذ">
-                                <CheckCircle2 size={16} />
-                              </button>
-                              <button onClick={() => setAction({ transfer: t, type: 'cancel' })} className="p-2 rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600" title="إلغاء">
-                                <Ban size={16} />
-                              </button>
-                            </>
+                            <button onClick={() => setAction({ transfer: t, type: 'complete' })} className="p-2 rounded-lg text-brand-600 hover:bg-brand-50" title="تنفيذ">
+                              <CheckCircle2 size={16} />
+                            </button>
                           )}
                           {t.status === 'rejected' && (
                             <button onClick={() => setAction({ transfer: t, type: 'request' })} className="p-2 rounded-lg text-brand-600 hover:bg-brand-50" title="إعادة الطلب">
@@ -405,11 +477,16 @@ export default function TransfersPage() {
                             </button>
                           )}
                           {t.status === 'completed' && (
-                            <Link href={`/warehouses/transfers/print/${t.id}`} target="_blank">
-                              <button className="p-2 rounded-lg text-neutral-500 hover:bg-brand-50 hover:text-brand-600" title="طباعة السند">
-                                <Printer size={16} />
+                            <>
+                              <Link href={`/warehouses/transfers/print/${t.id}`} target="_blank">
+                                <button className="p-2 rounded-lg text-neutral-500 hover:bg-brand-50 hover:text-brand-600" title="طباعة السند">
+                                  <Printer size={16} />
+                                </button>
+                              </Link>
+                              <button onClick={() => setAction({ transfer: t, type: 'reverse' })} className="p-2 rounded-lg text-red-600 hover:bg-red-50" title="عكس التحويل">
+                                <RotateCcw size={16} />
                               </button>
-                            </Link>
+                            </>
                           )}
                           {(t.status === 'requested' || t.status === 'approved') && (
                             <button onClick={() => setAction({ transfer: t, type: 'cancel' })} className="p-2 rounded-lg text-neutral-400 hover:text-red-600" title="إلغاء">
@@ -433,7 +510,15 @@ export default function TransfersPage() {
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="تحويل جديد بين المخازن" maxWidth="max-w-3xl">
-        <TransferForm warehouses={warehouses} branches={branches} fabrics={fabrics} onSubmit={handleCreate} loading={formLoading} />
+        <TransferForm
+          warehouses={warehouses}
+          branches={branches}
+          fabrics={fabrics}
+          employees={employees}
+          sessionEmployee={session?.employee ?? null}
+          onSubmit={handleCreate}
+          loading={formLoading}
+        />
       </Modal>
 
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing ? `سند التحويل ${viewing.number}` : ''} maxWidth="max-w-2xl">
@@ -454,8 +539,8 @@ export default function TransfersPage() {
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-sand-50 rounded-xl p-3">
-                <p className="text-neutral-500 text-xs mb-1">المخزن المُرسِل</p>
-                <p className="font-semibold">{viewing.from_warehouse_name}</p>
+                <p className="text-neutral-500 text-xs mb-1">{viewing.source_type === 'branch' ? 'الفرع المُرسِل' : 'المخزن المُرسِل'}</p>
+                <p className="font-semibold">{viewing.source_name || viewing.from_warehouse_name}</p>
               </div>
               <div className="bg-sand-50 rounded-xl p-3">
                 <p className="text-neutral-500 text-xs mb-1">المُستقبِل</p>
@@ -471,6 +556,13 @@ export default function TransfersPage() {
                 </p>
               </div>
             </div>
+            {(viewing.rejection_reason || viewing.cancellation_reason || viewing.reversal_reason) && (
+              <div className="space-y-2 text-sm">
+                {viewing.rejection_reason && <p className="rounded-lg bg-red-50 p-3">سبب الرفض: {viewing.rejection_reason}{viewing.rejected_by && ` — ${viewing.rejected_by}`}</p>}
+                {viewing.cancellation_reason && <p className="rounded-lg bg-neutral-100 p-3">سبب الإلغاء: {viewing.cancellation_reason}{viewing.cancelled_by && ` — ${viewing.cancelled_by}`}</p>}
+                {viewing.reversal_reason && <p className="rounded-lg bg-amber-50 p-3">سبب العكس: {viewing.reversal_reason}{viewing.reversed_by && ` — ${viewing.reversed_by}`}</p>}
+              </div>
+            )}
             <div className="text-sm text-neutral-500">
               التاريخ: <b className="tabular-nums">{viewing.date}</b>
               {viewing.requested_by && <span className="mr-4">مقدّم الطلب: {viewing.requested_by}</span>}
@@ -513,13 +605,9 @@ export default function TransfersPage() {
           message={
             <>
               {ACTION_META[action.type].message}
-              {action.type === 'request' && (
+              {(['reject', 'cancel', 'delete', 'reverse'] as TransferActionType[]).includes(action.type) && (
                 <div className="mt-3">
-                  <Input
-                    value={requestedByInput}
-                    onChange={(e) => setRequestedByInput(e.target.value)}
-                    placeholder="اسم مقدّم الطلب"
-                  />
+                  <Textarea value={reasonInput} onChange={(e) => setReasonInput(e.target.value)} rows={3} placeholder="اكتب السبب لتوثيقه في سجل التحويل" required />
                 </div>
               )}
             </>
@@ -527,7 +615,7 @@ export default function TransfersPage() {
           confirmLabel={ACTION_META[action.type].confirm}
           loading={actionLoading}
           onConfirm={runRequestWithName}
-          onClose={() => { setAction(null); setRequestedByInput(''); }}
+          onClose={() => { setAction(null); setReasonInput(''); }}
         />
       )}
     </AppShell>

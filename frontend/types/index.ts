@@ -67,6 +67,12 @@ export interface Customer {
   purchase_total?: number;
   purchase_count?: number;
   is_active: boolean;
+  whatsapp_opt_in: boolean;
+  whatsapp_opt_in_at: string | null;
+  whatsapp_opt_out_at: string | null;
+  whatsapp_welcome_status: 'not_requested' | 'not_configured' | 'sent' | 'failed';
+  whatsapp_welcome_sent_at: string | null;
+  whatsapp_welcome_message_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -809,7 +815,8 @@ export type TransferStatus =
   | 'approved'
   | 'rejected'
   | 'completed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'reversed';
 
 export type TransferQuantityMode = 'yard' | 'roll';
 
@@ -828,6 +835,10 @@ export interface StockTransfer {
   number: string;
   from_warehouse: number;
   from_warehouse_name: string;
+  from_branch: number | null;
+  from_branch_name: string;
+  source_type: 'warehouse' | 'branch';
+  source_name: string;
   to_warehouse: number | null;
   to_warehouse_name: string;
   to_branch: number | null;
@@ -842,6 +853,15 @@ export interface StockTransfer {
   requested_at: string | null;
   approved_at: string | null;
   completed_at: string | null;
+  rejection_reason: string;
+  rejected_by: string;
+  rejected_at: string | null;
+  cancellation_reason: string;
+  cancelled_by: string;
+  cancelled_at: string | null;
+  reversal_reason: string;
+  reversed_by: string;
+  reversed_at: string | null;
   notes: string;
   items: TransferItem[];
   total_yards: number;

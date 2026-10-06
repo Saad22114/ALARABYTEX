@@ -9,23 +9,25 @@ from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from core.testsupport import AUTH_ADMIN_BRANCH_CODE, authenticate_admin
 
 from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
+from sale_sessions.models import Employee
 from sales.models import DailySale
 from suppliers.models import Supplier
 
-from .backup import export_backup as bk_export
+from .backup import export_backup as bk_export, restore_backup
 from .models import AppSettings
 
 
 class SettingsAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
-        authenticate_admin(self.c)
+        self.admin_user, _ = authenticate_admin(self.c)
 
     def test_get_settings_returns_defaults(self):
         r = self.c.get("/api/settings/")
@@ -313,7 +315,7 @@ class BackupRestoreTest(TestCase):
 
     def setUp(self):
         self.c = APIClient()
-        authenticate_admin(self.c)
+        self.admin_user, _ = authenticate_admin(self.c)
         self.today = date.today().isoformat()
         self.branch = Branch.objects.create(name="مركز مسقط", code="MHN")
         self.cat = ExpenseCategory.objects.create(name="تصنيف تجريبي", code="TESTCAT")
@@ -375,6 +377,35 @@ class BackupRestoreTest(TestCase):
         self.assertEqual(DailySale.objects.count(), 1)
         self.assertEqual(Expense.objects.count(), 1)
         self.assertEqual(str(Expense.objects.first().amount), "50.00")
+
+    def test_restore_maps_duplicate_username_to_local_user_id(self):
+        User = get_user_model()
+        local_admin = self.admin_user
+        payload = bk_export(AppSettings.load())
+        backup_admin = next(
+            row for row in payload["tables"]["auth.User"]
+            if row["username"] == local_admin.username
+        )
+        old_id = backup_admin["id"]
+        backup_admin["id"] = max(User.objects.values_list("id", flat=True)) + 10000
+        imported_id = backup_admin["id"]
+
+        # Simulate another database where the same account has a different PK.
+        for collection in (payload["tables"], payload["m2m"]):
+            for label, rows in collection.items():
+                if label == "auth.User":
+                    continue
+                for row in rows:
+                    for key, value in list(row.items()):
+                        if key.endswith("_id") and value == old_id:
+                            row[key] = imported_id
+
+        restore_backup(payload)
+
+        self.assertTrue(User.objects.filter(pk=local_admin.pk, username=local_admin.username).exists())
+        employee = Employee.objects.filter(user_id=local_admin.pk).first()
+        self.assertIsNotNone(employee)
+        self.assertFalse(Employee.objects.filter(user_id=imported_id).exists())
 
     def test_restore_rejects_bad_version(self):
         r = self.c.post("/api/settings/restore/", {"version": 3}, format="json")

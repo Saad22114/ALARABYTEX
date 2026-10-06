@@ -130,8 +130,16 @@ export default function CustomersPage() {
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
 
   const handleCreate = async (d: Partial<Customer>) => {
-    await createCustomer(d);
-    toast('success', 'تمت إضافة الزبون بنجاح');
+    const customer = await createCustomer(d);
+    if (!customer.whatsapp_opt_in) {
+      toast('success', 'تمت إضافة الزبون بنجاح');
+    } else if (customer.whatsapp_welcome_status === 'sent') {
+      toast('success', 'تمت إضافة الزبون وقُبل إرسال رسالة الترحيب عبر واتساب');
+    } else if (customer.whatsapp_welcome_status === 'not_configured') {
+      toast('info', 'تم تسجيل الزبون وموافقته، لكن ربط واتساب غير مهيأ بعد');
+    } else {
+      toast('info', 'تم تسجيل الزبون، لكن تعذر إرسال رسالة الترحيب عبر واتساب');
+    }
     setModalOpen(false);
     fetchData();
   };

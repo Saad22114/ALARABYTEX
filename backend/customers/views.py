@@ -29,6 +29,7 @@ from sale_sessions.models import SaleSessionItem
 
 from .models import Customer
 from .serializers import CustomerSerializer
+from .whatsapp import send_customer_welcome
 
 class CustomerViewSet(viewsets.ModelViewSet):
     permission_section = "customers"
@@ -53,6 +54,10 @@ class CustomerViewSet(viewsets.ModelViewSet):
     #: تجريد الرقم من فواصله، ولا يفعل ``SearchFilter`` ذلك — ونترك
     #: ``OrderingFilter`` يعمل إن طلبه العميل صراحةً.
     filter_backends = [OrderingFilter]
+
+    def perform_create(self, serializer):
+        customer = serializer.save()
+        send_customer_welcome(customer)
 
     def get_queryset(self):
         qs = super().get_queryset()

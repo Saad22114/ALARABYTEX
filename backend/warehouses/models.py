@@ -205,10 +205,20 @@ class StockTransfer(TimeStampedModel):
         REJECTED = "rejected", "مرفوض"
         COMPLETED = "completed", "منفّذ"
         CANCELLED = "cancelled", "ملغى"
+        REVERSED = "reversed", "معكوس"
 
     number = models.CharField(max_length=40, unique=True, verbose_name="رقم سند التحويل")
     from_warehouse = models.ForeignKey(
         Warehouse, on_delete=models.PROTECT, related_name="transfers_out", verbose_name="المخزن المُرسِل"
+    )
+    from_branch = models.ForeignKey(
+        "branches.Branch",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_transfers_out",
+        verbose_name="الفرع المُرسِل",
+        help_text="يُحدد عند إنشاء التحويل من مخزون الفرع؛ from_warehouse هو مخزن الفرع الداخلي المستخدم للحركة.",
     )
     to_warehouse = models.ForeignKey(
         Warehouse,
@@ -233,6 +243,15 @@ class StockTransfer(TimeStampedModel):
     requested_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الطلب")
     approved_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الموافقة")
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت التنفيذ")
+    rejection_reason = models.TextField(blank=True, verbose_name="سبب الرفض")
+    rejected_by = models.CharField(max_length=150, blank=True, verbose_name="رافض التحويل")
+    rejected_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الرفض")
+    cancellation_reason = models.TextField(blank=True, verbose_name="سبب الإلغاء")
+    cancelled_by = models.CharField(max_length=150, blank=True, verbose_name="ملغي التحويل")
+    cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الإلغاء")
+    reversal_reason = models.TextField(blank=True, verbose_name="سبب عكس التحويل")
+    reversed_by = models.CharField(max_length=150, blank=True, verbose_name="عاكس التحويل")
+    reversed_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت عكس التحويل")
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
 
     class Meta:
@@ -242,7 +261,8 @@ class StockTransfer(TimeStampedModel):
 
     def __str__(self):
         to = self.to_warehouse or self.to_branch
-        return f"{self.number} - {self.from_warehouse.name} إلى {to.name if to else 'بدون وجهة'}"
+        source = self.from_branch.name if self.from_branch_id else self.from_warehouse.name
+        return f"{self.number} - {source} إلى {to.name if to else 'بدون وجهة'}"
 
     @property
     def total_yards(self):

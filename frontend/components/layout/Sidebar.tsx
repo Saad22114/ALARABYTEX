@@ -32,24 +32,24 @@ import { logoUrl } from '@/services/settings';
 
 const navItems = [
   { key: 'dashboard', href: '/', label: 'الرئيسية', icon: LayoutDashboard },
+  { key: 'sales', href: '/sales', label: 'المبيعات', icon: Banknote },
+  { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Boxes },
   { key: 'branches', href: '/branches', label: 'الفروع', icon: Store },
   { key: 'suppliers', href: '/suppliers', label: 'الموردون', icon: Truck },
   { key: 'customers', href: '/customers', label: 'الزبائن', icon: ContactRound },
-  { key: 'partners', href: '/partners', label: 'الشركاء', icon: Users },
   { key: 'fabrics', href: '/fabrics', label: 'الأقمشة', icon: Tags },
-  { key: 'sales', href: '/sales', label: 'المبيعات', icon: Banknote },
   { key: 'employees', href: '/employees', label: 'الموظفون', icon: UserCog },
   { key: 'attendance', href: '/attendance', label: 'الحضور', icon: Clock },
   { key: 'payroll', href: '/payroll', label: 'الرواتب', icon: Wallet },
   { key: 'my-salary', href: '/my-salary', label: 'راتبي', icon: CircleDollarSign },
   { key: 'machine_account', href: '/machine-account', label: 'التسويات المالية', icon: Landmark },
-  { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Boxes },
   { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText },
   { key: 'reports', href: '/reports', label: 'التقارير', icon: BarChart3 },
   { key: 'accounting', href: '/accounting', label: 'المحاسبة', icon: Calculator },
   { key: 'messages', href: '/messages', label: 'التواصل', icon: MessageSquareText },
   { key: 'themes', href: '/themes', label: 'الثيمات والتحكم', icon: Palette },
   { key: 'settings', href: '/settings', label: 'الإعدادات', icon: Settings },
+  { key: 'partners', href: '/partners', label: 'الشركاء', icon: Users },
 ];
 
 interface SidebarProps {

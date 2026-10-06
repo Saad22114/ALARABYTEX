@@ -23,6 +23,7 @@ export default function CustomerForm({ initial, defaultBranch, onSubmit, onCance
     address: initial?.address || '',
     notes: initial?.notes || '',
     branch: initial?.branch ?? defaultBranch ?? '',
+    whatsappOptIn: initial?.whatsapp_opt_in ?? false,
   });
   const [branches, setBranches] = useState<Branch[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -45,13 +46,15 @@ export default function CustomerForm({ initial, defaultBranch, onSubmit, onCance
         address: initial.address || '',
         notes: initial.notes || '',
         branch: initial.branch ?? '',
+        whatsappOptIn: initial.whatsapp_opt_in ?? false,
       });
     }
-  }, [initial?.id, initial?.name, initial?.phone, initial?.email, initial?.address, initial?.notes, initial?.branch]);
+  }, [initial?.id, initial?.name, initial?.phone, initial?.email, initial?.address, initial?.notes, initial?.branch, initial?.whatsapp_opt_in]);
 
   const validate = () => {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'اسم الزبون مطلوب';
+    if (form.whatsappOptIn && !form.phone.trim()) e.whatsappOptIn = 'أدخل رقم الهاتف لإرسال رسالة واتساب';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -68,6 +71,7 @@ export default function CustomerForm({ initial, defaultBranch, onSubmit, onCance
         address: form.address.trim(),
         notes: form.notes,
         branch: form.branch ? Number(form.branch) : null,
+        whatsapp_opt_in: form.whatsappOptIn,
       });
     } finally {
       setLoading(false);
@@ -121,6 +125,21 @@ export default function CustomerForm({ initial, defaultBranch, onSubmit, onCance
         placeholder="ملاحظات إضافية..."
         rows={3}
       />
+      <div className="rounded-xl border border-sand-200 bg-sand-50 p-3">
+        <label className="flex items-start gap-2 text-sm text-neutral-700">
+          <input
+            type="checkbox"
+            checked={form.whatsappOptIn}
+            onChange={(e) => setForm((f) => ({ ...f, whatsappOptIn: e.target.checked }))}
+            className="mt-1 accent-brand-600"
+          />
+          <span>أفاد الزبون بموافقته على تلقي رسالة ترحيب عبر واتساب.</span>
+        </label>
+        <p className="mt-1 ms-6 text-xs text-neutral-500">
+          {initial?.id ? 'تحديث الموافقة لا يعيد إرسال رسالة الترحيب.' : 'لن تُرسل الرسالة إلا عند تحديد الموافقة.'}
+        </p>
+        {errors.whatsappOptIn && <p className="mt-1 text-xs text-red-600">{errors.whatsappOptIn}</p>}
+      </div>
       <div className="flex justify-start gap-3 pt-2">
         <Button type="submit" loading={loading}>
           {initial?.id ? 'تحديث' : 'إضافة'}

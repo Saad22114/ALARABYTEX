@@ -27,11 +27,13 @@ export interface ReceiptWrite {
 }
 
 export interface TransferWrite {
-  from_warehouse: number;
+  from_warehouse?: number | null;
+  from_branch?: number | null;
   to_warehouse?: number | null;
   to_branch?: number | null;
   date: string;
   requested_by?: string;
+  requested_by_employee?: number;
   notes?: string;
   items: Array<{
     fabric: number;
@@ -109,8 +111,11 @@ export async function createTransfer(data: TransferWrite): Promise<StockTransfer
   return apiRequest<StockTransfer>('/warehouses/transfers/', { method: 'POST', body: JSON.stringify(data) });
 }
 
-export async function deleteTransfer(id: number): Promise<void> {
-  return apiRequest<void>(`/warehouses/transfers/${id}/`, { method: 'DELETE' });
+export async function deleteTransfer(id: number, reason?: string): Promise<StockTransfer> {
+  return apiRequest<StockTransfer>(`/warehouses/transfers/${id}/`, {
+    method: 'DELETE',
+    body: reason ? JSON.stringify({ reason }) : undefined,
+  });
 }
 
 export async function changeTransferStatus(id: number, action: 'request' | 'approve' | 'reject' | 'complete' | 'cancel', payload?: Record<string, string>): Promise<StockTransfer> {
@@ -204,4 +209,11 @@ export async function listOpenings(params?: Record<string, string | number | und
 
 export async function createOpening(data: StockOpeningWrite): Promise<StockOpening> {
   return apiRequest<StockOpening>('/warehouses/openings/', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function reverseTransfer(id: number, reason: string): Promise<StockTransfer> {
+  return apiRequest<StockTransfer>(`/warehouses/transfers/${id}/reverse/`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
 }

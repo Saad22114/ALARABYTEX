@@ -138,7 +138,7 @@ def consume_rolls(warehouse, fabric, yards, movement_type,
     return yards
 
 
-def move_to_warehouse(source, dest, fabric, yards, transfer, source_rolls=None):
+def move_to_warehouse(source, dest, fabric, yards, transfer, source_rolls=None, note_prefix="", movement_date=None):
     """يخصم من المصدر بأسلوب FIFO ويضيف اللفات الناتجة للمخزن الهدف."""
     rolls = source_rolls or list(
         FabricRoll.objects.select_for_update()
@@ -168,18 +168,19 @@ def move_to_warehouse(source, dest, fabric, yards, transfer, source_rolls=None):
             roll.status = FabricRoll.Status.CONSUMED
             roll.remaining_yards = Decimal("0")
             roll.save(update_fields=["remaining_yards", "status"])
-        note = f"من {roll.code} - {transfer.number}"
+        note = f"{note_prefix} من {roll.code} - {transfer.number}".strip()
+        movement_date = movement_date or transfer.date
         add_rolls(dest, fabric, take, unit_cost=roll.unit_cost,
                   movement_type=StockMovement.Type.TRANSFER_IN,
                   reference=transfer.__class__, reference_id=transfer.pk,
-                  reference_no=transfer.number, date=transfer.date, notes=note, rolls_count=1)
+                  reference_no=transfer.number, date=movement_date, notes=note, rolls_count=1)
         log_movement(source, fabric, StockMovement.Type.TRANSFER_OUT, -take, roll=roll,
                      reference=transfer.__class__, reference_id=transfer.pk,
-                     reference_no=transfer.number, date=transfer.date, notes=note)
+                     reference_no=transfer.number, date=movement_date, notes=note)
     return yards
 
 
-def move_rolls_to_warehouse(source, dest, fabric, rolls_count, transfer):
+def move_rolls_to_warehouse(source, dest, fabric, rolls_count, transfer, note_prefix="", movement_date=None):
     """ينقل عدداً محدداً من اللفات كاملة (أقدم اللفات أولاً) مع الحفاظ على كل لفة مستقلة."""
     if rolls_count <= 0:
         raise serializers.ValidationError("عدد اللفات يجب أن يكون 1 على الأقل")
@@ -193,19 +194,20 @@ def move_rolls_to_warehouse(source, dest, fabric, rolls_count, transfer):
             f"عدد اللفات المتوفر لقماش «{fabric.name}» في المخزن {len(rolls)} لفة والمطلوب {rolls_count}"
         )
     moved = Decimal("0")
+    movement_date = movement_date or transfer.date
     for roll in rolls[:rolls_count]:
         take = roll.remaining_yards
         roll.status = FabricRoll.Status.CONSUMED
         roll.remaining_yards = Decimal("0")
         roll.save(update_fields=["remaining_yards", "status"])
-        note = f"من {roll.code} - {transfer.number}"
+        note = f"{note_prefix} من {roll.code} - {transfer.number}".strip()
         add_rolls(dest, fabric, take, unit_cost=roll.unit_cost,
                   movement_type=StockMovement.Type.TRANSFER_IN,
                   reference=transfer.__class__, reference_id=transfer.pk,
-                  reference_no=transfer.number, date=transfer.date, notes=note, rolls_count=1)
+                  reference_no=transfer.number, date=movement_date, notes=note, rolls_count=1)
         log_movement(source, fabric, StockMovement.Type.TRANSFER_OUT, -take, roll=roll,
                      reference=transfer.__class__, reference_id=transfer.pk,
-                     reference_no=transfer.number, date=transfer.date, notes=note)
+                     reference_no=transfer.number, date=movement_date, notes=note)
         moved += take
     return moved
 
@@ -332,6 +334,45 @@ def complete_transfer(transfer):
         transfer.status = StockTransfer.Status.COMPLETED
         transfer.completed_at = timezone.now()
         transfer.save(update_fields=["status", "completed_at"])
+    return transfer
+
+
+@transaction.atomic
+def reverse_transfer(transfer, reason, actor_name=""):
+    """يعكس تحويلًا منفذًا بحركات مخزون جديدة، مع التحقق الذري من رصيد الوجهة."""
+    transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
+    reason = (reason or "").strip()
+    if transfer.status != StockTransfer.Status.COMPLETED:
+        raise serializers.ValidationError("يمكن عكس التحويل المنفذ فقط")
+    if not reason:
+        raise serializers.ValidationError("اكتب سبب عكس التحويل")
+    destination = resolve_transfer_destination(transfer)
+    for item in transfer.items.select_related("fabric"):
+        if item.quantity_mode == StockTransferItem.QuantityMode.ROLL:
+            move_rolls_to_warehouse(
+                destination,
+                transfer.from_warehouse,
+                item.fabric,
+                item.rolls_count,
+                transfer,
+                note_prefix=f"عكس التحويل — {reason}",
+                movement_date=timezone.localdate(),
+            )
+        else:
+            move_to_warehouse(
+                destination,
+                transfer.from_warehouse,
+                item.fabric,
+                item.yards,
+                transfer,
+                note_prefix=f"عكس التحويل — {reason}",
+                movement_date=timezone.localdate(),
+            )
+    transfer.status = StockTransfer.Status.REVERSED
+    transfer.reversal_reason = reason
+    transfer.reversed_by = actor_name
+    transfer.reversed_at = timezone.now()
+    transfer.save(update_fields=["status", "reversal_reason", "reversed_by", "reversed_at"])
     return transfer
 
 

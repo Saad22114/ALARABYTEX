@@ -7,6 +7,7 @@ from core.testsupport import authenticate_admin
 
 from branches.models import Branch
 from suppliers.models import Fabric, Supplier
+from sale_sessions.models import Employee
 
 from .models import FabricRoll, GoodsReceipt, StockMovement, StockTransfer, Warehouse
 
@@ -158,7 +159,7 @@ class GoodsReceiptAPITest(TestCase):
 class StockTransferAPITest(TestCase):
     def setUp(self):
         self.c = APIClient()
-        authenticate_admin(self.c)
+        _, self.admin_employee = authenticate_admin(self.c)
         self.src = Warehouse.objects.create(name="مخزن أ", code="W-A")
         self.dst = Warehouse.objects.create(name="مخزن ب", code="W-B")
         self.fabric = create_fabric()
@@ -206,11 +207,22 @@ class StockTransferAPITest(TestCase):
             "date": date.today().isoformat(),
             "items": [{"fabric": self.fabric.pk, "yards": 500}],
         }, format="json")
-        tid = r.data["id"]
-        self.c.post(f"/api/warehouses/transfers/{tid}/approve/")
-        r = self.c.post(f"/api/warehouses/transfers/{tid}/complete/")
-        self.assertGreaterEqual(r.status_code, 400)
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertIn("items", r.data)
+        self.assertEqual(StockTransfer.objects.count(), 0)
+        source_yards = sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=self.src, status=FabricRoll.Status.AVAILABLE))
+        self.assertEqual(source_yards, 100)
         self.assertEqual(FabricRoll.objects.filter(warehouse=self.dst).count(), 0)
+
+    def test_transfer_duplicate_fabric_lines_are_checked_together(self):
+        payload = self._transfer_payload()
+        payload["items"] = [
+            {"fabric": self.fabric.pk, "yards": 70},
+            {"fabric": self.fabric.pk, "yards": 40},
+        ]
+        r = self.c.post("/api/warehouses/transfers/", payload, format="json")
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertEqual(StockTransfer.objects.count(), 0)
 
     def test_transfer_same_warehouse_rejected(self):
         r = self.c.post("/api/warehouses/transfers/", {
@@ -289,6 +301,102 @@ class StockTransferAPITest(TestCase):
         self.assertEqual(sum(x.remaining_yards for x in dst_rolls), 150)
         self.assertEqual(r.data["total_yards"], 150)
 
+    def test_branch_source_and_reverse_roll_transfer(self):
+        branch = Branch.objects.create(name="فرع المصدر", code="SRC-01")
+        branch_wh = Warehouse.for_branch(branch)
+        FabricRoll.objects.create(warehouse=branch_wh, fabric=self.fabric, yards=80, remaining_yards=80)
+        r = self.c.post("/api/warehouses/transfers/", {
+            "from_branch": branch.pk, "from_warehouse": branch_wh.pk, "to_warehouse": self.dst.pk,
+            "date": date.today().isoformat(),
+            "items": [{"fabric": self.fabric.pk, "quantity_mode": "roll", "rolls_count": 1}],
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["source_type"], "branch")
+        self.assertEqual(r.data["source_name"], branch.name)
+        tid = r.data["id"]
+        self.assertEqual(self.c.post(f"/api/warehouses/transfers/{tid}/request/").status_code, 200)
+        self.assertEqual(self.c.post(f"/api/warehouses/transfers/{tid}/approve/").status_code, 200)
+        self.assertEqual(self.c.post(f"/api/warehouses/transfers/{tid}/complete/").status_code, 200)
+
+        r = self.c.post(f"/api/warehouses/transfers/{tid}/reverse/", {"reason": "اختبار عكس"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data["status"], "reversed")
+        self.assertEqual(r.data["reversal_reason"], "اختبار عكس")
+        self.assertEqual(sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=branch_wh, status=FabricRoll.Status.AVAILABLE)), 80)
+        self.assertEqual(sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=self.dst, status=FabricRoll.Status.AVAILABLE)), 0)
+        self.assertTrue(StockMovement.objects.filter(reference_id=tid, notes__contains="عكس التحويل").exists())
+
+    def test_all_transfer_source_destination_combinations(self):
+        source_branch = Branch.objects.create(name="فرع مرسل", code="TB-FROM")
+        destination_branch = Branch.objects.create(name="فرع مستقبل", code="TB-TO")
+        source_branch_wh = Warehouse.for_branch(source_branch)
+        destination_branch_wh = Warehouse.for_branch(destination_branch)
+        for warehouse in (source_branch_wh, destination_branch_wh):
+            FabricRoll.objects.create(warehouse=warehouse, fabric=self.fabric, yards=100, remaining_yards=100)
+
+        cases = [
+            ("فرع لفرع", {"from_branch": source_branch.pk, "from_warehouse": source_branch_wh.pk}, {"to_branch": destination_branch.pk}, "branch", destination_branch.name),
+            ("فرع لمخزن", {"from_branch": source_branch.pk, "from_warehouse": source_branch_wh.pk}, {"to_warehouse": self.dst.pk}, "warehouse", self.dst.name),
+            ("مخزن لفرع", {"from_warehouse": self.src.pk}, {"to_branch": destination_branch.pk}, "branch", destination_branch.name),
+            ("مخزن لمخزن", {"from_warehouse": self.src.pk}, {"to_warehouse": self.dst.pk}, "warehouse", self.dst.name),
+        ]
+        for label, source, destination, dest_type, dest_name in cases:
+            with self.subTest(transfer=label):
+                r = self.c.post("/api/warehouses/transfers/", {
+                    **source,
+                    **destination,
+                    "date": date.today().isoformat(),
+                    "items": [{"fabric": self.fabric.pk, "yards": 10}],
+                }, format="json")
+                self.assertEqual(r.status_code, 201, r.data)
+                self.assertEqual(r.data["dest_type"], dest_type)
+                self.assertEqual(r.data["dest_name"], dest_name)
+                transfer_id = r.data["id"]
+                self.assertEqual(self.c.post(f"/api/warehouses/transfers/{transfer_id}/request/").status_code, 200)
+                self.assertEqual(self.c.post(f"/api/warehouses/transfers/{transfer_id}/approve/").status_code, 200)
+                r = self.c.post(f"/api/warehouses/transfers/{transfer_id}/complete/")
+                self.assertEqual(r.status_code, 200, r.data)
+                self.assertEqual(r.data["status"], "completed")
+
+        def available_yards(warehouse):
+            return sum(
+                roll.remaining_yards
+                for roll in FabricRoll.objects.filter(warehouse=warehouse, status=FabricRoll.Status.AVAILABLE)
+            )
+
+        self.assertEqual(available_yards(source_branch_wh), 80)
+        self.assertEqual(available_yards(destination_branch_wh), 120)
+        self.assertEqual(available_yards(self.src), 80)
+        self.assertEqual(available_yards(self.dst), 20)
+
+    def test_reject_and_cancel_preserve_stock_and_reasons(self):
+        initial_source = sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=self.src, status=FabricRoll.Status.AVAILABLE))
+        for action, reason, expected in (("reject", "رفض للتجربة", "rejected"), ("cancel", "إلغاء للتجربة", "cancelled")):
+            r = self.c.post("/api/warehouses/transfers/", self._transfer_payload(), format="json")
+            self.assertEqual(r.status_code, 201, r.data)
+            tid = r.data["id"]
+            self.assertEqual(self.c.post(f"/api/warehouses/transfers/{tid}/request/").status_code, 200)
+            r = self.c.post(f"/api/warehouses/transfers/{tid}/{action}/", {"reason": reason}, format="json")
+            self.assertEqual(r.status_code, 200, r.data)
+            self.assertEqual(r.data["status"], expected)
+            reason_field = "rejection_reason" if action == "reject" else "cancellation_reason"
+            self.assertEqual(r.data[reason_field], reason)
+        self.assertEqual(sum(x.remaining_yards for x in FabricRoll.objects.filter(warehouse=self.src, status=FabricRoll.Status.AVAILABLE)), initial_source)
+        self.assertEqual(FabricRoll.objects.filter(warehouse=self.dst, status=FabricRoll.Status.AVAILABLE).count(), 0)
+
+    def test_requester_defaults_to_login_employee_and_admin_can_select_employee(self):
+        r = self.c.post("/api/warehouses/transfers/", self._transfer_payload(), format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["requested_by"], self.admin_employee.name)
+
+        selected = Employee.objects.create(name="موظف مختار")
+        payload = self._transfer_payload()
+        payload["requested_by_employee"] = selected.pk
+        payload["requested_by"] = "اسم مزيف من العميل"
+        r = self.c.post("/api/warehouses/transfers/", payload, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["requested_by"], selected.name)
+
     def test_transfer_to_branch_requires_destination(self):
         r = self.c.post("/api/warehouses/transfers/", {
             "from_warehouse": self.src.pk, "date": date.today().isoformat(),
@@ -302,10 +410,8 @@ class StockTransferAPITest(TestCase):
             "date": date.today().isoformat(),
             "items": [{"fabric": self.fabric.pk, "quantity_mode": "roll", "rolls_count": 5}],
         }, format="json")
-        tid = r.data["id"]
-        self.c.post(f"/api/warehouses/transfers/{tid}/approve/")
-        r = self.c.post(f"/api/warehouses/transfers/{tid}/complete/")
-        self.assertGreaterEqual(r.status_code, 400)
+        self.assertEqual(r.status_code, 400, r.data)
+        self.assertEqual(StockTransfer.objects.count(), 0)
 
 
 class StockAdjustmentAPITest(TestCase):

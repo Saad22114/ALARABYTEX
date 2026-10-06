@@ -153,6 +153,15 @@ MEDIA_ROOT = BASE_DIR / "media"
 # كلّما زاد العدد زاد استهلاك القرص، والنسخة الواحدة تضمّ الموقع كلّه.
 BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "20"))
 
+# WhatsApp Business Platform Cloud API. Leave unset to record opt-ins without
+# attempting a send until the business account and approved template are ready.
+WHATSAPP_CLOUD_API_TOKEN = os.environ.get("WHATSAPP_CLOUD_API_TOKEN", "").strip()
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+WHATSAPP_GRAPH_API_VERSION = os.environ.get("WHATSAPP_GRAPH_API_VERSION", "").strip()
+WHATSAPP_WELCOME_TEMPLATE_NAME = os.environ.get("WHATSAPP_WELCOME_TEMPLATE_NAME", "").strip()
+WHATSAPP_WELCOME_TEMPLATE_LANGUAGE = os.environ.get("WHATSAPP_WELCOME_TEMPLATE_LANGUAGE", "ar").strip()
+WHATSAPP_DEFAULT_COUNTRY_CODE = os.environ.get("WHATSAPP_DEFAULT_COUNTRY_CODE", "968").strip()
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS

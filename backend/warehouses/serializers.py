@@ -8,6 +8,7 @@ from suppliers.models import Fabric, Supplier
 from sale_sessions.models import Employee
 from branches.models import Branch
 from core.branch_scope import assert_write_branch_allowed
+from core.permissions import get_request_employee
 
 from .models import (
     DocumentSequence,
@@ -124,6 +125,52 @@ def _item_tuples(items_data, support_mode=False):
             "quantity_mode": mode,
         })
     return rows
+
+
+def _validate_transfer_stock(source_warehouse, items):
+    """تحقق من رصيد المصدر قبل إنشاء الطلب، مع محاكاة البنود حسب ترتيب تنفيذها."""
+    stock_by_fabric = {}
+    errors = []
+    for item in items:
+        fabric = item["fabric"]
+        if fabric.pk not in stock_by_fabric:
+            stock_by_fabric[fabric.pk] = list(
+                FabricRoll.objects.filter(
+                    warehouse=source_warehouse,
+                    fabric=fabric,
+                    status=FabricRoll.Status.AVAILABLE,
+                    remaining_yards__gt=0,
+                )
+                .order_by("created_at", "id")
+                .values_list("remaining_yards", flat=True)
+            )
+        rolls = stock_by_fabric[fabric.pk]
+        if item["quantity_mode"] == StockTransferItem.QuantityMode.ROLL:
+            requested = item["rolls_count"]
+            if len(rolls) < requested:
+                errors.append(
+                    f"قماش «{fabric.name}»: المتوفر {len(rolls)} لفة والمطلوب {requested}"
+                )
+            else:
+                del rolls[:requested]
+            continue
+
+        requested_yards = item["yards"]
+        available_yards = sum(rolls, Decimal("0"))
+        if available_yards < requested_yards:
+            errors.append(
+                f"قماش «{fabric.name}»: المتوفر {available_yards} ياردة والمطلوب {requested_yards}"
+            )
+        remaining = requested_yards
+        while rolls and remaining > 0:
+            taken = min(rolls[0], remaining)
+            rolls[0] -= taken
+            remaining -= taken
+            if rolls[0] <= 0:
+                rolls.pop(0)
+
+    if errors:
+        raise serializers.ValidationError({"items": errors})
 
 
 class GoodsReceiptItemSerializer(serializers.ModelSerializer):
@@ -251,6 +298,9 @@ class StockTransferItemSerializer(serializers.ModelSerializer):
 
 class StockTransferSerializer(serializers.ModelSerializer):
     from_warehouse_name = serializers.CharField(source="from_warehouse.name", read_only=True)
+    from_branch_name = serializers.CharField(source="from_branch.name", read_only=True, default="")
+    source_type = serializers.SerializerMethodField()
+    source_name = serializers.SerializerMethodField()
     to_warehouse_name = serializers.CharField(source="to_warehouse.name", read_only=True, default="")
     to_branch_name = serializers.CharField(source="to_branch.name", read_only=True, default="")
     dest_type = serializers.SerializerMethodField()
@@ -263,15 +313,25 @@ class StockTransferSerializer(serializers.ModelSerializer):
         model = StockTransfer
         fields = [
             "id", "number", "from_warehouse", "from_warehouse_name",
+            "from_branch", "from_branch_name", "source_type", "source_name",
             "to_warehouse", "to_warehouse_name", "to_branch", "to_branch_name",
             "dest_type", "dest_name", "date", "status", "status_label",
             "requested_by", "approved_by", "requested_at", "approved_at", "completed_at",
+            "rejection_reason", "rejected_by", "rejected_at",
+            "cancellation_reason", "cancelled_by", "cancelled_at",
+            "reversal_reason", "reversed_by", "reversed_at",
             "notes", "items", "total_yards", "created_at",
         ]
         read_only_fields = ["id", "number", "status", "requested_at", "approved_at", "completed_at", "created_at"]
 
     def get_dest_type(self, obj):
         return "branch" if obj.to_branch_id else "warehouse"
+
+    def get_source_type(self, obj):
+        return "branch" if obj.from_branch_id else "warehouse"
+
+    def get_source_name(self, obj):
+        return obj.from_branch.name if obj.from_branch_id else obj.from_warehouse.name
 
     def get_dest_name(self, obj):
         return obj.to_branch.name if obj.to_branch_id else (obj.to_warehouse.name if obj.to_warehouse_id else "")
@@ -281,42 +341,89 @@ class StockTransferSerializer(serializers.ModelSerializer):
 
 
 class StockTransferWriteSerializer(serializers.Serializer):
-    from_warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all())
+    from_warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all(), required=False, allow_null=True)
+    from_branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False, allow_null=True)
     to_warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all(), required=False, allow_null=True)
     to_branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False, allow_null=True)
     date = serializers.DateField()
-    requested_by = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
+    requested_by = serializers.CharField(read_only=True)
+    requested_by_employee = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.filter(is_active=True), required=False, write_only=True,
+    )
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     items = serializers.ListField(child=serializers.DictField(), required=False)
 
     def validate(self, attrs):
-        to_warehouse = attrs.get("to_warehouse")
-        to_branch = attrs.get("to_branch")
+        partial_update = bool(self.instance and self.partial)
+        to_warehouse = attrs.get("to_warehouse", self.instance.to_warehouse if partial_update else None)
+        to_branch = attrs.get("to_branch", self.instance.to_branch if partial_update else None)
+        if self.instance and "from_warehouse" not in attrs and "from_branch" not in attrs:
+            source_warehouse, source_branch = self.instance.from_warehouse, self.instance.from_branch
+        else:
+            source_warehouse = attrs.get("from_warehouse")
+            source_branch = attrs.get("from_branch")
+        if not source_warehouse and not source_branch:
+            raise serializers.ValidationError({"from_warehouse": "حدد المخزن أو الفرع المُرسِل"})
+        if source_warehouse and source_branch and source_warehouse.branch_id != source_branch.pk:
+            raise serializers.ValidationError({"from_warehouse": "مخزن المصدر لا يتبع الفرع المحدد"})
+        if source_warehouse and not source_branch and source_warehouse.branch_id:
+            source_branch = source_warehouse.branch
+            attrs["from_branch"] = source_branch
         if bool(to_warehouse) == bool(to_branch):
             raise serializers.ValidationError("حدد وجهة واحدة للتحويل: إمّا مخزن أَو فرع")
-        if attrs["from_warehouse"].pk == (to_warehouse.pk if to_warehouse else None):
+        if source_warehouse and to_warehouse and source_warehouse.pk == to_warehouse.pk:
             raise serializers.ValidationError("لا يمكن التحويل من مخزن إلى نفسه")
+        if source_branch and (
+            (to_branch and source_branch.pk == to_branch.pk)
+            or (to_warehouse and to_warehouse.branch_id == source_branch.pk)
+        ):
+            raise serializers.ValidationError("لا يمكن التحويل إلى مخزن أو فرع المصدر نفسه")
         request = self.context.get("request")
         if request is not None:
+            actor = get_request_employee(request)
+            requested_employee = attrs.get("requested_by_employee")
+            can_choose_requester = actor and actor.role in (Employee.Role.ADMIN, Employee.Role.SUPERVISOR)
+            if actor and not can_choose_requester and requested_employee and requested_employee.pk != actor.pk:
+                raise serializers.ValidationError({"requested_by_employee": "يمكنك تسجيل الطلب باسمك فقط"})
             assert_write_branch_allowed(
                 request,
-                branches=[to_branch],
-                warehouses=[attrs["from_warehouse"], to_warehouse],
+                branches=[source_branch, to_branch],
+                warehouses=[source_warehouse, to_warehouse],
             )
-        if not attrs.get("items"):
+        if not attrs.get("items") and not (self.instance and self.instance.items.exists()):
             raise serializers.ValidationError("أضف صنفاً واحداً على الأقل")
-        attrs["items"] = _item_tuples(attrs["items"], support_mode=True)
+        if "items" in attrs:
+            attrs["items"] = _item_tuples(attrs["items"], support_mode=True)
+        if self.instance is None:
+            stock_warehouse = source_warehouse
+            if source_branch and stock_warehouse is None:
+                stock_warehouse = (
+                    Warehouse.objects.filter(branch=source_branch).first()
+                    or Warehouse.objects.filter(code=f"BR-{source_branch.code}").first()
+                )
+            if stock_warehouse is not None:
+                _validate_transfer_stock(stock_warehouse, attrs["items"])
         return attrs
 
     def create(self, validated_data):
         with transaction.atomic():
+            request = self.context.get("request")
+            actor = get_request_employee(request) if request is not None else None
+            requested_employee = validated_data.pop("requested_by_employee", None)
+            can_choose_requester = actor and actor.role in (Employee.Role.ADMIN, Employee.Role.SUPERVISOR)
+            requester = requested_employee if can_choose_requester and requested_employee else actor
+            source_branch = validated_data.get("from_branch")
+            source_warehouse = validated_data.get("from_warehouse")
+            if source_branch:
+                source_warehouse = source_warehouse or Warehouse.for_branch(source_branch)
             transfer = StockTransfer.objects.create(
                 number=DocumentSequence.next_number("TR"),
-                from_warehouse=validated_data["from_warehouse"],
+                from_warehouse=source_warehouse,
+                from_branch=source_branch,
                 to_warehouse=validated_data.get("to_warehouse"),
                 to_branch=validated_data.get("to_branch"),
                 date=validated_data["date"],
-                requested_by=validated_data.get("requested_by", ""),
+                requested_by=requester.name if requester else "",
                 notes=validated_data.get("notes", ""),
             )
             for it in validated_data["items"]:
@@ -330,11 +437,25 @@ class StockTransferWriteSerializer(serializers.Serializer):
         if instance.status not in (StockTransfer.Status.DRAFT, StockTransfer.Status.REJECTED):
             raise serializers.ValidationError("لا يمكن تعديل التحويل في هذه الحالة")
         with transaction.atomic():
-            instance.from_warehouse = validated_data.get("from_warehouse", instance.from_warehouse)
+            request = self.context.get("request")
+            actor = get_request_employee(request) if request is not None else None
+            requested_employee = validated_data.pop("requested_by_employee", None)
+            if requested_employee and actor and actor.role in (Employee.Role.ADMIN, Employee.Role.SUPERVISOR):
+                instance.requested_by = requested_employee.name
+            elif actor:
+                instance.requested_by = actor.name
+            if "from_branch" in validated_data:
+                instance.from_branch = validated_data["from_branch"]
+                if instance.from_branch:
+                    instance.from_warehouse = Warehouse.for_branch(instance.from_branch)
+                else:
+                    instance.from_warehouse = validated_data.get("from_warehouse", instance.from_warehouse)
+            elif "from_warehouse" in validated_data:
+                instance.from_warehouse = validated_data["from_warehouse"]
+                instance.from_branch = None
             instance.to_warehouse = validated_data.get("to_warehouse", instance.to_warehouse)
             instance.to_branch = validated_data.get("to_branch", instance.to_branch)
             instance.date = validated_data.get("date", instance.date)
-            instance.requested_by = validated_data.get("requested_by", instance.requested_by)
             instance.notes = validated_data.get("notes", instance.notes)
             instance.save()
             if "items" in validated_data:

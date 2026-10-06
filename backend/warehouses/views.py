@@ -13,6 +13,7 @@ from suppliers.models import Fabric
 from core.admin_secret import require_admin_password
 from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 from core.money import unit_price
+from core.permissions import get_request_employee
 from reports.cogs import fabric_average_costs
 
 from .models import (
@@ -50,6 +51,7 @@ from .services import (
     apply_adjustment,
     build_count_snapshot,
     complete_transfer,
+    reverse_transfer,
     post_count,
     post_opening,
     post_receipt,
@@ -220,8 +222,8 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
 
 class StockTransferViewSet(viewsets.ModelViewSet):
     permission_section = "warehouses"
-    queryset = StockTransfer.objects.select_related("from_warehouse", "to_warehouse", "to_branch").prefetch_related("items__fabric")
-    search_fields = ["number", "from_warehouse__name", "to_warehouse__name", "to_branch__name"]
+    queryset = StockTransfer.objects.select_related("from_warehouse", "from_branch", "to_warehouse", "to_branch").prefetch_related("items__fabric")
+    search_fields = ["number", "from_warehouse__name", "from_branch__name", "to_warehouse__name", "to_branch__name"]
     ordering_fields = ["date", "number", "created_at"]
 
     def get_queryset(self):
@@ -254,16 +256,23 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.status in (StockTransfer.Status.REQUESTED, StockTransfer.Status.APPROVED):
             return Response(
-                {"detail": "لا يمكن حذف تحويل قيد التنفيذ — ارفضه أو ألغِه أولاً"},
+                {"detail": "التحويل قيد الموافقة؛ استخدم إجراء الإلغاء مع كتابة السبب"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if instance.status == StockTransfer.Status.COMPLETED:
             return Response(
-                {"detail": "لا يمكن حذف تحويل منفّذ"},
+                {"detail": "لا يمكن حذف تحويل منفّذ؛ استخدم إجراء العكس لإرجاع المخزون"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        self.perform_destroy(instance)
-        return Response({"detail": "تم حذف السجل بنجاح"}, status=status.HTTP_200_OK)
+        if instance.status in (StockTransfer.Status.CANCELLED, StockTransfer.Status.REVERSED):
+            return Response({"detail": "التحويل ملغى أو معكوس بالفعل"}, status=status.HTTP_400_BAD_REQUEST)
+        actor = get_request_employee(request)
+        instance.status = StockTransfer.Status.CANCELLED
+        instance.cancelled_at = timezone.now()
+        instance.cancelled_by = actor.name if actor else ""
+        instance.cancellation_reason = (request.data.get("reason") or "أُرشف طلب التحويل قبل التنفيذ").strip()
+        instance.save(update_fields=["status", "cancelled_at", "cancelled_by", "cancellation_reason"])
+        return Response(StockTransferSerializer(instance).data, status=status.HTTP_200_OK)
 
     def _emit(self, instance):
         return StockTransferSerializer(instance).data
@@ -276,7 +285,8 @@ class StockTransferViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
         transfer.status = StockTransfer.Status.REQUESTED
         transfer.requested_at = timezone.now()
-        transfer.requested_by = request.data.get("requested_by", "") or transfer.requested_by
+        actor = get_request_employee(request)
+        transfer.requested_by = transfer.requested_by or (actor.name if actor else "")
         transfer.save(update_fields=["status", "requested_at", "requested_by"])
         return Response(self._emit(transfer))
 
@@ -288,7 +298,8 @@ class StockTransferViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
         transfer.status = StockTransfer.Status.APPROVED
         transfer.approved_at = timezone.now()
-        transfer.approved_by = request.data.get("approved_by", "") or transfer.approved_by
+        actor = get_request_employee(request)
+        transfer.approved_by = actor.name if actor else (request.data.get("approved_by", "") or transfer.approved_by)
         transfer.save(update_fields=["status", "approved_at", "approved_by"])
         return Response(self._emit(transfer))
 
@@ -299,7 +310,11 @@ class StockTransferViewSet(viewsets.ModelViewSet):
             return Response({"detail": "التحويل يجب أن يكون بانتظار الموافقة"},
                             status=status.HTTP_400_BAD_REQUEST)
         transfer.status = StockTransfer.Status.REJECTED
-        transfer.save(update_fields=["status"])
+        actor = get_request_employee(request)
+        transfer.rejected_by = actor.name if actor else ""
+        transfer.rejected_at = timezone.now()
+        transfer.rejection_reason = (request.data.get("reason") or "لم يُذكر سبب الرفض").strip()
+        transfer.save(update_fields=["status", "rejected_by", "rejected_at", "rejection_reason"])
         return Response(self._emit(transfer))
 
     @action(detail=True, methods=["post"])
@@ -316,12 +331,29 @@ class StockTransferViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         transfer = self.get_object()
-        if transfer.status == StockTransfer.Status.COMPLETED:
-            return Response({"detail": "لا يمكن إلغاء تحويل منفّذ"},
+        if transfer.status in (StockTransfer.Status.COMPLETED, StockTransfer.Status.REVERSED):
+            return Response({"detail": "التحويل المنفّذ لا يُلغى؛ استخدم إجراء العكس"},
                             status=status.HTTP_400_BAD_REQUEST)
+        if transfer.status == StockTransfer.Status.CANCELLED:
+            return Response({"detail": "التحويل ملغى بالفعل"}, status=status.HTTP_400_BAD_REQUEST)
+        actor = get_request_employee(request)
         transfer.status = StockTransfer.Status.CANCELLED
-        transfer.save(update_fields=["status"])
+        transfer.cancelled_at = timezone.now()
+        transfer.cancelled_by = actor.name if actor else ""
+        transfer.cancellation_reason = (request.data.get("reason") or "لم يُذكر سبب الإلغاء").strip()
+        transfer.save(update_fields=["status", "cancelled_at", "cancelled_by", "cancellation_reason"])
         return Response(self._emit(transfer))
+
+    @action(detail=True, methods=["post"])
+    def reverse(self, request, pk=None):
+        transfer = self.get_object()
+        actor = get_request_employee(request)
+        try:
+            transfer = reverse_transfer(transfer, request.data.get("reason", ""), actor.name if actor else "")
+        except serializers.ValidationError as e:
+            return Response({"detail": e.detail}, status=status.HTTP_400_BAD_REQUEST)
+        transfer._prefetched_objects_cache = {}
+        return Response(self._emit(transfer), status=status.HTTP_200_OK)
 
 
 class StockAdjustmentViewSet(viewsets.ModelViewSet):

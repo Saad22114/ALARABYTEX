@@ -478,6 +478,33 @@ def _create_rows(label, rows):
     return created
 
 
+def _remap_user_references(tables, m2m, user_id_map):
+    """Replace backup user IDs with matching accounts already on this device.
+
+    Local and online databases often assign different primary keys to the
+    same username.  Since restore deliberately preserves local auth users,
+    imported rows must point at the preserved account ID as well.
+    """
+    if not user_id_map:
+        return
+    User = get_user_model()
+    for collection in (tables, m2m):
+        for label, rows in collection.items():
+            try:
+                model = _model(label)
+            except LookupError:
+                continue
+            user_fk_keys = [
+                field.attname
+                for field in model._meta.concrete_fields
+                if field.is_relation and field.related_model is User
+            ]
+            for row in rows:
+                for key in user_fk_keys:
+                    if row.get(key) in user_id_map:
+                        row[key] = user_id_map[row[key]]
+
+
 def _delete_all():
     """مسح كل شيء عدا ``auth.User`` (يُبقي جلسة الدخول حيّة).
 
@@ -514,15 +541,36 @@ def restore_backup(payload):
             #    بدون كلمة مرور ويديره المدير بصفّها بعد الاستعادة.
             backup_users = tables.get("auth.User", [])
             existing = set(User.objects.values_list("id", flat=True))
+            existing_by_username = dict(
+                User.objects.values_list("username", "id")
+            )
+            user_id_map = {}
             for row in backup_users:
-                if row["id"] in existing:
+                backup_id = row["id"]
+                local_id = existing_by_username.get(row.get("username"))
+                if local_id is not None:
+                    user_id_map[backup_id] = local_id
                     continue
                 data = dict(row)
                 data.pop("password", None)
                 for stamp in ("created_at", "updated_at"):
                     data.pop(stamp, None)
-                uid = data.pop("id")
-                User(pk=uid, **data).save()
+                data.pop("id", None)
+                # Keep the backup PK where free. If this local database has
+                # assigned it to another username, let the DB allocate a safe
+                # ID and rewrite every imported FK below.
+                uid = backup_id if backup_id not in existing else None
+                user = User(pk=uid, **data)
+                user.save()
+                existing.add(user.pk)
+                user_id_map[backup_id] = user.pk
+
+            # Remap references before restoring Employee and other records.
+            m2m = dict(payload.get("m2m") or {})
+            legacy_rows = payload.get("m2m_employee_allowed_branches")
+            if legacy_rows is not None:
+                m2m.setdefault("sale_sessions.Employee_allowed_branches", legacy_rows)
+            _remap_user_references(tables, m2m, user_id_map)
 
             # 3) restore appsettings singleton (keep real PK=1)
             from .models import AppSettings
@@ -545,10 +593,6 @@ def restore_backup(payload):
 
             # 5) جداول الربط، بعد إنشاء طرفَيها. المفتاح القديم مقروء أيضاً
             #    حتى تُستعاد نسخٌ أُنشئت قبل تعميم الصيغة.
-            m2m = dict(payload.get("m2m") or {})
-            legacy_rows = payload.get("m2m_employee_allowed_branches")
-            if legacy_rows is not None:
-                m2m.setdefault("sale_sessions.Employee_allowed_branches", legacy_rows)
             for label in _through_labels():
                 through = _model(label)
                 rows = m2m.get(label, [])

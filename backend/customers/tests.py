@@ -1,4 +1,10 @@
+import json
+from io import BytesIO
+from urllib.error import HTTPError
+from unittest.mock import patch
+
 from django.test import TestCase
+from django.test.utils import override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -61,6 +67,72 @@ class CustomerApiTests(TestCase):
         self.assertEqual(data["name"], "سارة محمد")
         self.assertEqual(data["phone"], "0551234567")
         self.assertEqual(data["branch_name"], self.branch.name)
+
+    def test_whatsapp_opt_in_requires_phone(self):
+        res = self.client.post(
+            self.list_url,
+            {"name": "موافقة بلا هاتف", "whatsapp_opt_in": True},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("whatsapp_opt_in", res.json())
+
+    @override_settings(
+        WHATSAPP_CLOUD_API_TOKEN="test-token",
+        WHATSAPP_PHONE_NUMBER_ID="123456789",
+        WHATSAPP_GRAPH_API_VERSION="v25.0",
+        WHATSAPP_WELCOME_TEMPLATE_NAME="customer_welcome",
+        WHATSAPP_WELCOME_TEMPLATE_LANGUAGE="ar",
+        WHATSAPP_DEFAULT_COUNTRY_CODE="968",
+    )
+    @patch("customers.whatsapp.urlopen")
+    def test_opted_in_customer_sends_template_and_records_message_id(self, mock_urlopen):
+        response = mock_urlopen.return_value.__enter__.return_value
+        response.read.return_value = json.dumps({"messages": [{"id": "wamid.test-1"}]}).encode()
+        res = self.client.post(
+            self.list_url,
+            {"name": "زبون جديد", "phone": "91234567", "whatsapp_opt_in": True},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 201, res.json())
+        self.assertEqual(res.json()["whatsapp_welcome_status"], "sent")
+        self.assertEqual(res.json()["whatsapp_welcome_message_id"], "wamid.test-1")
+        request = mock_urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode())
+        self.assertEqual(payload["to"], "96891234567")
+        self.assertEqual(payload["template"]["components"][0]["parameters"][0]["text"], "زبون جديد")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+
+    @patch("customers.whatsapp.urlopen")
+    def test_opted_in_customer_is_saved_when_whatsapp_is_not_configured(self, mock_urlopen):
+        res = self.client.post(
+            self.list_url,
+            {"name": "موافقة دون إعداد", "phone": "91234567", "whatsapp_opt_in": True},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 201, res.json())
+        self.assertEqual(res.json()["whatsapp_welcome_status"], "not_configured")
+        self.assertTrue(Customer.objects.get(pk=res.json()["id"]).whatsapp_opt_in)
+        mock_urlopen.assert_not_called()
+
+    @override_settings(
+        WHATSAPP_CLOUD_API_TOKEN="test-token",
+        WHATSAPP_PHONE_NUMBER_ID="123456789",
+        WHATSAPP_GRAPH_API_VERSION="v25.0",
+        WHATSAPP_WELCOME_TEMPLATE_NAME="customer_welcome",
+        WHATSAPP_WELCOME_TEMPLATE_LANGUAGE="ar",
+        WHATSAPP_DEFAULT_COUNTRY_CODE="968",
+    )
+    @patch("customers.whatsapp.urlopen", side_effect=HTTPError("https://example.invalid", 400, "Bad request", {}, BytesIO(b"{}")))
+    def test_whatsapp_failure_does_not_fail_customer_registration(self, mock_urlopen):
+        res = self.client.post(
+            self.list_url,
+            {"name": "فشل واتساب", "phone": "91234567", "whatsapp_opt_in": True},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 201, res.json())
+        self.assertEqual(res.json()["whatsapp_welcome_status"], "failed")
+        self.assertTrue(Customer.objects.filter(pk=res.json()["id"]).exists())
 
     def test_create_requires_name(self):
         res = self.client.post(self.list_url, {"phone": "0550000000"}, content_type="application/json")
