@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { ArrowLeft, ChevronDown, ChevronUp, Copy, CornerUpLeft, Forward, Info, Pencil, Plus, Search, Send, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, CornerUpLeft, Forward, Info, Pencil, Pin, Plus, Search, Send, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { getConversations, getMessageThread, sendMessage, editMessage, deleteMessage, searchMessages, EDIT_WINDOW_MINUTES } from '@/services/messages';
 import { ChatMessage, ChatContactSummary, MessagingContact, MessageSearchGroup } from '@/types';
@@ -130,6 +130,8 @@ export default function MessagesPage() {
   const me = session?.employee;
   const { toast } = useToast();
   const [contacts, setContacts] = useState<ChatContactSummary[]>([]);
+  const [pinnedContacts, setPinnedContacts] = useState<number[]>([]);
+  const [pinsLoadedFor, setPinsLoadedFor] = useState<number | null>(null);
   const [activePartnerId, setActivePartnerId] = useState<number | null>(null);
   const [partnerOverride, setPartnerOverride] = useState<MessagingContact | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -153,6 +155,23 @@ export default function MessagesPage() {
   const messagesEnd = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const lastIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!me) return;
+    try {
+      const saved = localStorage.getItem(`qomash:pinned-conversations:${me.id}`);
+      const ids = saved ? JSON.parse(saved) : [];
+      setPinnedContacts(Array.isArray(ids) ? ids.filter((id) => Number.isInteger(id)) : []);
+    } catch {
+      setPinnedContacts([]);
+    }
+    setPinsLoadedFor(me.id);
+  }, [me?.id]);
+
+  useEffect(() => {
+    if (!me || pinsLoadedFor !== me.id) return;
+    try { localStorage.setItem(`qomash:pinned-conversations:${me.id}`, JSON.stringify(pinnedContacts)); } catch {}
+  }, [me?.id, pinsLoadedFor, pinnedContacts]);
 
   const activePartner =
     contacts.find((c) => c.employee.id === activePartnerId)?.employee || partnerOverride;
@@ -343,7 +362,21 @@ export default function MessagesPage() {
 
   if (!me) return null;
 
-  const visibleContacts = unreadOnly ? contacts.filter((c) => c.unread > 0) : contacts;
+  const pinOrder = new Map(pinnedContacts.map((id, index) => [id, index]));
+  const orderedContacts = [...contacts].sort((a, b) => {
+    const ai = pinOrder.get(a.employee.id);
+    const bi = pinOrder.get(b.employee.id);
+    if (ai !== undefined || bi !== undefined) {
+      if (ai === undefined) return 1;
+      if (bi === undefined) return -1;
+      return ai - bi;
+    }
+    return 0;
+  });
+  const visibleContacts = unreadOnly ? orderedContacts.filter((c) => c.unread > 0) : orderedContacts;
+  const togglePinned = (id: number) => setPinnedContacts((current) =>
+    current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+  );
 
   return (
     <div className="space-y-3 h-full min-h-fit flex flex-col">
@@ -446,9 +479,17 @@ export default function MessagesPage() {
 
           {!searching &&
             visibleContacts.map((c) => (
-              <button
+              <div
                 key={c.employee.id}
                 onClick={() => selectPartner(c.employee.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    selectPartner(c.employee.id);
+                  }
+                }}
                 className={`w-full text-right px-4 py-3 flex items-center gap-3 hover:bg-sand-50 transition-colors ${
                   activePartnerId === c.employee.id ? 'bg-brand-50 border-r-2 border-brand-600' : ''
                 }`}
@@ -483,7 +524,16 @@ export default function MessagesPage() {
                     )}
                   </div>
                 </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={(event) => { event.stopPropagation(); togglePinned(c.employee.id); }}
+                  title={pinnedContacts.includes(c.employee.id) ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة'}
+                  aria-label={pinnedContacts.includes(c.employee.id) ? `إلغاء تثبيت محادثة ${c.employee.name}` : `تثبيت محادثة ${c.employee.name}`}
+                  className={`shrink-0 rounded-lg p-1.5 transition ${pinnedContacts.includes(c.employee.id) ? 'text-brand-700 bg-brand-50' : 'text-neutral-300 hover:text-brand-600 hover:bg-sand-100'}`}
+                >
+                  <Pin size={15} className={pinnedContacts.includes(c.employee.id) ? 'fill-current' : ''} />
+                </button>
+              </div>
             ))}
 
           {searching && (

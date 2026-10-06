@@ -15,7 +15,7 @@ import AlertsPanel from '@/components/dashboard/AlertsPanel';
 import RecentActivity from '@/components/dashboard/RecentActivity';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
-import { Banknote, ReceiptText, TrendingUp, Percent, Store, Truck, GitCompareArrows } from 'lucide-react';
+import { Banknote, ReceiptText, TrendingUp, Percent, Store, Truck, GitCompareArrows, SlidersHorizontal } from 'lucide-react';
 import { DashboardActivityItem, DashboardAlertsResult, DashboardSummary } from '@/types';
 import { getDashboardActivity, getDashboardAlerts, getDashboardSummary } from '@/services/dashboard';
 import { listBranches } from '@/services/branches';
@@ -35,6 +35,19 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useUrlState } from '@/lib/useUrlState';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
 
+const dashboardMetrics = [
+  ['sales', 'إجمالي المبيعات'],
+  ['cogs', 'تكلفة القماش المباع'],
+  ['expenses', 'إجمالي المصاريف'],
+  ['net', 'صافي الربح للفترة'],
+  ['gross', 'الربح الإجمالي'],
+  ['margin', 'هامش الربح'],
+  ['branches', 'عدد الفروع'],
+  ['suppliers', 'عدد الموردين'],
+] as const;
+type DashboardMetricKey = typeof dashboardMetrics[number][0];
+const defaultDashboardMetrics = dashboardMetrics.map(([key]) => key);
+
 export default function DashboardPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
@@ -51,8 +64,32 @@ export default function DashboardPage() {
   const [activities, setActivities] = useState<DashboardActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
+  const [visibleMetrics, setVisibleMetrics] = useState<DashboardMetricKey[]>(defaultDashboardMetrics);
+  const [metricsLoadedFor, setMetricsLoadedFor] = useState<number | null>(null);
   const refreshDashboard = useCallback(() => setReloadKey((key) => key + 1), []);
   useAutoRefresh(refreshDashboard);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    try {
+      const saved = localStorage.getItem(`qomash:dashboard-metrics:${me.id}`);
+      const parsed = saved ? JSON.parse(saved) : defaultDashboardMetrics;
+      const allowed = new Set(defaultDashboardMetrics);
+      setVisibleMetrics(Array.isArray(parsed) ? parsed.filter((key): key is DashboardMetricKey => allowed.has(key)) : defaultDashboardMetrics);
+    } catch {
+      setVisibleMetrics(defaultDashboardMetrics);
+    }
+    setMetricsLoadedFor(me.id);
+  }, [me?.id]);
+
+  useEffect(() => {
+    if (!me?.id || metricsLoadedFor !== me.id) return;
+    try { localStorage.setItem(`qomash:dashboard-metrics:${me.id}`, JSON.stringify(visibleMetrics)); } catch {}
+  }, [me?.id, metricsLoadedFor, visibleMetrics]);
+
+  const toggleMetric = (key: DashboardMetricKey) => setVisibleMetrics((current) =>
+    current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+  );
 
   const [monthA, setMonthA] = useState<string>(currentMonthKey());
   const [monthB, setMonthB] = useState<string>(() => shiftMonthKey(currentMonthKey(), -1));
@@ -153,6 +190,22 @@ export default function DashboardPage() {
               : branches.map((b) => ({ value: b.id, label: b.name }))}
             className="w-full sm:w-48"
           />
+          <details className="relative">
+            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl border border-sand-200 bg-surface px-3 py-2 text-sm text-neutral-600 hover:bg-sand-50">
+              <SlidersHorizontal size={16} /> المؤشرات الظاهرة
+            </summary>
+            <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-xl border border-sand-200 bg-surface p-3 shadow-lg">
+              <p className="mb-2 text-xs text-neutral-400">اختر الأرقام التي تظهر في ملخص الشاشة</p>
+              <div className="space-y-2">
+                {dashboardMetrics.map(([key, label]) => (
+                  <label key={key} className="flex cursor-pointer items-center gap-2 text-sm text-neutral-700">
+                    <input type="checkbox" checked={visibleMetrics.includes(key)} onChange={() => toggleMetric(key)} className="accent-brand-600" />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </details>
         </div>
 
         {alerts && <AlertsPanel alerts={alerts} />}
@@ -165,58 +218,58 @@ export default function DashboardPage() {
           <>
             {/* Stat Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              <StatCard
+              {visibleMetrics.includes('sales') && <StatCard
                 icon={<Banknote size={22} />}
                 iconBg="bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"
                 label="إجمالي المبيعات"
                 value={formatCurrency(data.total_sales)}
                 sub={deltaText(data.sales_delta_pct)}
-              />
-              <StatCard
+              />}
+              {visibleMetrics.includes('cogs') && <StatCard
                 icon={<ReceiptText size={22} />}
                 iconBg="bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
                 label="تكلفة القماش المباع"
                 value={formatCurrency(data.total_cogs)}
                 sub="تكلفة شراء الأقمشة المباعة"
-              />
-              <StatCard
+              />}
+              {visibleMetrics.includes('expenses') && <StatCard
                 icon={<ReceiptText size={22} />}
                 iconBg="bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400"
                 label="إجمالي المصاريف"
                 value={formatCurrency(data.total_expenses)}
                 sub={deltaText(data.expenses_delta_pct)}
-              />
-              <StatCard
+              />}
+              {visibleMetrics.includes('net') && <StatCard
                 icon={<TrendingUp size={22} />}
                 iconBg={periodNet >= 0 ? 'bg-gold-400/20 text-gold-700 dark:text-gold-400' : 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400'}
                 label="صافي الربح للفترة"
                 value={formatCurrency(periodNet)}
                 sub={deltaText(data.net_delta_pct)}
-              />
-              <StatCard
+              />}
+              {visibleMetrics.includes('gross') && <StatCard
                 icon={<TrendingUp size={22} />}
                 iconBg={data.gross_profit >= 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400'}
                 label="الربح الإجمالي"
                 value={formatCurrency(data.gross_profit)}
-              />
-              <StatCard
+              />}
+              {visibleMetrics.includes('margin') && <StatCard
                 icon={<Percent size={22} />}
                 iconBg="bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400"
                 label="هامش الربح"
                 value={`${data.margin_pct}%`}
-              />
-              <StatCard
+              />}
+              {visibleMetrics.includes('branches') && <StatCard
                 icon={<Store size={22} />}
                 iconBg="bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400"
                 label="عدد الفروع"
                 value={data.branches_count}
-              />
-              <StatCard
+              />}
+              {visibleMetrics.includes('suppliers') && <StatCard
                 icon={<Truck size={22} />}
                 iconBg="bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400"
                 label="عدد الموردين"
                 value={data.suppliers_count}
-              />
+              />}
             </div>
 
             {/* Charts */}

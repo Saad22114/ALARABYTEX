@@ -31,6 +31,18 @@ class AuditLogView(APIView):
         model = params.get("model")
         if model:
             qs = qs.filter(model_name__icontains=model)
+        object_id = params.get("object_id")
+        if object_id:
+            qs = qs.filter(object_id=object_id)
+        session_id = params.get("session_id")
+        if session_id:
+            from sale_sessions.models import SaleSessionItem
+
+            item_ids = SaleSessionItem.objects.filter(session_id=session_id).values_list("id", flat=True)
+            qs = qs.filter(
+                Q(section="sessions", model_name="sale_sessions.SaleSession", object_id=session_id)
+                | Q(section="sessions", model_name="sale_sessions.SaleSessionItem", object_id__in=item_ids)
+            )
         date_from = params.get("from")
         if date_from:
             qs = qs.filter(timestamp__date__gte=date_from)

@@ -15,7 +15,9 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { logoUrl } from '@/services/settings';
 import { buildInvoiceNumber } from '@/lib/invoice';
 import { SaleSession } from '@/types';
-import { Printer, FileDown, RotateCcw } from 'lucide-react';
+import { Printer, FileDown, RotateCcw, History } from 'lucide-react';
+import { getSessionAudit, AuditEntry } from '@/services/audit';
+import { useAuth } from '@/components/providers/AuthProvider';
 
 interface Props {
   open: boolean;
@@ -37,8 +39,12 @@ const num = (n: number): string =>
 export default function SessionDetailsModal({ open, session, onClose, onReopened }: Props) {
   const { toast } = useToast();
   const { settings } = useSettings();
+  const { session: authSession } = useAuth();
   const [reopening, setReopening] = useState(false);
   const [confirmReopen, setConfirmReopen] = useState(false);
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const canViewAudit = Boolean(authSession?.employee.permissions?.audit?.view);
 
   useEffect(() => {
     if (open) {
@@ -46,6 +52,17 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
       setReopening(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !session || !canViewAudit) return;
+    let cancelled = false;
+    setAuditLoading(true);
+    getSessionAudit(session.id)
+      .then((res) => { if (!cancelled) setAuditEntries(res.results); })
+      .catch(() => { if (!cancelled) setAuditEntries([]); })
+      .finally(() => { if (!cancelled) setAuditLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, session?.id, canViewAudit]);
 
   const sym = settings?.currency_symbol ?? 'ر.س';
 
@@ -263,6 +280,42 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                 </div>
               )}
             </div>
+
+            {canViewAudit && (
+              <details className="rounded-xl border border-sand-200 bg-surface">
+                <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium text-neutral-700">
+                  <History size={16} /> سجل تعديل وإغلاق الوردية
+                </summary>
+                <div className="border-t border-sand-100 px-4 py-3">
+                  {auditLoading ? (
+                    <p className="text-xs text-neutral-400">جارٍ تحميل السجل…</p>
+                  ) : auditEntries.length === 0 ? (
+                    <p className="text-xs text-neutral-400">لا توجد تعديلات مسجلة على بيانات الوردية.</p>
+                  ) : (
+                    <ol className="space-y-3">
+                      {auditEntries.map((entry) => (
+                        <li key={entry.id} className="border-r-2 border-brand-200 pr-3">
+                          <p className="text-xs font-semibold text-neutral-700">
+                            {entry.action_label} — {entry.employee_name || 'النظام'}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-neutral-400">
+                            {new Date(entry.timestamp).toLocaleString('ar', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </p>
+                          {Object.keys(entry.changes || {}).length > 0 && (
+                            <p className="mt-1 break-words text-xs text-neutral-500">
+                              {Object.entries(entry.changes).map(([key, value]) => {
+                                const change = value as { old?: unknown; new?: unknown };
+                                return `${key}: ${String(change?.old ?? '—')} ← ${String(change?.new ?? '—')}`;
+                              }).join('؛ ')}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </details>
+            )}
 
             {/* Totals */}
             <div className="flex flex-wrap items-center gap-2">
