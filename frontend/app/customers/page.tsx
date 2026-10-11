@@ -16,7 +16,7 @@ import Badge from '@/components/ui/Badge';
 import Select from '@/components/ui/Select';
 import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
-import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle, Search as SearchIcon, Printer, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, UserX, UserCheck, Users, UserPlus, Phone, MessageCircle, Search as SearchIcon, Printer, Download, History } from 'lucide-react';
 import { Customer, CustomersSummary, Paginated, Branch, CustomerSalesResult, SaleSession } from '@/types';
 import {
   listCustomers, createCustomer, updateCustomer, deleteCustomer,
@@ -75,6 +75,7 @@ export default function CustomersPage() {
   const [phoneHints, setPhoneHints] = useState<Customer[]>([]);
   const [hintsOpen, setHintsOpen] = useState(false);
   const [customerSales, setCustomerSales] = useState<CustomerSalesResult | null>(null);
+  const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
   const [phoneMiss, setPhoneMiss] = useState<string | null>(null);
   const [invoiceSession, setInvoiceSession] = useState<SaleSession | null>(null);
   const [invoiceItemIds, setInvoiceItemIds] = useState<number[]>([]);
@@ -245,6 +246,26 @@ export default function CustomersPage() {
         return;
       }
       setCustomerSales(res);
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const openCustomerHistory = async (customer: Customer) => {
+    setHistoryCustomer(customer);
+    setCustomerSales(null);
+    setPhoneMiss(null);
+    if (!customer.phone) {
+      setPhoneMiss('لا يوجد رقم هاتف لهذا الزبون لعرض سجل مشترياته.');
+      return;
+    }
+    setPhoneLoading(true);
+    try {
+      const result = await getCustomerSales(customer.phone);
+      if (result.items.length === 0) setPhoneMiss('لا توجد مشتريات مسجلة لهذا الزبون بعد.');
+      else setCustomerSales(result);
     } catch (err: any) {
       toast('error', err.message);
     } finally {
@@ -499,6 +520,9 @@ export default function CustomersPage() {
                       <Td>{formatDate(c.created_at)}</Td>
                       <Td>
                         <div className="flex items-center gap-2">
+                          <button onClick={() => void openCustomerHistory(c)} className="p-1.5 rounded-lg hover:bg-brand-50 text-brand-600 transition-colors" title="سجل مشتريات الزبون" aria-label={`سجل مشتريات ${c.name}`}>
+                            <History size={16} />
+                          </button>
                           <button onClick={() => setEditing(c)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" title="تعديل">
                             <Pencil size={16} />
                           </button>
@@ -525,6 +549,53 @@ export default function CustomersPage() {
 
         <Modal open={!!editing} onClose={() => setEditing(null)} title="تعديل الزبون" maxWidth="max-w-2xl">
           {editing && <CustomerForm initial={editing} onSubmit={handleUpdate} onCancel={() => setEditing(null)} />}
+        </Modal>
+
+        <Modal open={!!historyCustomer} onClose={() => setHistoryCustomer(null)} title={`سجل مشتريات ${historyCustomer?.name || ''}`} maxWidth="max-w-3xl">
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-xl bg-sand-50 p-3 text-sm">
+              <span>الهاتف: <b dir="ltr">{historyCustomer?.phone || 'غير مسجل'}</b></span>
+              <span>آخر شراء: <b>{historyCustomer?.last_purchase_date ? formatDate(historyCustomer.last_purchase_date) : '—'}</b></span>
+            </div>
+            {phoneLoading ? (
+              <div className="flex justify-center py-8"><Spinner size={30} /></div>
+            ) : phoneMiss ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{phoneMiss}</p>
+            ) : customerSales ? (
+              <>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <span>عدد البنود: <b>{customerSales.totals.count}</b></span>
+                  <span>إجمالي المشتريات: <b>{formatCurrency(customerSales.totals.total)}</b></span>
+                  <span>الياردات: <b>{customerSales.totals.yards}</b></span>
+                </div>
+                <div className="max-h-[55vh] space-y-3 overflow-y-auto">
+                  {Array.from(customerSales.items.reduce((groups, item) => {
+                    const current = groups.get(item.session_id) || [];
+                    current.push(item);
+                    groups.set(item.session_id, current);
+                    return groups;
+                  }, new Map<number, typeof customerSales.items>()).entries()).map(([sessionId, items]) => (
+                    <div key={sessionId} className="rounded-xl border border-sand-200 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2 text-sm">
+                        <span>الوردية #{sessionId} · <b>{items[0].session_status_label}</b></span>
+                        <Button size="sm" variant="subtle" onClick={() => handleInvoice(sessionId, items.map((item) => item.id))}>
+                          <Printer size={14} /> فاتورة
+                        </Button>
+                      </div>
+                      <div className="space-y-1 text-xs text-neutral-600">
+                        {items.map((item) => (
+                          <div key={item.id} className="flex justify-between gap-3">
+                            <span>{formatDate(item.sale_date)} · {item.fabric_name} · {item.yards_effective ?? item.quantity} يارد{item.is_returned ? ' · مرتجع' : ''}</span>
+                            <b className="shrink-0 tabular-nums">{formatCurrency(item.total)}</b>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
         </Modal>
 
         <ConfirmDialog

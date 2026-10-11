@@ -51,6 +51,7 @@ class Expense(TimeStampedModel):
     )
     description = models.CharField(max_length=255, blank=True, verbose_name="الوصف")
     notes = models.TextField(blank=True, verbose_name="ملاحظات")
+    receipt_image = models.TextField(blank=True, default="", verbose_name="صورة فاتورة المصروف")
 
     # الدورة المتكررة: المصروف الأصلي يحمل دورته، وتُنسَخ منه نسخ تلقائية في المواعيد اللاحقة.
     is_recurring = models.BooleanField(default=False, verbose_name="مصروف متكرر")

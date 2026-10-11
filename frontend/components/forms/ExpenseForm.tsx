@@ -35,6 +35,9 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [receiptImage, setReceiptImage] = useState('');
+  const [removeReceiptImage, setRemoveReceiptImage] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
 
   useEffect(() => {
     if (initial) {
@@ -49,6 +52,9 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
         is_recurring: Boolean(initial.is_recurring),
         recur_frequency: (initial.recur_frequency || 'monthly') as string,
       });
+      setReceiptImage('');
+      setRemoveReceiptImage(false);
+      setReceiptError('');
     }
   }, [initial]);
 
@@ -66,7 +72,7 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
     if (!validate()) return;
     setLoading(true);
     try {
-      await onSubmit({
+      const payload: Partial<Expense> = {
         date: form.date,
         branch: Number(form.branch),
         category: Number(form.category),
@@ -76,7 +82,10 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
         notes: form.notes,
         is_recurring: form.is_recurring,
         recur_frequency: form.is_recurring ? form.recur_frequency : 'monthly',
-      });
+      };
+      if (receiptImage) payload.receipt_image = receiptImage;
+      else if (removeReceiptImage) payload.receipt_image = '';
+      await onSubmit(payload);
     } finally {
       setLoading(false);
     }
@@ -84,6 +93,28 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
 
   const set = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
   const toggleRecurring = () => setForm((f) => ({ ...f, is_recurring: !f.is_recurring }));
+
+  const chooseReceipt = (file?: File) => {
+    setReceiptError('');
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setReceiptError('اختر صورة بصيغة JPG أو PNG أو WebP');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setReceiptError('حجم الصورة يجب ألا يتجاوز 5 ميجابايت');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setReceiptImage(reader.result);
+        setRemoveReceiptImage(false);
+      } else setReceiptError('تعذرت قراءة الصورة');
+    };
+    reader.onerror = () => setReceiptError('تعذرت قراءة الصورة');
+    reader.readAsDataURL(file);
+  };
 
   // النسخة المتولدة من مصروف متكرر (لقطة) — لا تعرض عناصر التكرار عند تعديلها.
   const isSnapshot = Boolean(initial?.origin);
@@ -169,6 +200,31 @@ export default function ExpenseForm({ initial, branches, categories, onSubmit, o
         placeholder="ملاحظات إضافية..."
         rows={2}
       />
+      <div className="rounded-xl border border-sand-200 p-3 space-y-3">
+        <label className="block text-sm font-medium text-neutral-700">صورة فاتورة المصروف (اختياري)</label>
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          onChange={(event) => chooseReceipt(event.target.files?.[0])}
+          className="block w-full text-sm text-neutral-600 file:ml-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:font-medium file:text-brand-700"
+        />
+        <p className="text-xs text-neutral-500">يمكنك فتح الكاميرا أو اختيار صورة من الجهاز. الحد الأقصى 5 ميجابايت.</p>
+        {initial?.has_receipt_image && !removeReceiptImage && !receiptImage && (
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-sand-50 p-2 text-sm">
+            <span className="text-neutral-600">توجد صورة فاتورة محفوظة لهذا المصروف.</span>
+            <button type="button" onClick={() => setRemoveReceiptImage(true)} className="text-red-600 hover:underline">إزالة</button>
+          </div>
+        )}
+        {receiptImage && (
+          <div className="flex items-start gap-3">
+            <img src={receiptImage} alt="معاينة صورة الفاتورة" className="max-h-40 max-w-48 rounded-lg border border-sand-200 object-contain" />
+            <button type="button" onClick={() => setReceiptImage('')} className="text-sm text-red-600 hover:underline">إزالة الصورة المختارة</button>
+          </div>
+        )}
+        {removeReceiptImage && <p className="text-xs text-amber-700">ستُحذف الصورة المحفوظة عند حفظ التعديل.</p>}
+        {receiptError && <p className="text-xs text-red-600">{receiptError}</p>}
+      </div>
       <div className="flex justify-start gap-3 pt-2">
         <Button type="submit" loading={loading}>
           {initial?.id ? 'تحديث' : 'تسجيل'}

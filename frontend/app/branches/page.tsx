@@ -18,10 +18,10 @@ import Badge from '@/components/ui/Badge';
 import Switch from '@/components/ui/Switch';
 import StatCard from '@/components/ui/StatCard';
 import DateRangeToolbar, { currentMonthRange } from '@/components/ui/DateRangeToolbar';
-import { Plus, Eye, Pencil, Trash2, TrendingUp, TrendingDown, Wallet, Building2, Target, Trophy } from 'lucide-react';
+import { Plus, Eye, Pencil, Trash2, TrendingUp, TrendingDown, Wallet, Building2, Target, Trophy, Clock3, AlertTriangle } from 'lucide-react';
 import { Branch, Paginated } from '@/types';
 import { listBranches, createBranch, updateBranch, deleteBranch } from '@/services/branches';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatDate } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
@@ -192,6 +192,35 @@ export default function BranchesPage() {
           to={dateTo}
           onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1); }}
         />
+
+        {summary && summary.length > 0 && (
+          <Card title="آخر وردية لكل فرع" subtitle="الوردية المفتوحة التي تجاوزت مدة التنبيه المحددة تظهر بأنها تحتاج مراجعة">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {summary.map((branch) => {
+                const shift = branch.last_session;
+                const needsReview = shift?.status === 'needs_review';
+                return (
+                  <div key={branch.id} className="rounded-xl border border-sand-200 bg-surface p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <Link href={`/branches/${branch.id}`} className="font-semibold text-neutral-800 hover:text-brand-700">{branch.name}</Link>
+                      {shift ? (
+                        <Badge variant={needsReview ? 'danger' : shift.status === 'open' ? 'warning' : 'success'}>
+                          {needsReview ? <AlertTriangle size={12} className="ml-1" /> : <Clock3 size={12} className="ml-1" />}
+                          {shift.status_label}
+                        </Badge>
+                      ) : <Badge variant="neutral">لا توجد ورديات</Badge>}
+                    </div>
+                    {shift && (
+                      <p className="mt-2 text-xs text-neutral-500">
+                        {shift.employee_name} · فُتحت {formatDate(shift.opened_at.slice(0, 10))}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
 
         <div className="flex items-center justify-between">
           <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} />

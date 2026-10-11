@@ -91,6 +91,13 @@ class ExpenseViewSet(viewsets.ModelViewSet):
             qs = qs.filter(date__lte=date_to)
         return qs
 
+    @action(detail=True, methods=["get"], url_path="receipt")
+    def receipt(self, request, pk=None):
+        expense = self.get_object()
+        if not expense.receipt_image:
+            return Response({"detail": "لا توجد صورة مرفقة لهذا المصروف"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"image": expense.receipt_image})
+
     def perform_create(self, serializer):
         expense = serializer.save()
         try:

@@ -10,6 +10,10 @@ export async function getExpense(id: number): Promise<Expense> {
   return apiRequest<Expense>(`/expenses/${id}/`);
 }
 
+export async function getExpenseReceipt(id: number): Promise<{ image: string }> {
+  return apiRequest<{ image: string }>(`/expenses/${id}/receipt/`);
+}
+
 export async function createExpense(data: Partial<Expense>): Promise<Expense> {
   return apiRequest<Expense>('/expenses/', {
     method: 'POST',

@@ -1,6 +1,8 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db import transaction
+from django.utils import timezone
 from django.db.models import Sum
 from rest_framework import serializers
 from core.daterange import resolve_range
@@ -19,6 +21,7 @@ class BranchSerializer(serializers.ModelSerializer):
     monthly_expenses = serializers.SerializerMethodField()
     target_progress_pct = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(default=True)
+    last_session = serializers.SerializerMethodField()
 
     class Meta:
         model = Branch
@@ -26,6 +29,7 @@ class BranchSerializer(serializers.ModelSerializer):
             "id", "name", "code", "phone", "address", "city", "notes",
             "is_active", "sales_count", "expenses_count",
             "monthly_sales_target", "monthly_sales", "monthly_expenses", "target_progress_pct",
+            "last_session",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -63,6 +67,34 @@ class BranchSerializer(serializers.ModelSerializer):
             return None
         progress = (self.get_monthly_sales(obj) / float(target)) * 100
         return round(progress, 1)
+
+    def get_last_session(self, obj):
+        session_id = getattr(obj, "last_session_id", None)
+        if session_id is None:
+            return None
+        status = getattr(obj, "last_session_status", "closed")
+        opened_at = getattr(obj, "last_session_opened_at", None)
+        is_backdated = bool(getattr(obj, "last_session_is_backdated", False))
+        warn_hours = self.context.get("session_warn_hours", 2)
+        needs_review = (
+            status == "open"
+            and not is_backdated
+            and opened_at is not None
+            and timezone.now() - opened_at >= timedelta(hours=warn_hours)
+        )
+        display_status = "needs_review" if needs_review else status
+        return {
+            "id": session_id,
+            "status": display_status,
+            "status_label": {
+                "open": "مفتوحة",
+                "closed": "مغلقة",
+                "needs_review": "تحتاج مراجعة",
+            }.get(display_status, "—"),
+            "employee_name": getattr(obj, "last_session_employee", "") or "",
+            "opened_at": opened_at,
+            "closed_at": getattr(obj, "last_session_closed_at", None),
+        }
 
     def validate_code(self, value):
         if value:

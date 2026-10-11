@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from django.conf import settings
+import base64
+import binascii
 from core.branch_scope import assert_write_branch_allowed
 from .models import Expense, ExpenseBudget, ExpenseCategory
 
@@ -31,16 +33,20 @@ class ExpenseCategorySerializer(serializers.ModelSerializer):
 class ExpenseReadSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
     category_name = serializers.CharField(source="category.name", read_only=True)
+    has_receipt_image = serializers.SerializerMethodField()
 
     class Meta:
         model = Expense
         fields = [
             "id", "branch", "branch_name", "category", "category_name",
-            "date", "amount", "payment_method", "description", "notes",
+            "date", "amount", "payment_method", "description", "notes", "has_receipt_image",
             "is_recurring", "recur_frequency", "next_run_date", "origin",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_has_receipt_image(self, obj):
+        return bool(obj.receipt_image)
 
 
 class ExpenseWriteSerializer(serializers.ModelSerializer):
@@ -48,12 +54,35 @@ class ExpenseWriteSerializer(serializers.ModelSerializer):
         model = Expense
         fields = [
             "id", "branch", "category", "date", "amount", "payment_method",
-            "description", "notes",
+            "description", "notes", "receipt_image",
             "is_recurring", "recur_frequency", "next_run_date", "origin",
         ]
         read_only_fields = ["id", "origin"]
 
     def validate(self, attrs):
+        image = attrs.get("receipt_image")
+        if image:
+            try:
+                header, encoded = image.split(",", 1)
+                if header not in (
+                    "data:image/jpeg;base64",
+                    "data:image/png;base64",
+                    "data:image/webp;base64",
+                ):
+                    raise ValueError
+                raw = base64.b64decode(encoded, validate=True)
+                if len(raw) > 5 * 1024 * 1024:
+                    raise serializers.ValidationError({"receipt_image": "حجم الصورة يجب ألا يتجاوز 5 ميجابايت"})
+                if not (
+                    raw.startswith(b"\xff\xd8\xff")
+                    or raw.startswith(b"\x89PNG\r\n\x1a\n")
+                    or (raw.startswith(b"RIFF") and raw[8:12] == b"WEBP")
+                ):
+                    raise ValueError
+            except serializers.ValidationError:
+                raise
+            except (ValueError, binascii.Error):
+                raise serializers.ValidationError({"receipt_image": "ملف الصورة غير صالح"})
         request = self.context.get("request")
         if request is not None:
             branch = attrs.get("branch") or getattr(self.instance, "branch", None)

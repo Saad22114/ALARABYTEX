@@ -8,26 +8,52 @@ import { DashboardAlertsResult } from '@/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useCurrentEmployee } from '@/components/providers/CurrentEmployeeProvider';
 import { getUnreadCount } from '@/services/messages';
+import { useToast } from '@/components/ui/Toast';
 
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const [alerts, setAlerts] = useState<DashboardAlertsResult | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const previousUnread = useRef<number | null>(null);
   const { currentEmployee } = useCurrentEmployee();
+  const { toast } = useToast();
 
   const load = useCallback(() => {
     getDashboardAlerts().then(setAlerts).catch(() => {});
-    if (currentEmployee) {
-      getUnreadCount(currentEmployee.id).then((r) => setUnreadMessages(r.count)).catch(() => {});
+  }, []);
+
+  const checkMessages = useCallback(() => {
+    if (!currentEmployee) {
+      previousUnread.current = null;
+      setUnreadMessages(0);
+      return;
     }
-  }, [currentEmployee]);
+    getUnreadCount(currentEmployee.id).then((r) => {
+      if (previousUnread.current !== null && r.count > previousUnread.current) {
+        const received = r.count - previousUnread.current;
+        toast('info', received === 1 ? 'وصلتك رسالة جديدة' : `وصلتك ${received} رسائل جديدة`);
+      }
+      previousUnread.current = r.count;
+      setUnreadMessages(r.count);
+    }).catch(() => {});
+  }, [currentEmployee, toast]);
 
   useEffect(() => {
     load();
-    const iv = setInterval(load, 60000);
-    return () => clearInterval(iv);
-  }, [load]);
+    checkMessages();
+    const alertsInterval = setInterval(load, 60000);
+    const messagesInterval = setInterval(checkMessages, 10000);
+    return () => {
+      clearInterval(alertsInterval);
+      clearInterval(messagesInterval);
+    };
+  }, [load, checkMessages]);
+
+  const refresh = () => {
+    load();
+    checkMessages();
+  };
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -59,7 +85,7 @@ export default function NotificationsBell() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-sand-200">
             <span className="font-semibold text-sm text-neutral-800">الإشعارات</span>
             <button
-              onClick={load}
+              onClick={refresh}
               aria-label="تحديث"
               className="p-1.5 rounded-lg hover:bg-sand-100 text-neutral-500"
             >

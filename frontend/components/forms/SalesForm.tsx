@@ -114,7 +114,9 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
   const num = (v: string) => parseFloat(v) || 0;
   const totalSales = num(form.total_sales);
   const paymentTotal = num(form.cash_amount) + num(form.transfer_amount) + num(form.card_amount) + num(form.other_amount);
-  const mismatch = totalSales > 0 && Math.abs(totalSales - paymentTotal) > 0.01;
+  const hasSaleAmounts = totalSales > 0 || paymentTotal > 0;
+  const paymentDifference = Math.round((totalSales - paymentTotal) * 100) / 100;
+  const mismatch = hasSaleAmounts && paymentDifference !== 0;
 
   const validateItems = (): boolean => {
     setItemsError('');
@@ -263,14 +265,17 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
         />
       </div>
 
-      <div className="rounded-xl bg-sand-50 border border-sand-200 p-4 space-y-2">
+      <div className={`rounded-xl border p-4 space-y-2 ${mismatch ? 'bg-red-50 border-red-200' : 'bg-sand-50 border-sand-200'}`} aria-live="polite">
         <div className="flex justify-between text-sm">
-          <span className="text-neutral-500">إجمالي طرق الدفع:</span>
-          <span className="font-semibold text-neutral-700 tabular-nums">{formatCurrency(paymentTotal)}</span>
+          <span className={mismatch ? 'text-red-700' : 'text-neutral-500'}>إجمالي طرق الدفع:</span>
+          <span className={`font-semibold tabular-nums ${mismatch ? 'text-red-700' : 'text-neutral-700'}`}>{formatCurrency(paymentTotal)}</span>
         </div>
         {mismatch && (
-          <p className="text-xs text-red-500 font-medium">
-            إجمالي طرق الدفع ({formatCurrency(paymentTotal)}) لا يساوي إجمالي المبيعات ({formatCurrency(totalSales)})
+          <p className="text-xs text-red-700 font-medium">
+            {paymentDifference > 0
+              ? `طرق الدفع أقل من إجمالي البيعة بمبلغ ${formatCurrency(paymentDifference)}`
+              : `طرق الدفع أكثر من إجمالي البيعة بمبلغ ${formatCurrency(Math.abs(paymentDifference))}`}
+            {' '}— لن تُحفظ البيعة حتى يتطابق المبلغان.
           </p>
         )}
       </div>
@@ -363,7 +368,7 @@ export default function SalesForm({ initial, branches, allowNegative = false, on
         rows={2}
       />
       <div className="flex justify-start gap-3 pt-2">
-        <Button type="submit" loading={loading}>
+        <Button type="submit" loading={loading} disabled={loading || mismatch}>
           {isEdit ? 'تحديث' : 'تسجيل'}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel}>

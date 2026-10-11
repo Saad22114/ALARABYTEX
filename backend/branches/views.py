@@ -2,10 +2,12 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
+from django.db.models import OuterRef, Subquery
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from decimal import Decimal
 from suppliers.models import Fabric
+from sale_sessions.models import SaleSession
 from core.admin_secret import require_admin_password
 from core.branch_scope import scope_queryset
 from .models import Branch, FabricBranchPrice
@@ -20,7 +22,23 @@ class BranchViewSet(viewsets.ModelViewSet):
     ordering_fields = ["name", "code", "created_at"]
 
     def get_queryset(self):
-        return scope_queryset(self.request, super().get_queryset(), branch_field="id")
+        sessions = SaleSession.objects.filter(branch_id=OuterRef("pk")).order_by("-opened_at", "-pk")
+        qs = super().get_queryset().annotate(
+            last_session_id=Subquery(sessions.values("pk")[:1]),
+            last_session_status=Subquery(sessions.values("status")[:1]),
+            last_session_opened_at=Subquery(sessions.values("opened_at")[:1]),
+            last_session_closed_at=Subquery(sessions.values("closed_at")[:1]),
+            last_session_employee=Subquery(sessions.values("employee__name")[:1]),
+            last_session_is_backdated=Subquery(sessions.values("is_backdated")[:1]),
+        )
+        return scope_queryset(self.request, qs, branch_field="id")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        from appsettings.models import AppSettings
+
+        context["session_warn_hours"] = AppSettings.load().session_warn_hours
+        return context
 
     def list(self, request, *args, **kwargs):
         """القائمة تعرض الفروع النشطة فقط؛ يُمرَّر ``include_inactive=1`` لعرض الموقوفة (صفحة الإدارة)."""

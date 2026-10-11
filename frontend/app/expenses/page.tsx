@@ -15,9 +15,9 @@ import ExpenseForm from '@/components/forms/ExpenseForm';
 import CategoriesPanel from '@/components/expenses/CategoriesPanel';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, Pencil, Trash2, RefreshCw, Download, Receipt, Tags } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, Download, Receipt, Tags, Eye } from 'lucide-react';
 import { Expense, Branch, ExpenseCategory, Paginated } from '@/types';
-import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses } from '@/services/expenses';
+import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses, getExpenseReceipt } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { counted } from '@/lib/arabic';
@@ -54,6 +54,16 @@ export default function ExpensesPage() {
   const [deleting, setDeleting] = useState<Expense | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [recurringLoading, setRecurringLoading] = useState(false);
+  const [receiptPreview, setReceiptPreview] = useState<{ expense: Expense; image: string } | null>(null);
+
+  const handleViewReceipt = async (expense: Expense) => {
+    try {
+      const result = await getExpenseReceipt(expense.id);
+      setReceiptPreview({ expense, image: result.image });
+    } catch (err: any) {
+      toast('error', err.message);
+    }
+  };
 
   const handleRunRecurring = async () => {
     setRecurringLoading(true);
@@ -269,6 +279,7 @@ export default function ExpensesPage() {
                     <Th>المبلغ</Th>
                     <Th>طريقة الدفع</Th>
                     <Th>الوصف</Th>
+                    <Th>الفاتورة</Th>
                     <Th>ملاحظات</Th>
                     <Th>التكرار</Th>
                     <Th>إجراءات</Th>
@@ -283,6 +294,13 @@ export default function ExpensesPage() {
                       <Td className="tabular-nums font-medium">{formatCurrency(e.amount)}</Td>
                       <Td>{PAYMENT_METHODS_MAP[e.payment_method] || e.payment_method}</Td>
                       <Td className="max-w-[200px] truncate" title={e.description || undefined}>{e.description || '-'}</Td>
+                      <Td>
+                        {e.has_receipt_image ? (
+                          <button onClick={() => void handleViewReceipt(e)} className="p-1.5 rounded-lg text-brand-600 hover:bg-brand-50" title="عرض صورة الفاتورة" aria-label={`عرض فاتورة المصروف ${e.id}`}>
+                            <Eye size={16} />
+                          </button>
+                        ) : <span className="text-neutral-300">—</span>}
+                      </Td>
                       <Td className="max-w-[180px] truncate text-neutral-500" title={e.notes || undefined}>
                         {e.notes || '-'}
                       </Td>
@@ -330,6 +348,14 @@ export default function ExpensesPage() {
 
         <Modal open={!!editing} onClose={() => setEditing(null)} title="تعديل المصروف" maxWidth="max-w-2xl">
           {editing && <ExpenseForm initial={editing} branches={editBranches} categories={categories} onSubmit={handleUpdate} onCancel={() => setEditing(null)} />}
+        </Modal>
+
+        <Modal open={!!receiptPreview} onClose={() => setReceiptPreview(null)} title={`فاتورة المصروف${receiptPreview ? ` · ${formatDate(receiptPreview.expense.date)}` : ''}`} maxWidth="max-w-3xl">
+          {receiptPreview && (
+            <div className="flex max-h-[75vh] justify-center overflow-auto rounded-xl bg-sand-50 p-2">
+              <img src={receiptPreview.image} alt="صورة فاتورة المصروف" className="h-auto max-h-[70vh] max-w-full object-contain" />
+            </div>
+          )}
         </Modal>
 
         <ConfirmDialog

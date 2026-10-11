@@ -13,6 +13,14 @@
   monthly_sales: number;
   monthly_expenses: number;
   target_progress_pct: number | null;
+  last_session?: {
+    id: number;
+    status: 'open' | 'closed' | 'needs_review';
+    status_label: string;
+    employee_name: string;
+    opened_at: string;
+    closed_at: string | null;
+  } | null;
   created_at: string;
   updated_at: string;
 }
@@ -449,6 +457,8 @@ export interface Expense {
   payment_method: PaymentMethod;
   description: string;
   notes: string;
+  receipt_image?: string;
+  has_receipt_image?: boolean;
   is_recurring: boolean;
   recur_frequency: string | null;
   next_run_date: string | null;
