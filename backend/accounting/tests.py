@@ -196,6 +196,36 @@ class AutoPostTests(AccountingSetup):
         self.assertIsNotNone(entry)
         self.assertGreaterEqual(entry.lines.count(), 2)
 
+    def test_cash_sales_are_posted_to_bank_not_cashbox(self):
+        from sale_sessions.models import Employee, SaleSession, SaleSessionItem
+        from sale_sessions.services import close_session
+
+        emp = Employee.objects.create(name="مندوب", branch=self.branch)
+        session = SaleSession.objects.create(employee=emp, branch=self.branch)
+        SaleSessionItem.objects.create(
+            session=session,
+            fabric=self.fabric,
+            sale_type=SaleSessionItem.SaleType.YARD,
+            quantity=Decimal("10"),
+            unit_price=Decimal("20"),
+            total=Decimal("200"),
+            net_total=Decimal("200"),
+            sale_date=date.today(),
+            payment_method=SaleSessionItem.PaymentMethod.CASH,
+        )
+
+        close_session(session)
+
+        entry = JournalEntry.objects.get(
+            source=JournalEntry.Source.SESSION, source_id=session.pk
+        )
+        bank = Account.objects.get(source_key="BANK")
+        cash = Account.objects.get(source_key="CASH")
+        self.assertEqual(
+            entry.lines.filter(account=bank).first().debit, Decimal("200.00")
+        )
+        self.assertFalse(entry.lines.filter(account=cash).exists())
+
     def test_returned_items_excluded_from_journal(self):
         from sale_sessions.models import Employee, SaleSession, SaleSessionItem
         from sale_sessions.services import close_session, return_session_items

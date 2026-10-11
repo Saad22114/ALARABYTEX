@@ -199,7 +199,7 @@ def _round2(value):
 
 
 def post_session_close(session):
-    """قيد إغلاق الوردية: نقد/بنك مقابل مبيعات + تكلفة البضاعة مقابل المخزون.
+    """قيد إغلاق الوردية: مبيعات الدفع النقدي والتحويل في البنك، مع تكلفة البضاعة.
 
     يُرتب حسب التاريخ الفعلي للبيع (sale_date) ليطابق السجل اليومي،
     وللورديات اليدوية حسب manual_date إن وُجد.
@@ -244,7 +244,9 @@ def post_session_close(session):
             for method, amount in totals.items():
                 if amount <= 0:
                     continue
-                acc = payment_account(method)
+                # تُودَع متحصلات الكاش في البنك بحسب طريقة العمل المعتمدة.
+                # هذا خاص بمبيعات الورديات؛ المدفوعات النقدية الأخرى تبقى بالخزنة.
+                acc = bank_account() if method == "cash" else payment_account(method)
                 lines.append((acc, amount, Decimal("0"), ""))
             lines.append((revenue_account(), Decimal("0"), total, ""))
         if cogs > 0:
