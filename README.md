@@ -1,136 +1,128 @@
-# القماش العربي — نظام إدارة الأعمال
+# القماش العربي
 
-نظام عربي بالكامل (RTL) لإدارة أعمال تجارة الأقمشة — المرحلة الأولى (MVP).
-Next.js Frontend + Django REST Framework Backend + PostgreSQL.
+نظام عربي لإدارة عمليات تجارة الأقمشة، يعمل بواجهة **Next.js** وواجهة خلفية **Django REST Framework** وقاعدة بيانات **PostgreSQL**. الواجهة باتجاه RTL والعملة المعروضة ريال عُماني.
 
-## المحتوى (Phase 1)
+## أقسام النظام
 
-- لوحة التحكم: إجمالي المبيعات / المصاريف / الصافي اليومي، عدد الفروع والموردين، رسم بياني، فلترة حسب اليوم/الأسبوع/الشهر/فترة مخصصة وفرع.
-- الفروع: إضافة/تعديل/حذف (الحذف محظور عند وجود سجلات)، صفحة تفاصيل مع المبيعات والمصاريف المرتبطة.
-- الموردون: إضافة/تعديل/حذف وعرض التفاصيل.
-- المبيعات اليومية: سجل واحد لكل (فرع، يوم) مع تحقق «مجموع طرق الدفع = إجمالي المبيعات»، فلترة بالفرع والتاريخ والبحث.
-- المصاريف: تسجيل المصاريف وتصنيفاتها، فلترة بالفرع والتصنيف والتاريخ والبحث.
-- التقارير: المبيعات، المصاريف، الصافي اليومي، قائمة الموردين، قائمة الفروع — مع تصدير Excel (xlsx).
-- الإعدادات: تصنيفات المصاريف (إضافة/حذف التصنيفات المخصصة) وبيانات النظام.
-
-خارج نطاق المرحلة: تسجيل الدخول، المخزون، الأصناف، المشتريات، نقاط البيع، قارئ الباركود.
-
-## هيكل المشروع
-
-```
-site 3 open code/
-├── backend/          # Django REST Framework API
-│   ├── config/       # الإعدادات والمسارات الرئيسية
-│   ├── core/         # نماذج مشتركة + ترقيم صفحات
-│   ├── branches/     # الفروع
-│   ├── suppliers/    # الموردون
-│   ├── sales/        # المبيعات اليومية
-│   ├── expenses/     # المصاريف والتصنيفات
-│   ├── dashboard/    # ملخصات لوحة التحكم
-│   └── reports/      # التقارير + تصدير Excel
-├── frontend/         # Next.js 14 + TypeScript + Tailwind (RTL)
-└── database/         # schema.sql + توثيق المخطط + docker-compose
-```
+- **الرئيسية:** ملخصات المبيعات والمصاريف والأرباح، مؤشرات قابلة للاختيار، وتنبيهات ونشاط النظام.
+- **الفروع والورديات والموظفون:** إدارة الفروع والموظفين، فتح الورديات وإغلاقها ومراجعتها، والصلاحيات والحضور.
+- **المبيعات والأقمشة والمخازن:** تسجيل المبيعات، تعريف الأقمشة، أرصدة وحركات المخزون، الاستلام والجرد والتسويات والتحويلات بين الفروع والمخازن.
+- **الموردون والشركاء:** بيانات الموردين والشركاء، المشتريات، الأرصدة وكشوف الحساب.
+- **الزبائن والتواصل:** ملفات الزبائن، المحادثات والرسائل الداخلية.
+- **المصاريف والرواتب والحسابات:** المصاريف ومرفقاتها، الرواتب والسلف، الحسابات والتقارير المالية.
+- **التقارير والإعدادات:** تقارير المبيعات والمخزون والربحية وغيرها، الاستيراد والتصدير، النسخ الاحتياطي، إعدادات النظام والمظهر.
 
 ## المتطلبات
 
-- Python 3.12+ و pip
-- Node.js 18+ و npm
-- PostgreSQL 17 (مثبت محلياً أو عبر Docker)
+- Python 3.12 أو أحدث.
+- Node.js 18 أو أحدث وnpm.
+- PostgreSQL 17 أو أحدث.
 
-## 1) تشغيل قاعدة البيانات
+## تشغيل قاعدة البيانات
 
-PostgreSQL محلي، أو:
+يمكن استخدام PostgreSQL المثبّت محلياً، أو تشغيل الإعداد الموجود في `database/docker-compose.yml`:
 
-```bash
+```powershell
 docker compose -f database/docker-compose.yml up -d
 ```
 
-أنشئ القاعدة (كلمة مرور المستخدم `postgres` الافتراضية `postgres`):
+ينشئ Docker قاعدة `fabric_arabi` ومستخدم `postgres` بكلمة مرور تطويرية `postgres`. لا تستخدم هذه الإعدادات على خادم مكشوف للإنترنت.
 
-```sql
-CREATE DATABASE fabric_arabi ENCODING 'UTF8';
+## تشغيل الخادم الخلفي
+
+من مجلد المشروع:
+
+```powershell
+cd backend
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-## 2) تشغيل Backend (Django)
+عدّل `backend/.env` ليتوافق مع قاعدة البيانات المحلية، ثم نفّذ:
 
-```bash
-cd backend
-python -m venv .venv
-.\.venv\Scripts\activate          # Windows
-# source .venv/bin/activate       # Linux / macOS
-pip install -r requirements.txt
-cp .env.example .env              # عدّل القيم إن لزم
-python manage.py migrate          # إنشاء الجداول
-python manage.py seed_categories  # بذر تصنيفات المصاريف الأساسية (9)
-python manage.py seed_demo        # (اختياري) بيانات تجريبية للمعاينة: فروع، موردون، مبيعات، مصاريف
+```powershell
+python manage.py migrate
+python manage.py seed_categories
 python manage.py runserver 127.0.0.1:8000
 ```
 
-متغيرات بيئة `backend/.env`:
+`seed_categories` يضيف تصنيفات المصاريف الأساسية. أوامر `seed_demo` و`seed_showcase` اختيارية لإنشاء بيانات تجريبية؛ استخدمها فقط عندما تكون متأكداً أن قاعدة البيانات المقصودة مخصصة للتجربة.
 
-| المتغير | الافتراضي | الوصف |
-|---|---|---|
-| DEBUG | True | وضع التطوير. **يجب** أن يكون False في الإنتاج |
-| SECRET_KEY | — | مفتاح سرّي. **مطلوب في الإنتاج**: Django يرفض الإقلاع بدونه. ولّده بـ `python -c "import secrets; print(secrets.token_urlsafe(50))"` |
-| ALLOWED_HOSTS | * | نطاقات مسموحة. `*` مرفوض في الإنتاج |
-| DB_NAME | fabric_arabi | اسم القاعدة |
-| DB_USER / DB_PASSWORD | postgres / change-me | بيانات الاتصال (غيّر كلمة المرور) |
-| DB_HOST / DB_PORT | 127.0.0.1 / 5432 | عنوان القاعدة |
-| FRONTEND_URL | http://localhost:3000 | أصل المسموح به لـ CORS |
-| ADMIN_USERNAME | — | مطلوب لـ `start.sh`. **لا قيمة افتراضية** عمداً |
-| ADMIN_PASSWORD | — | اتركه فارغاً ليولّد `start.sh` كلمة عشوائية ويطبعها مرة واحدة |
+لإنشاء حساب مدير محلي:
 
-> ملاحظة: `manage.py` يقرأ `.env` من مجلد `backend/` تلقائياً.
-
-### حساب المدير
-
-```bash
+```powershell
 python manage.py create_admin --username اسم_المستخدم
 ```
 
-كلمة المرور **لا لها قيمة افتراضية**: إن لم تُمرَّر يُولّد الأمر كلمة عشوائية
-قوية ويطبعها مرة واحدة في الطرفية — احفظها عندها. هذا مقصود: أي كلمة مرور
-مثبّتة في الكود تصبح كلمة مرور معروفة لكل من يقرأ المستودع، وتُنشئ باباً
-مفتوحاً على كل خادم جديد لم يغيّرها.
+إذا لم تمرر `--password`، يولّد الأمر كلمة مرور عشوائية ويعرضها في الطرفية مرة واحدة؛ احفظها في مكان آمن.
 
-## 3) تشغيل Frontend (Next.js)
+## تشغيل الواجهة الأمامية
 
-```bash
+في نافذة طرفية أخرى:
+
+```powershell
 cd frontend
 npm install
-npm run dev        # http://localhost:3000
+Copy-Item .env.example .env.local
+npm run dev
 ```
 
-أنشئ `frontend/.env.local`:
+افتح `http://localhost:3000`. عنوان الخادم الخلفي الافتراضي مضبوط في `frontend/.env.local` على `http://127.0.0.1:8000/api`.
 
-```
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api
-```
+## إعدادات البيئة
 
-## نقاط نهاية API الرئيسية
+أهم الإعدادات في `backend/.env`:
 
-| المسار | الوصف |
+| المتغير | الاستخدام |
 |---|---|
-| `/api/branches/` | CRUD الفروع (بحث + ترقيم) |
-| `/api/suppliers/` | CRUD الموردين |
-| `/api/sales/` | المبيعات اليومية (فلترة branch/date_from/date_to/search) |
-| `/api/expenses/` | المصاريف (فلترة branch/category/date/..) |
-| `/api/expense-categories/` | التصنيفات |
-| `/api/dashboard/summary/?period=today\|week\|month\|custom&branch=&date_from=&date_to=` | ملخص لوحة التحكم |
-| `/api/reports/sales/` | تقرير المبيعات |
-| `/api/reports/expenses/` | تقرير المصاريف |
-| `/api/reports/net-daily/` | الصافي اليومي |
-| `/api/reports/suppliers/` | قائمة الموردين |
-| `/api/reports/branches/` | قائمة الفروع |
+| `DEBUG` | `True` للتطوير المحلي، ويجب ضبطه على `False` في الإنتاج. |
+| `SECRET_KEY` | مفتاح Django السري؛ مطلوب عند تعطيل `DEBUG`. |
+| `ALLOWED_HOSTS` | أسماء النطاقات المسموح بها في الإنتاج. لا تستخدم `*` هناك. |
+| `DATABASE_URL` | رابط PostgreSQL؛ عند ضبطه يُستخدم بدلاً من إعدادات `DB_*`. |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | اتصال PostgreSQL عند عدم استخدام `DATABASE_URL`. |
+| `FRONTEND_URL` | عنوان الواجهة المسموح به في إعداد CORS. |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_NAME` | بيانات حساب المدير التي يستخدمها `backend/start.sh` عند النشر. الاسم مطلوب؛ وإذا تُركت كلمة المرور فارغة يولّد أمر الإنشاء كلمة عشوائية. |
+| `WHATSAPP_*` | إعدادات اختيارية لربط رسائل الترحيب بـ WhatsApp Business Cloud API. |
 
-أضف `?export=xlsx` لأي تقرير لتنزيله كملف Excel.
+على الخادم، اضبط `DEBUG=False` ومفتاحاً سرياً ونطاقات `ALLOWED_HOSTS` وبيانات قاعدة بيانات آمنة. لا تنسخ إعدادات التطوير أعلاه كما هي إلى بيئة الإنتاج.
 
-الاستجابات المترقمة: `{ count, next, previous, results }`.
+## واجهات API
 
-## ملاحظات
+تبدأ مسارات API من `/api/`. أهم مجموعات المسارات:
 
-- كل الرسائل (API والواجهة) بالعربية والعملة `ر.ع` (ريال عماني).
-- الاتجاه RTL والخط Cairo عبر `next/font/google`.
-- انظر `database/schema.md` لتوثيق كامل للمخطط والعلاقات.
-- اختبارات Backend: `cd backend && .\.venv\Scripts\python.exe manage.py test` (44 اختبارًا: فروع، موردون، مبيعات، مصاريف، لوحة تحكم، تقارير).
+| المسار | الوظيفة |
+|---|---|
+| `/api/auth/` | تسجيل الدخول والخروج، بيانات الحساب وتغيير كلمة المرور. |
+| `/api/branches/`, `/api/employees/`, `/api/sale-sessions/` | الفروع والموظفون والورديات. |
+| `/api/sales/`, `/api/fabrics/`, `/api/warehouses/` | المبيعات والأقمشة والمخازن وحركاتها. |
+| `/api/suppliers/`, `/api/customers/`, `/api/partners/` | الموردون والزبائن والشركاء. |
+| `/api/expenses/`, `/api/payroll/`, `/api/attendance/` | المصاريف والرواتب والحضور. |
+| `/api/reports/`, `/api/accounting/` | التقارير والحسابات. |
+| `/api/messaging/`, `/api/dashboard/` | التواصل وبيانات وتنبيهات الرئيسية. |
+| `/api/settings/` | الإعدادات والنسخ الاحتياطي والاستعادة. |
+
+تتطلب أغلب المسارات حساباً مصادقاً وصلاحية مناسبة. تفاصيل المسارات موجودة في ملفات `urls.py` لكل تطبيق داخل `backend/`.
+
+## النسخ الاحتياطي والاستعادة
+
+النسخ الاحتياطي والاستعادة متاحان من إعدادات النظام. قد تتطلب النسخة المشفرة كلمة مرور النسخ الاحتياطي. الاستعادة تستبدل بيانات النظام الحالية بمحتوى النسخة؛ تحقّق من قاعدة البيانات والنسخة المختارة قبل تنفيذها.
+
+## الفحوصات المتاحة
+
+```powershell
+cd backend
+python manage.py test
+```
+
+```powershell
+cd frontend
+npm run typecheck
+npm run lint
+npm test
+```
+
+## مخطط قاعدة البيانات
+
+ترحيلات Django هي المصدر المعتمد لبنية قاعدة البيانات. ملفا `database/schema.md` و`database/schema.sql` مرجعان للمخطط.

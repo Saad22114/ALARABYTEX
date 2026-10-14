@@ -57,16 +57,11 @@ class Fabric(TimeStampedModel, ActiveModel):
         related_name="fabrics",
         verbose_name="المورد الأساسي",
     )
-    allow_roll_sale = models.BooleanField(
-        default=True,
-        verbose_name="السماح بالبيع بالطاقة",
-        help_text="أطفئه لمنع بيع هذا القماش بالطاقة (اللفة) في ورديات البيع",
-    )
     roll_sale_overrides = models.JSONField(
         default=dict,
         blank=True,
         verbose_name="البيع بالطاقة حسب الفرع",
-        help_text="خريطة رقم الفرع → (true/false) للتحكم في بيع الطاقة لكل فرع على حدة؛ الفرع غير المذكور يتبع الإعداد العام",
+        help_text="خريطة رقم الفرع → (true/false) لتحديد السماح ببيع الطاقة لكل فرع على حدة",
     )
     piece_price = models.DecimalField(
         max_digits=12,
@@ -117,18 +112,16 @@ class Fabric(TimeStampedModel, ActiveModel):
         return self.name
 
     def roll_sale_allowed_in(self, branch_id=None):
-        """هل يُسمح ببيع هذا القماش بالطاقة في فرعٍ معيّن؟
-
-        الفرع غير المذكور في roll_sale_overrides يتبع الإعداد العام allow_roll_sale؛
-        والفرع المذكور صراحةً (true/false) يُحتكم إليه مهما كان الإعداد العام.
-        """
-        key = str(branch_id) if branch_id is not None else None
+        """لا يُسمح ببيع الطاقة إلا إذا اختير السماح لهذا الفرع صراحةً."""
+        if branch_id is None:
+            return False
+        key = str(branch_id)
         overrides = self.roll_sale_overrides or {}
-        if key is not None and key in overrides:
-            return bool(overrides[key])
-        if key is not None and branch_id in overrides:  # للتسامح مع إرسال المعرّف رقماً
-            return bool(overrides[branch_id])
-        return bool(self.allow_roll_sale)
+        if key in overrides:
+            return overrides[key] is True
+        if branch_id in overrides:  # للتسامح مع إرسال المعرّف رقماً
+            return overrides[branch_id] is True
+        return False
 
 
 class LedgerEntry(TimeStampedModel):

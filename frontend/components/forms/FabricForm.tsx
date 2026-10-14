@@ -76,7 +76,6 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
     yards_per_roll: '',
     description: '',
     is_active: true,
-    allow_roll_sale: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -127,7 +126,6 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       yards_per_roll: f.yards_per_roll != null ? String(f.yards_per_roll) : '',
       description: f.description || '',
       is_active: f.is_active !== false,
-      allow_roll_sale: f.allow_roll_sale !== false,
     }));
     const overrides: Record<string, string> = {};
     for (const [k, v] of Object.entries(f.roll_sale_overrides || {})) {
@@ -156,7 +154,6 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         yards_per_roll: initial.yards_per_roll != null ? String(initial.yards_per_roll) : '',
         description: initial.description || '',
         is_active: !!initial.is_active,
-        allow_roll_sale: initial.allow_roll_sale !== false,
       });
       const overrides: Record<string, string> = {};
       for (const [k, v] of Object.entries(initial.roll_sale_overrides || {})) {
@@ -194,7 +191,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
           map[String(p.branch)] = {
             id: p.id,
             sale_price_yard: p.sale_price_yard ? String(p.sale_price_yard) : '',
-            min_sale_yard: p.min_sale_yard ? String(p.min_sale_yard) : '',
+            min_sale_yard: p.min_sale_yard ? Number(p.min_sale_yard).toFixed(2) : '',
             sale_price_roll: p.sale_price_roll != null ? String(p.sale_price_roll) : '',
             min_sale_roll: p.min_sale_roll != null ? String(p.min_sale_roll) : '',
             piece_price: p.piece_price != null ? String(p.piece_price) : '',
@@ -212,6 +209,11 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'اسم القماش مطلوب';
     if (!form.code.trim()) e.code = 'الكود مطلوب';
+    for (const branch of branches) {
+      if (rollOverrides[String(branch.id)] !== 'true' && rollOverrides[String(branch.id)] !== 'false') {
+        e[`roll_${branch.id}`] = 'حدد السماح أو المنع لهذا الفرع';
+      }
+    }
 
     const name = form.name.trim().toLowerCase();
     const code = form.code.trim().toLowerCase();
@@ -239,9 +241,8 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       const br = bf.sale_price_roll.trim() === '' ? null : Number(bf.sale_price_roll);
       const mr = bf.min_sale_roll.trim() === '' ? null : Number(bf.min_sale_roll);
       const pc = bf.piece_price.trim() === '' ? null : Number(bf.piece_price);
-      const ypr = num(form.yards_per_roll);
-      const autoRoll = br == null && by != null && ypr != null && ypr > 0 ? Number((by * ypr).toFixed(3)) : null;
-      const autoMinRoll = mr == null && my != null && ypr != null && ypr > 0 ? Number((my * ypr).toFixed(3)) : null;
+      const autoRoll = br == null && by != null ? Number((by * 25).toFixed(2)) : null;
+      const autoMinRoll = mr == null && by != null ? Number((by * 21).toFixed(2)) : null;
       if (by != null && by < 0) e[`bp_${branch.id}_yard`] = 'لا يمكن أن تكون سالبة';
       if (my != null && my < 0) e[`bp_${branch.id}_miny`] = 'لا يمكن أن تكون سالبة';
       if (br != null && br < 0) e[`bp_${branch.id}_roll`] = 'لا يمكن أن تكون سالبة';
@@ -279,7 +280,6 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       yards_per_roll: num(form.yards_per_roll),
       description: form.description.trim(),
       is_active: form.is_active,
-      allow_roll_sale: form.allow_roll_sale,
     };
     const overrides: Record<string, boolean> = {};
     for (const branch of branches) {
@@ -314,10 +314,13 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         if (bf.id) toDelete.push(bf.id);
         continue;
       }
+      const automaticMinYard = branchMinForYard(bf.sale_price_yard);
       toUpsert.push({
         branch: branch.id,
         sale_price_yard: bf.sale_price_yard.trim() === '' ? 0 : Number(bf.sale_price_yard),
-        min_sale_yard: bf.min_sale_yard.trim() === '' ? 0 : Number(bf.min_sale_yard),
+        min_sale_yard: manualMinBranches.has(branch.id)
+          ? (bf.min_sale_yard.trim() === '' ? 0 : Number(Number(bf.min_sale_yard).toFixed(2)))
+          : (automaticMinYard === '' ? 0 : Number(automaticMinYard)),
         sale_price_roll: bf.sale_price_roll.trim() === '' ? null : Number(bf.sale_price_roll),
         min_sale_roll: bf.min_sale_roll.trim() === '' ? null : Number(bf.min_sale_roll),
         piece_price: bf.piece_price.trim() === '' ? null : Number(bf.piece_price),
@@ -337,7 +340,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
   const branchMinForYard = (yardValue: string): string => {
     const yard = Number(yardValue);
     if (!Number.isFinite(yard) || yard <= 0 || minSalePercent <= 0) return '';
-    return String(Number((yard * (minSalePercent / 100)).toFixed(3)));
+    return (yard * (minSalePercent / 100)).toFixed(2);
   };
 
   /** كتابة سعر بيع الياردة لفرع يحدّث الحد الأدنى تلقائياً بنسبة الإعدادات — إلا إذا عُدِّل يدوياً لهذا الفرع. */
@@ -361,7 +364,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       const next = { ...cur, piece_price: value };
       const piece = value === '' ? null : Number(value);
       if (piece != null && Number.isFinite(piece) && piece > 0) {
-        const yardStr = String(Number((piece / PIECE_YARDS).toFixed(3)));
+        const yardStr = (piece / PIECE_YARDS).toFixed(2);
         next.sale_price_yard = yardStr;
         if (!manualMinBranches.has(branchId)) {
           next.min_sale_yard = branchMinForYard(yardStr);
@@ -454,8 +457,8 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         const br = bf.sale_price_roll.trim() === '' ? null : Number(bf.sale_price_roll);
         const mr = bf.min_sale_roll.trim() === '' ? null : Number(bf.min_sale_roll);
         const ypr = num(form.yards_per_roll);
-        const autoRoll = br == null && by != null && ypr != null && ypr > 0 ? Number((by * ypr).toFixed(3)) : null;
-        const autoMinRoll = mr == null && my != null && ypr != null && ypr > 0 ? Number((my * ypr).toFixed(3)) : null;
+        const autoRoll = br == null && by != null ? Number((by * 25).toFixed(2)) : null;
+        const autoMinRoll = mr == null && by != null ? Number((by * 21).toFixed(2)) : null;
         const bCost = num(form.purchase_price) ?? 0;
         const profitY = by != null && by > 0 ? by - bCost : null;
         const margin = by != null && by > 0 ? ((by - bCost) / by) * 100 : null;
@@ -476,21 +479,21 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
                 <Input label="الحد الأدنى لسعر بيع الياردة" type="number" step="0.001" min="0" value={bf.min_sale_yard} onChange={(e) => { setBf({ min_sale_yard: e.target.value }); markMinManual(branch.id); }} error={errors[`bp_${branch.id}_miny`]} placeholder="" />
                 <p className="text-xs text-neutral-400">يُحدَّث تلقائياً مع كل تعديل للسعر بنسبة {minSalePercent}% من سعر بيع الياردة — التعديل اليدوي يوقف التعبئة التلقائية لهذا الفرع.</p>
               </div>
-              <Input label="سعر بيع الطاقة" type="number" step="0.001" min="0" value={bf.sale_price_roll} onChange={(e) => setBf({ sale_price_roll: e.target.value })} error={errors[`bp_${branch.id}_roll`]} placeholder="اتركه للحساب التلقائي" />
-              <Input label="الحد الأدنى لسعر بيع الطاقة" type="number" step="0.001" min="0" value={bf.min_sale_roll} onChange={(e) => setBf({ min_sale_roll: e.target.value })} error={errors[`bp_${branch.id}_minr`]} placeholder="اتركه للحساب التلقائي" />
+              <Input label="سعر بيع الطاقة" type="number" step="0.01" min="0" value={bf.sale_price_roll || (autoRoll == null ? '' : autoRoll.toFixed(2))} onChange={(e) => setBf({ sale_price_roll: e.target.value })} error={errors[`bp_${branch.id}_roll`]} placeholder="سعر الياردة × 25" />
+              <Input label="الحد الأدنى لسعر بيع الطاقة" type="number" step="0.01" min="0" value={bf.min_sale_roll || (autoMinRoll == null ? '' : autoMinRoll.toFixed(2))} onChange={(e) => setBf({ min_sale_roll: e.target.value })} error={errors[`bp_${branch.id}_minr`]} placeholder="سعر الياردة × 21" />
             </div>
             {(autoRoll != null || autoMinRoll != null || profitY != null || profitR != null || margin != null) && (
               <div className="rounded-xl bg-white border border-sand-200 divide-y divide-sand-200 overflow-hidden">
                 {autoRoll != null && (
                   <div className="px-4 py-2.5 flex items-center justify-between text-sm">
                     <span className="text-neutral-600">سعر بيع الطاقة (تلقائي)</span>
-                    <span className="font-bold text-brand-700">{autoRoll.toFixed(3)}</span>
+                    <span className="font-bold text-brand-700">{autoRoll.toFixed(2)}</span>
                   </div>
                 )}
                 {autoMinRoll != null && (
                   <div className="px-4 py-2.5 flex items-center justify-between text-sm">
                     <span className="text-neutral-600">الحد الأدنى لسعر الطاقة (تلقائي)</span>
-                    <span className="font-bold text-brand-700">{autoMinRoll.toFixed(3)}</span>
+                    <span className="font-bold text-brand-700">{autoMinRoll.toFixed(2)}</span>
                   </div>
                 )}
                 {profitR != null && (
@@ -535,17 +538,8 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} className="w-4 h-4 accent-brand-600" />
         <span className="text-sm font-medium text-neutral-700">نشط</span>
       </label>
-      <label className="flex items-center gap-3 cursor-pointer">
-        <input type="checkbox" checked={form.allow_roll_sale} onChange={(e) => set('allow_roll_sale', e.target.checked)} className="w-4 h-4 accent-brand-600" />
-        <span className="text-sm font-medium text-neutral-700">السماح بالبيع بالطاقة</span>
-      </label>
-      <p className="text-xs text-neutral-400 -mt-2">
-        {form.allow_roll_sale
-          ? 'يمكن بيع هذا القماش بالطاقة (اللفة) في ورديات البيع.'
-          : 'يُمنع بيع هذا القماش بالطاقة وتبقى البيع بالياردات متاحة فقط.'}
-      </p>
-
       {sectionTitle('السماح بالبيع بالطاقة حسب الفرع')}
+      <p className="text-xs text-neutral-500 -mt-3">حدد لكل فرع ما إذا كان بيع هذا القماش بالطاقة مسموحًا. يجب اختيار أحد الخيارين لكل فرع.</p>
       <div className="rounded-xl bg-sand-50 border border-sand-200 divide-y divide-sand-200">
         {branches.length === 0 && (
           <div className="px-4 py-3 text-sm text-neutral-500">لا توجد فروع مسجلة.</div>
@@ -554,13 +548,14 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
           <div key={branch.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <span className="text-sm font-medium text-neutral-700 block truncate">{branch.name}</span>
-              <span className={`text-xs ${rollOverrides[String(branch.id)] ? 'text-brand-600' : 'text-neutral-400'}`}>
+              <span className={`text-xs ${rollOverrides[String(branch.id)] === 'true' ? 'text-brand-600' : 'text-neutral-400'}`}>
                 {rollOverrides[String(branch.id)] === 'true'
                   ? 'يُباع بالطاقة في هذا الفرع إذا توفر السعر'
                   : rollOverrides[String(branch.id)] === 'false'
                     ? 'يُمنع البيع بالطاقة في هذا الفرع'
-                    : 'يتبع الإعداد العام — «السماح بالبيع بالطاقة»'}
+                    : 'يرجى تحديد السماح أو المنع'}
               </span>
+              {errors[`roll_${branch.id}`] && <span className="text-xs text-red-600 block">{errors[`roll_${branch.id}`]}</span>}
             </div>
             <select
               className="shrink-0 rounded-lg border border-sand-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
@@ -568,16 +563,13 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
               onChange={(e) => setRollOverrides((prev) => ({ ...prev, [String(branch.id)]: e.target.value }))}
               aria-label={`بيع الطاقة لفرع ${branch.name}`}
             >
-              <option value="">تبع افتراضي</option>
+              <option value="">اختر...</option>
               <option value="true">مسموح</option>
               <option value="false">ممنوع</option>
             </select>
           </div>
         ))}
       </div>
-      <p className="text-xs text-neutral-400 -mt-2">
-        تحكم في بيع الطاقة (اللفة) لكل فرع على حدة؛ «تبع افتراضي» يجعل الفرع يسير مع الإعداد العام أعلاه.
-      </p>
       <div className="flex justify-start gap-3 pt-2">
         <Button type="submit" loading={loading}>
           {initial?.id ? 'تحديث' : 'إضافة'}

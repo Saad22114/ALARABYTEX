@@ -48,7 +48,7 @@ import { rollSaleAllowed } from '@/lib/fabrics';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
-import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { formatCurrencyOneDecimal as formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { counted } from '@/lib/arabic';
 import { saleGroupBadges, saleGroupKey } from '@/lib/saleGroups';
 import { elapsedLabel, elapsedMinutes } from '@/lib/shiftClock';
@@ -325,7 +325,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     if (line.sale_type === 'roll') {
       if (bp?.sale_price_roll != null) return Number(bp.sale_price_roll) || 0;
       if (fabric.sale_price_roll != null) return Number(fabric.sale_price_roll) || 0;
-      return baseYard * (Number(fabric.yards_per_roll) || 0);
+      return Number((baseYard * 25).toFixed(2));
     }
     return baseYard;
   };
@@ -429,7 +429,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
           if (next.sale_type === 'roll') {
             if (bp?.sale_price_roll != null) price = Number(bp.sale_price_roll) || 0;
             else if (candidate.sale_price_roll != null) price = Number(candidate.sale_price_roll) || 0;
-            else price = base * (Number(candidate.yards_per_roll) || 0);
+            else price = Number((base * 25).toFixed(2));
           }
           next.unit_price = price > 0 ? String(price) : '';
         }
@@ -1065,7 +1065,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       label="القماش"
                       value={line.fabric ?? ''}
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
-                      options={saleFabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ط: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
+                      options={saleFabrics.map((f) => ({ value: f.id, label: f.name }))}
                       placeholder="اختر القماش"
                     />
                     <div>

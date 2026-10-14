@@ -114,7 +114,6 @@ FABRIC_FIELDS = (
     FieldSpec("sale_price_roll", "سعر البيع/لفة", ("sale_price_roll", "price_roll"), kind="decimal"),
     FieldSpec("piece_price", "سعر القطعة", ("piece_price",), kind="decimal"),
     FieldSpec("min_stock", "حد الطلب", ("min_stock", "minimum", "reorder"), kind="decimal"),
-    FieldSpec("allow_roll_sale", "بيع باللفة", ("allow_roll_sale",), kind="bool"),
     FieldSpec("is_active", "نشط", ("active", "is_active"), kind="bool", default=True),
     FieldSpec("description", "الوصف", ("description", "notes")),
 )

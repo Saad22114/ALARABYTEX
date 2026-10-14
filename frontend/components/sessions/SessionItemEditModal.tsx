@@ -12,7 +12,7 @@ import {
   FabricBranchPrice,
 } from '@/types';
 import { updateSessionItem } from '@/services/sessions';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { formatCurrencyOneDecimal as formatCurrency } from '@/lib/format';
 import { rollSaleAllowed } from '@/lib/fabrics';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -77,7 +77,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
     if (saleType === 'roll') {
       if (bp?.sale_price_roll != null) return Number(bp.sale_price_roll) || 0;
       if (selectedFabric.sale_price_roll != null) return Number(selectedFabric.sale_price_roll) || 0;
-      return baseYard * (Number(selectedFabric.yards_per_roll) || 0);
+      return Number((baseYard * 25).toFixed(2));
     }
     return baseYard;
   };
@@ -101,7 +101,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
       if (next.sale_type === 'roll') {
         if (bp?.sale_price_roll != null) price = Number(bp.sale_price_roll) || 0;
         else if (candidate.sale_price_roll != null) price = Number(candidate.sale_price_roll) || 0;
-        else price = base * (Number(candidate.yards_per_roll) || 0);
+        else price = Number((base * 25).toFixed(2));
       }
       setUnitPrice(String(price));
     }
@@ -171,7 +171,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
             label="القماش"
             value={fabric ?? ''}
             onChange={(e) => handleFabricOrType({ fabric: Number(e.target.value) })}
-            options={fabrics.map((f) => ({ value: f.id, label: `${f.name} — ي: ${formatNumber(f.sale_price_yard)}${f.sale_price_roll_display ? ` / ط: ${formatNumber(f.sale_price_roll_display)}` : ''}` }))}
+            options={fabrics.map((f) => ({ value: f.id, label: f.name }))}
             placeholder="اختر القماش"
           />
           <div>

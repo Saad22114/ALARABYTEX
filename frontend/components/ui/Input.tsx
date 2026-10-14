@@ -192,7 +192,7 @@ export default function Input({
           required={required}
           value={shownValue}
           inputMode={isNumber ? (inputMode ?? (isInt ? 'numeric' : 'decimal')) : inputMode}
-          pattern={isNumber ? (pattern ?? (isInt ? '[0-9]*' : '[0-9]*([.,][0-9])*')) : pattern}
+          pattern={isNumber ? (pattern ?? (isInt ? '[0-9]*' : '[0-9]*([.,][0-9]+)?')) : pattern}
           onKeyDown={isNumber ? handleKeyDown : onKeyDown}
           onPaste={isNumber ? handlePaste : onPaste}
           onFocus={handleFocus}

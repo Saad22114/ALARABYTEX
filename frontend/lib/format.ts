@@ -25,6 +25,17 @@ export function formatCurrency(n: number): string {
     : `${formatted} ${currencyConfig.symbol}`;
 }
 
+/** عرض مبلغ البيع بمنزلة عشرية واحدة مع الحفاظ على إعداد العملة الحالي. */
+export function formatCurrencyOneDecimal(n: number): string {
+  const formatted = new Intl.NumberFormat('ar-EG-u-nu-latn', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(n);
+  return currencyConfig.position === 'before'
+    ? `${currencyConfig.symbol} ${formatted}`
+    : `${formatted} ${currencyConfig.symbol}`;
+}
+
 function pad2(v: number | string): string {
   return String(v).padStart(2, '0');
 }

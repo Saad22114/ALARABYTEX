@@ -519,7 +519,7 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
                 else (
                     global_roll
                     if global_roll is not None
-                    else auto_yard * Decimal(str(fabric.yards_per_roll))
+                    else (auto_yard * Decimal("25")).quantize(Decimal("0.01"))
                 )
             )
         else:
@@ -546,15 +546,10 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
         if sale_type == SaleSessionItem.SaleType.ROLL:
             if bp_min_roll:
                 min_price = Decimal(str(bp_min_roll))
-            elif bp_min_yard and fabric.yards_per_roll:
-                min_price = Decimal(str(bp_min_yard)) * Decimal(str(fabric.yards_per_roll))
             elif fabric.min_sale_roll is not None:
                 min_price = Decimal(str(fabric.min_sale_roll))
-            elif fabric.min_sale_yard and fabric.yards_per_roll:
-                min_price = Decimal(str(fabric.min_sale_yard)) * Decimal(str(fabric.yards_per_roll))
-            elif auto > 0:
-                # افتراضياً: الحد الأدنى = نسبة من سعر بيع الطاقة الفعلي (من الإعدادات)
-                min_price = auto * min_percent
+            elif auto_yard > 0:
+                min_price = (auto_yard * Decimal("21")).quantize(Decimal("0.01"))
         else:
             if bp_min_yard:
                 min_price = Decimal(str(bp_min_yard))

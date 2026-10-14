@@ -1901,7 +1901,7 @@ class ReturnAndRollOverrideTest(TestCase):
             data["card_type"] = "credit"
         return self.c.post(f"/api/sale-sessions/{sid}/items/", data, format="json")
 
-    def test_roll_override_blocks_branch_when_global_allows(self):
+    def test_roll_override_blocks_branch(self):
         self.fabric.roll_sale_overrides = {str(self.branch.id): False}
         self.fabric.save(update_fields=["roll_sale_overrides"])
         sid = self._open_session()
@@ -1914,10 +1914,9 @@ class ReturnAndRollOverrideTest(TestCase):
         self.assertEqual(r.status_code, 400, r.data)
         self.assertIn("البيع بالطاقة", str(r.data))
 
-    def test_roll_override_allows_branch_when_global_blocked(self):
-        self.fabric.allow_roll_sale = False
+    def test_roll_override_allows_branch(self):
         self.fabric.roll_sale_overrides = {str(self.branch.id): True}
-        self.fabric.save(update_fields=["allow_roll_sale", "roll_sale_overrides"])
+        self.fabric.save(update_fields=["roll_sale_overrides"])
         sid = self._open_session()
         r = self.c.post(
             f"/api/sale-sessions/{sid}/items/",
@@ -1927,8 +1926,8 @@ class ReturnAndRollOverrideTest(TestCase):
         )
         self.assertEqual(r.status_code, 201, r.data)
 
-    def test_roll_blocked_follows_global_when_not_in_overrides(self):
-        # override مكتوب لفرع آخر؛ فرع الوردية غير مذكور فيتبع العام المسموح
+    def test_roll_blocked_when_branch_has_no_explicit_setting(self):
+        # لا يسمح النظام ببيع الطاقة في فرع لم يُحدد له الإعداد صراحةً.
         other = Branch.objects.create(name="فرع ثاني", code="B2")
         self.fabric.roll_sale_overrides = {str(other.id): False}
         self.fabric.save(update_fields=["roll_sale_overrides"])
@@ -1939,7 +1938,7 @@ class ReturnAndRollOverrideTest(TestCase):
              "payment_method": "cash"},
             format="json",
         )
-        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.status_code, 400, r.data)
 
     def test_customer_sales_lists_open_and_closed_items(self):
         sid1 = self._open_session()

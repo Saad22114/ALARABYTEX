@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Input from '@/components/ui/Input';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrencyOneDecimal as formatCurrency } from '@/lib/format';
 
 interface Props {
   /** إجمالي الصنف قبل الخصم (كمية × سعر)، أو null إن لم تُكمَل البيانات */
@@ -11,20 +11,20 @@ interface Props {
   discount: string;
   /** يُستدعى لتحديث حقل الخصم عند كتابة المبلغ النهائي */
   onDiscountChange: (discount: string) => void;
-  /** الكمية — لازمة لرفع سعر الوحدة تلقائياً عند كتابة مبلغ أكبر من الإجمالي */
+  /** الكمية — لازمة لإعادة حساب سعر الوحدة من المبلغ النهائي */
   quantity?: number | null;
-  /** يُستدعى لرفع سعر الوحدة عند كتابة مبلغ نهائي أكبر من الإجمالي */
+  /** يُستدعى لتحديث سعر الوحدة عند كتابة المبلغ النهائي */
   onUnitPriceChange?: (unitPrice: string) => void;
 }
 
+const round1 = (v: number) => Math.round(v * 10) / 10;
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
 /**
  * حقل «المبلغ النهائي»: يكتب البائع المبلغ المتفق عليه مع الزبون
- * فيُحسب الخصم تلقائياً = الإجمالي − المبلغ النهائي.
- * مترابط مع حقل الخصم بالاتجاهين.
- * إن كان المبلغ أكبر من الإجمالي يُرفع سعر الوحدة تلقائياً (مبلغ ÷ كمية) ويُصفَّر الخصم.
+ * فيُعاد حساب سعر الوحدة تلقائياً = المبلغ النهائي ÷ الكمية، ويُصفّر الخصم
+ * حتى يطابق إجمالي الصنف المبلغ الذي أدخله البائع.
  */
 export default function FinalAmountInput({
   subtotal, discount, onDiscountChange, quantity, onUnitPriceChange,
@@ -33,12 +33,12 @@ export default function FinalAmountInput({
   const [raised, setRaised] = useState(false);
 
   const discountNum = discount.trim() !== '' && !isNaN(parseFloat(discount)) ? parseFloat(discount) : 0;
-  const derived = subtotal != null ? round2(Math.max(0, subtotal - discountNum)) : null;
-  const shown = draft !== null ? draft : derived != null ? String(derived) : '';
+  const derived = subtotal != null ? round1(Math.max(0, subtotal - discountNum)) : null;
+  const shown = draft !== null ? draft : derived != null ? derived.toFixed(1) : '';
 
-  const canRaisePrice = !!onUnitPriceChange && quantity != null && quantity > 0;
+  const canUpdateUnitPrice = !!onUnitPriceChange && quantity != null && quantity > 0;
   const draftNum = draft !== null && draft.trim() !== '' ? parseFloat(draft) : NaN;
-  const exceeds = !canRaisePrice && subtotal != null && !isNaN(draftNum) && draftNum > subtotal + 1e-9;
+  const exceeds = !canUpdateUnitPrice && subtotal != null && !isNaN(draftNum) && draftNum > subtotal + 1e-9;
 
   const handleChange = (raw: string) => {
     setDraft(raw);
@@ -49,19 +49,14 @@ export default function FinalAmountInput({
       onDiscountChange('');
       return;
     }
-    if (amount > subtotal + 1e-9) {
-      if (canRaisePrice && quantity) {
-        // مبلغ أكبر من الإجمالي → يُرفع سعر الوحدة ليطابق المبلغ ويُصفَّر الخصم
-        onUnitPriceChange!(String(round3(amount / quantity)));
-        onDiscountChange('');
-        setRaised(true);
-        return;
-      }
+    const finalAmount = round1(amount);
+    if (canUpdateUnitPrice && quantity) {
+      onUnitPriceChange!(String(round3(finalAmount / quantity)));
       onDiscountChange('');
+      setRaised(true);
       return;
     }
-    const d = round2(subtotal - amount);
-    onDiscountChange(d > 0 ? String(d) : '');
+    onDiscountChange(finalAmount <= subtotal ? String(round2(subtotal - finalAmount)) : '');
   };
 
   return (
@@ -70,7 +65,7 @@ export default function FinalAmountInput({
         label="المبلغ النهائي (بعد الخصم)"
         type="number"
         min="0"
-        step="0.01"
+        step="0.1"
         value={shown}
         disabled={subtotal == null}
         onChange={(e) => handleChange(e.target.value)}
@@ -89,9 +84,9 @@ export default function FinalAmountInput({
         error={exceeds && subtotal != null ? `المبلغ أكبر من الإجمالي (${formatCurrency(subtotal)}) — الخصم لا يكون سالباً` : undefined}
       />
       {raised ? (
-        <p className="mt-1 text-xs text-amber-600">المبلغ أكبر من الإجمالي — رُفع سعر الوحدة تلقائياً ليطابقه</p>
+        <p className="mt-1 text-xs text-amber-600">تحدّث سعر الوحدة تلقائيًا وأُلغي الخصم ليطابق الإجمالي المبلغ النهائي</p>
       ) : !exceeds && (
-        <p className="mt-1 text-xs text-neutral-400">اكتب المبلغ المتفق عليه مع الزبون ليُحسب الخصم تلقائياً</p>
+        <p className="mt-1 text-xs text-neutral-400">اكتب المبلغ النهائي لتحديث سعر الوحدة تلقائياً وإلغاء الخصم</p>
       )}
     </div>
   );

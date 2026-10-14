@@ -170,3 +170,27 @@ class FabricBranchPriceSerializer(serializers.ModelSerializer):
                 {"min_sale_roll": "الحد الأدنى لسعر بيع اللفة لا يمكن أن يتجاوز سعر البيع"}
             )
         return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        sale_yard = instance.sale_price_yard
+        if sale_yard is None and instance.piece_price is not None:
+            sale_yard = (instance.piece_price / PIECE_YARDS).quantize(Decimal("0.001"))
+        if sale_yard is None:
+            sale_yard = instance.fabric.sale_price_yard
+        global_yard = instance.fabric.sale_price_yard
+        if instance.fabric.sale_price_roll is not None:
+            data["global_sale_price_roll_display"] = instance.fabric.sale_price_roll
+        elif global_yard is not None:
+            data["global_sale_price_roll_display"] = (global_yard * Decimal("25")).quantize(Decimal("0.01"))
+        else:
+            data["global_sale_price_roll_display"] = None
+        if data.get("sale_price_roll") is None and sale_yard is not None:
+            data["sale_price_roll_display"] = (sale_yard * Decimal("25")).quantize(Decimal("0.01"))
+        else:
+            data["sale_price_roll_display"] = data.get("sale_price_roll")
+        if data.get("min_sale_roll") is None and sale_yard is not None:
+            data["min_sale_roll_display"] = (sale_yard * Decimal("21")).quantize(Decimal("0.01"))
+        else:
+            data["min_sale_roll_display"] = data.get("min_sale_roll")
+        return data

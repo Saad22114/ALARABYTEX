@@ -58,7 +58,7 @@ class FabricSerializer(serializers.ModelSerializer):
             "id", "name", "code", "barcode", "unit",
             "fabric_type", "color", "composition",
             "width_cm", "weight_gsm", "origin", "manufacturer",
-            "supplier", "supplier_name", "allow_roll_sale", "roll_sale_overrides",
+            "supplier", "supplier_name", "roll_sale_overrides",
             "sale_price_yard", "sale_price_roll", "purchase_price", "piece_price",
             "min_sale_yard", "min_sale_roll",
             "sale_price_roll_display", "min_sale_roll_display",
@@ -74,11 +74,11 @@ class FabricSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("اسم القماش مطلوب")
         return value
 
-    def _display_roll(self, override, yards_per_roll, base):
+    def _display_roll(self, override, multiplier, base):
         if override is not None:
             return override
-        if yards_per_roll:
-            return (base or 0) * yards_per_roll
+        if base is not None:
+            return (base * multiplier).quantize(Decimal("0.01"))
         return None
 
     def validate(self, attrs):
@@ -126,12 +126,11 @@ class FabricSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        yards_per_roll = instance.yards_per_roll
         sale_roll = self._display_roll(
-            instance.sale_price_roll, yards_per_roll, instance.sale_price_yard
+            instance.sale_price_roll, Decimal("25"), instance.sale_price_yard
         )
         min_roll = self._display_roll(
-            instance.min_sale_roll, yards_per_roll, instance.min_sale_yard
+            instance.min_sale_roll, Decimal("21"), instance.sale_price_yard
         )
         data["sale_price_roll_display"] = sale_roll
         data["min_sale_roll_display"] = min_roll

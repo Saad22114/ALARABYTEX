@@ -529,6 +529,19 @@ def _delete_all():
 def restore_backup(payload):
     """Replace ALL data with the payload produced by :func:`export_backup`."""
     tables = payload.get("tables", {})
+    # Compatibility with backups made before branch-only roll-sale controls.
+    # Preserve each fabric's previous effective setting for every branch in
+    # the backup, while ensuring the removed global field is never restored.
+    branch_ids = [
+        row.get("id") for row in tables.get("branches.Branch", [])
+        if row.get("id") is not None
+    ]
+    for row in tables.get("suppliers.Fabric", []):
+        legacy_default = bool(row.pop("allow_roll_sale", True))
+        overrides = dict(row.get("roll_sale_overrides") or {})
+        for branch_id in branch_ids:
+            overrides.setdefault(str(branch_id), legacy_default)
+        row["roll_sale_overrides"] = overrides
     User = get_user_model()
 
     with suppress_audit():

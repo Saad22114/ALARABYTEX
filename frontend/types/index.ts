@@ -36,10 +36,13 @@ export interface FabricBranchPrice {
   yards_per_roll: number | null;
   global_sale_price_yard: number;
   global_sale_price_roll: number | null;
+  global_sale_price_roll_display: number | null;
   sale_price_yard: number;
   sale_price_roll: number | null;
+  sale_price_roll_display: number | null;
   min_sale_yard: number;
   min_sale_roll: number | null;
+  min_sale_roll_display: number | null;
   piece_price: number | null;
   created_at: string;
   updated_at: string;
@@ -114,7 +117,6 @@ export interface Fabric {
   manufacturer: string;
   supplier: number | null;
   supplier_name: string;
-  allow_roll_sale: boolean;
   roll_sale_overrides: Record<string, boolean>;
   purchase_price: number;
   piece_price: number | null;

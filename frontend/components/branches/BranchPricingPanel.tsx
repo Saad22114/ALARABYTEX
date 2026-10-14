@@ -92,7 +92,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
       fabric: String(p.fabric),
       sale_price_yard: p.sale_price_yard ? String(p.sale_price_yard) : '',
       sale_price_roll: p.sale_price_roll != null ? String(p.sale_price_roll) : '',
-      min_sale_yard: p.min_sale_yard ? String(p.min_sale_yard) : '',
+      min_sale_yard: p.min_sale_yard ? Number(p.min_sale_yard).toFixed(2) : '',
       min_sale_roll: p.min_sale_roll != null ? String(p.min_sale_roll) : '',
       piece_price: p.piece_price != null ? String(p.piece_price) : '',
     });
@@ -100,6 +100,12 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
   };
 
   const pricedFabricIds = new Set(prices.map((p) => p.fabric));
+  const selectedFabric = fabrics.find((f) => String(f.id) === form.fabric);
+  const effectiveYardPrice = form.sale_price_yard !== ''
+    ? Number(form.sale_price_yard)
+    : (selectedFabric?.sale_price_yard || 0);
+  const autoRollPrice = Number.isFinite(effectiveYardPrice) ? (effectiveYardPrice * 25).toFixed(2) : '';
+  const autoMinRollPrice = Number.isFinite(effectiveYardPrice) ? (effectiveYardPrice * 21).toFixed(2) : '';
   const availableFabrics = editing
     ? fabrics
     : fabrics.filter((f) => !pricedFabricIds.has(f.id));
@@ -108,7 +114,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
   const minForYard = (yard: string): string => {
     const y = Number(yard);
     if (!Number.isFinite(y) || y <= 0 || minSalePercent <= 0) return '';
-    return String(Number((y * (minSalePercent / 100)).toFixed(3)));
+    return (y * (minSalePercent / 100)).toFixed(2);
   };
 
   /** كتابة سعر بيع الياردة يحدّث الحد الأدنى تلقائياً بنسبة الإعدادات — إلا إذا عُدِّل يدوياً في هذه النافذة. */
@@ -126,7 +132,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
       const next = { ...f, piece_price: value };
       const piece = value === '' ? null : Number(value);
       if (piece != null && Number.isFinite(piece) && piece > 0) {
-        const yardStr = String(Number((piece / 3.5).toFixed(3)));
+        const yardStr = (piece / 3.5).toFixed(2);
         next.sale_price_yard = yardStr;
         if (!minManual) next.min_sale_yard = minForYard(yardStr);
       }
@@ -151,7 +157,7 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
       fabric: Number(form.fabric),
       sale_price_yard: form.sale_price_yard === '' ? 0 : Number(form.sale_price_yard),
       sale_price_roll: form.sale_price_roll === '' ? null : Number(form.sale_price_roll),
-      min_sale_yard: form.min_sale_yard === '' ? 0 : Number(form.min_sale_yard),
+      min_sale_yard: form.min_sale_yard === '' ? 0 : Number(Number(form.min_sale_yard).toFixed(2)),
       min_sale_roll: form.min_sale_roll === '' ? null : Number(form.min_sale_roll),
       piece_price: form.piece_price === '' ? null : Number(form.piece_price),
     };
@@ -230,17 +236,17 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
                   </Td>
                   <Td>
                     <div className="tabular-nums">{p.global_sale_price_yard || 0}</div>
-                    <div className="text-xs text-neutral-400">يارد/طاقة: {p.global_sale_price_roll ?? '—'}</div>
+                    <div className="text-xs text-neutral-400">يارد/طاقة: {p.global_sale_price_roll_display ?? '—'}</div>
                   </Td>
                   <Td>
                     <Badge variant={p.sale_price_yard ? 'neutral' : 'danger'}>
                       {p.sale_price_yard ? p.sale_price_yard : 'العام'}
                     </Badge>
                   </Td>
-                  <Td>{p.sale_price_roll != null ? p.sale_price_roll : '—'}</Td>
+                  <Td>{p.sale_price_roll_display ?? '—'}</Td>
                   <Td>{p.piece_price != null ? p.piece_price : '—'}</Td>
-                  <Td>{p.min_sale_yard || '—'}</Td>
-                  <Td>{p.min_sale_roll != null ? p.min_sale_roll : '—'}</Td>
+                  <Td>{p.min_sale_yard ? Number(p.min_sale_yard).toFixed(2) : '—'}</Td>
+                  <Td>{p.min_sale_roll_display ?? '—'}</Td>
                   <Td>
                     <div className="flex items-center gap-2">
                       <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors" aria-label="تعديل">
@@ -285,10 +291,10 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
               label="سعر بيع الطاقة"
               type="number"
               min={0}
-              value={form.sale_price_roll}
+              value={form.sale_price_roll || autoRollPrice}
               onChange={(e) => setForm({ ...form, sale_price_roll: e.target.value })}
               error={errors.sale_price_roll}
-              placeholder="اختياري"
+              placeholder="سعر الياردة × 25"
             />
             <div className="space-y-1">
               <Input
@@ -308,10 +314,10 @@ export default function BranchPricingPanel({ branchId }: BranchPricingPanelProps
               label="الحد الأدنى للطاقة"
               type="number"
               min={0}
-              value={form.min_sale_roll}
+              value={form.min_sale_roll || autoMinRollPrice}
               onChange={(e) => setForm({ ...form, min_sale_roll: e.target.value })}
               error={errors.min_sale_roll}
-              placeholder="اختياري"
+              placeholder="سعر الياردة × 21"
             />
             <Input
               label="سعر القطعة (÷ 3.5)"

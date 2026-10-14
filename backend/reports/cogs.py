@@ -2,6 +2,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from sales.models import DailySaleItem
+from suppliers.models import Fabric
 from warehouses.models import GoodsReceiptItem, StockOpeningItem
 
 
@@ -24,20 +25,42 @@ def fabric_average_costs(fabric_ids=None):
     تنبيه أداء: هذا يمسح كل أصناف الاستلام والأرصدة الافتتاحية في بايثون،
     فهو غالٍ. من يحتاج أكثر من استدعاء في الطلب نفسه (مثل تقرير الربح والخسارة)
     عليه حسابه مرة واحدة وتمريره عبر ``costs=`` في بقية دوال هذا الملف.
+
+    تكلفة القماش المسجلة في ملفه هي قيمة احتياطية عندما لا توجد تكلفة تاريخية،
+    أو عندما أُدخل الرصيد الافتتاحي دون تكلفة (صفر).
     """
+    requested_ids = set(fabric_ids) if fabric_ids is not None else None
+    if requested_ids is not None and not requested_ids:
+        return {}
+
     buckets = defaultdict(lambda: [Decimal("0"), Decimal("0")])
     receipts = GoodsReceiptItem.objects.filter(receipt__status="posted")
-    openings = StockOpeningItem.objects.all()
-    if fabric_ids:
-        receipts = receipts.filter(fabric_id__in=fabric_ids)
-        openings = openings.filter(fabric_id__in=fabric_ids)
+    openings = StockOpeningItem.objects.select_related("fabric")
+    if requested_ids is not None:
+        receipts = receipts.filter(fabric_id__in=requested_ids)
+        openings = openings.filter(fabric_id__in=requested_ids)
     for item in receipts:
         buckets[item.fabric_id][0] += item.total
         buckets[item.fabric_id][1] += item.yards
     for item in openings:
-        buckets[item.fabric_id][0] += (item.unit_price or 0) * item.yards
+        unit_cost = item.unit_price or Decimal("0")
+        if unit_cost <= 0:
+            unit_cost = item.fabric.purchase_price or Decimal("0")
+        buckets[item.fabric_id][0] += unit_cost * item.yards
         buckets[item.fabric_id][1] += item.yards
-    return {fid: value / yards for fid, (value, yards) in buckets.items() if yards > 0}
+
+    costs = {
+        fid: value / yards
+        for fid, (value, yards) in buckets.items()
+        if yards > 0
+    }
+    fabrics = Fabric.objects.all()
+    if requested_ids is not None:
+        fabrics = fabrics.filter(id__in=requested_ids)
+    for fabric_id, purchase_price in fabrics.values_list("id", "purchase_price"):
+        if costs.get(fabric_id, Decimal("0")) <= 0 and purchase_price and purchase_price > 0:
+            costs[fabric_id] = purchase_price
+    return costs
 
 
 def cogs_by_fabric(date_from, date_to, branch_id=None, costs=None):
