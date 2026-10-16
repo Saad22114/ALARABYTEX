@@ -137,6 +137,27 @@ class EmployeeAPITest(TestCase):
         self.assertFalse(r.data["permissions"]["sales"]["edit"])
         self.assertIn("reports", r.data["hidden_sections"])
 
+    def test_permission_templates_can_be_saved_listed_and_deleted(self):
+        payload = {
+            "name": "مندوب الفرع",
+            "role": "sales",
+            "permissions": {"sales": {"view": True, "create": True, "edit": False, "delete": False}},
+            "hidden_sections": ["payroll"],
+            "allowed_branches": [self.branch.id],
+        }
+        created = self.c.post("/api/permission-templates/", payload, format="json")
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(created.data["name"], payload["name"])
+        self.assertEqual(created.data["allowed_branches"], payload["allowed_branches"])
+
+        listed = self.c.get("/api/permission-templates/")
+        self.assertEqual(listed.status_code, 200)
+        rows = listed.data.get("results", listed.data)
+        self.assertEqual(rows[0]["id"], created.data["id"])
+
+        deleted = self.c.delete(f"/api/permission-templates/{created.data['id']}/")
+        self.assertEqual(deleted.status_code, 204)
+
     def test_update_employee_username_and_password(self):
         r = self.c.post("/api/employees/", {
             "name": "أحمد", "branch": self.branch.id,

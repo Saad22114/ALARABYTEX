@@ -12,10 +12,11 @@ from rest_framework.views import APIView
 
 from core.branch_scope import scope_queryset
 from core.phones import find_by_phone
-from .models import Employee, SaleSession, SaleSessionItem
+from .models import Employee, PermissionTemplate, SaleSession, SaleSessionItem
 from .sections import ROLE_PRESETS, SECTIONS
 from .serializers import (
     EmployeeSerializer,
+    PermissionTemplateSerializer,
     SaleSessionItemCreateSerializer,
     SaleSessionItemEditSerializer,
     SaleSessionItemSerializer,
@@ -81,6 +82,13 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if user is not None:
             User.objects.filter(pk=user.pk).delete()
         return Response({"detail": settings.API_MESSAGES["deleted"]}, status=status.HTTP_200_OK)
+
+
+class PermissionTemplateViewSet(viewsets.ModelViewSet):
+    permission_section = "employees"
+    queryset = PermissionTemplate.objects.all()
+    serializer_class = PermissionTemplateSerializer
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
 
 class SaleSessionViewSet(viewsets.ModelViewSet):

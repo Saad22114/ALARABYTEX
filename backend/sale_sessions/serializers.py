@@ -15,7 +15,7 @@ from core.permissions import get_request_employee
 from suppliers.models import Fabric
 from warehouses.models import FabricRoll, Warehouse
 
-from .models import Employee, SaleSession, SaleSessionItem
+from .models import Employee, PermissionTemplate, SaleSession, SaleSessionItem
 from .sections import effective_permissions
 from .services import (
     create_manual_session,
@@ -205,6 +205,18 @@ class EmployeeSerializer(serializers.ModelSerializer):
             instance.role, instance.permissions
         )
         return data
+
+
+class PermissionTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PermissionTemplate
+        fields = ["id", "name", "role", "permissions", "hidden_sections", "allowed_branches", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_allowed_branches(self, value):
+        if not isinstance(value, list) or any(not isinstance(item, int) for item in value):
+            raise serializers.ValidationError("قائمة الفروع غير صالحة")
+        return list(dict.fromkeys(value))
 
 
 class SaleSessionItemSerializer(serializers.ModelSerializer):

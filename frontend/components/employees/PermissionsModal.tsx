@@ -4,8 +4,9 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
-import { Check, X, EyeOff, Plus } from 'lucide-react';
-import { AppSection, EmployeePermissions, EmployeeRole, RolePreset, SectionsInfo } from '@/types';
+import { Check, X, EyeOff, Plus, Copy, Save, Trash2 } from 'lucide-react';
+import { AppSection, Employee, EmployeePermissions, EmployeeRole, SectionsInfo } from '@/types';
+import { createPermissionTemplate, deletePermissionTemplate, listPermissionTemplates, PermissionTemplate } from '@/services/permissionTemplates';
 import {
   emptyPermissions, normalizePermissions, roleHiddenPreset, rolePermissionPreset,
   setPermission, toggleHidden, toggleSectionWindow, sectionWindows,
@@ -18,7 +19,9 @@ interface BranchOption {
 
 interface Props {
   open: boolean;
+  employeeId: number;
   employeeName: string;
+  employees: Employee[];
   info: SectionsInfo | null;
   initialRole: EmployeeRole;
   initialPermissions: EmployeePermissions | null | undefined;
@@ -53,7 +56,7 @@ const ACTION_LABELS: Record<string, { label: string }> = {
 };
 
 export default function PermissionsModal({
-  open, employeeName, info, initialRole, initialPermissions, initialHidden,
+  open, employeeId, employeeName, employees, info, initialRole, initialPermissions, initialHidden,
   initialAllowedBranches, primaryBranch, primaryBranchName, branches, saving, onClose, onSave,
 }: Props) {
   const sections = info?.sections || [];
@@ -61,6 +64,12 @@ export default function PermissionsModal({
   const [perms, setPerms] = useState<EmployeePermissions>({});
   const [hidden, setHidden] = useState<string[]>([]);
   const [allowedBranches, setAllowedBranches] = useState<number[]>([]);
+  const [templates, setTemplates] = useState<PermissionTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [copyEmployeeId, setCopyEmployeeId] = useState('');
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [templateError, setTemplateError] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -71,6 +80,62 @@ export default function PermissionsModal({
       setAllowedBranches(initialAllowedBranches?.length ? [...initialAllowedBranches] : []);
     }
   }, [open, initialRole, initialPermissions, initialHidden, initialAllowedBranches, info, sections.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    listPermissionTemplates().then(setTemplates).catch(() => setTemplates([]));
+  }, [open]);
+
+  const copyPermissionsFrom = (source: Employee) => {
+    setRole(source.role);
+    const base = rolePermissionPreset(info?.roles?.[source.role], sections);
+    setPerms(normalizePermissions(source.permissions, sections, base));
+    setHidden([...(source.hidden_sections || [])]);
+    setAllowedBranches([...(source.allowed_branches || [])]);
+  };
+
+  const applyTemplate = (template: PermissionTemplate) => {
+    setRole(template.role);
+    const base = rolePermissionPreset(info?.roles?.[template.role], sections);
+    setPerms(normalizePermissions(template.permissions, sections, base));
+    setHidden([...template.hidden_sections]);
+    setAllowedBranches([...template.allowed_branches]);
+  };
+
+  const saveTemplate = async () => {
+    const name = templateName.trim();
+    if (!name) return;
+    setTemplateBusy(true);
+    setTemplateError('');
+    try {
+      const saved = await createPermissionTemplate({
+        name, role, permissions: perms, hidden_sections: hidden, allowed_branches: allowedBranches,
+      });
+      setTemplates((current) => [...current.filter((item) => item.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name, 'ar')));
+      setSelectedTemplate(String(saved.id));
+      setTemplateName('');
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : 'تعذر حفظ القالب');
+    } finally {
+      setTemplateBusy(false);
+    }
+  };
+
+  const removeSelectedTemplate = async () => {
+    const id = Number(selectedTemplate);
+    if (!id) return;
+    setTemplateBusy(true);
+    setTemplateError('');
+    try {
+      await deletePermissionTemplate(id);
+      setTemplates((current) => current.filter((item) => item.id !== id));
+      setSelectedTemplate('');
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : 'تعذر حذف القالب');
+    } finally {
+      setTemplateBusy(false);
+    }
+  };
 
   const sectionList = useMemo(
     () => [...sections].sort((a, b) => Number(a.fixed) - Number(b.fixed)),
@@ -140,6 +205,49 @@ export default function PermissionsModal({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Copy from employee or apply a saved template */}
+        <div className="rounded-xl border border-sand-200 bg-sand-50/60 p-4 space-y-3 dark:bg-neutral-800/50 dark:border-neutral-700">
+          <p className="text-sm font-semibold text-neutral-700">نسخ أو استعادة إعدادات الصلاحيات</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <label className="text-xs text-neutral-500">نسخ صلاحيات موظف</label>
+              <div className="flex gap-2">
+                <select value={copyEmployeeId} onChange={(event) => setCopyEmployeeId(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-sand-300 bg-white px-3 py-2 text-sm dark:bg-neutral-900 dark:border-neutral-700">
+                  <option value="">اختر الموظف المصدر</option>
+                  {employees.filter((employee) => employee.id !== employeeId).map((employee) => (
+                    <option key={employee.id} value={employee.id}>{employee.name} — {employee.role_label}</option>
+                  ))}
+                </select>
+                <Button size="sm" variant="secondary" disabled={!copyEmployeeId} onClick={() => {
+                  const source = employees.find((employee) => employee.id === Number(copyEmployeeId));
+                  if (source) copyPermissionsFrom(source);
+                }}><Copy size={14} /> نسخ</Button>
+              </div>
+              <p className="text-xs text-neutral-400">ينسخ الدور والصلاحيات والفروع الإضافية، ويبقي الفرع الأساسي وبيانات الموظف كما هي.</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-neutral-500">قالب محفوظ</label>
+              <div className="flex gap-2">
+                <select value={selectedTemplate} onChange={(event) => setSelectedTemplate(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-sand-300 bg-white px-3 py-2 text-sm dark:bg-neutral-900 dark:border-neutral-700">
+                  <option value="">اختر قالباً محفوظاً</option>
+                  {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                </select>
+                <Button size="sm" variant="secondary" disabled={!selectedTemplate} onClick={() => {
+                  const template = templates.find((item) => item.id === Number(selectedTemplate));
+                  if (template) applyTemplate(template);
+                }}>تطبيق</Button>
+                <Button size="sm" variant="ghost" disabled={!selectedTemplate || templateBusy} onClick={removeSelectedTemplate} title="حذف القالب"><Trash2 size={14} /></Button>
+              </div>
+              <div className="flex gap-2">
+                <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} maxLength={100} placeholder="اسم القالب الجديد" className="min-w-0 flex-1 rounded-xl border border-sand-300 bg-white px-3 py-2 text-sm dark:bg-neutral-900 dark:border-neutral-700" />
+                <Button size="sm" variant="secondary" disabled={!templateName.trim() || templateBusy} loading={templateBusy} onClick={saveTemplate}><Save size={14} /> حفظ كقالب</Button>
+              </div>
+            </div>
+          </div>
+          {templateError && <p role="alert" className="text-xs text-red-600">{templateError}</p>}
         </div>
 
         {/* Branch scope */}

@@ -799,7 +799,9 @@ export default function EmployeesPage() {
 
         <PermissionsModal
           open={!!permsTarget}
+          employeeId={permsTarget?.id || 0}
           employeeName={permsTarget?.name || ''}
+          employees={employees}
           info={sectionsInfo}
           initialRole={permsTarget?.role || 'admin'}
           initialPermissions={permsTarget?.permissions}

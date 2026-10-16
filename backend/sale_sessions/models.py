@@ -139,6 +139,24 @@ class Employee(TimeStampedModel, ActiveModel):
         return section_key in (self.hidden_sections or [])
 
 
+class PermissionTemplate(TimeStampedModel):
+    """مجموعة صلاحيات مسماة قابلة لإعادة التطبيق على الموظفين."""
+
+    name = models.CharField(max_length=100, unique=True, verbose_name="اسم القالب")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=Employee.Role.CUSTOM)
+    permissions = models.JSONField(default=dict, blank=True)
+    hidden_sections = models.JSONField(default=list, blank=True)
+    allowed_branches = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "قالب صلاحيات"
+        verbose_name_plural = "قوالب الصلاحيات"
+
+    def __str__(self):
+        return self.name
+
+
 class SaleSession(TimeStampedModel):
     class Status(models.TextChoices):
         OPEN = "open", "مفتوحة"
