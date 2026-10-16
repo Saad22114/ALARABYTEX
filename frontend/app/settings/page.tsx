@@ -889,6 +889,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-w-4xl">
               {(sections.length ? sections : [
                 { key: 'dashboard', label: 'الرئيسية', fixed: false },
+                { key: 'my-salary', label: 'راتبي', fixed: false },
                 { key: 'branches', label: 'الفروع', fixed: false },
                 { key: 'suppliers', label: 'الموردون', fixed: false },
                 { key: 'customers', label: 'الزبائن', fixed: false },

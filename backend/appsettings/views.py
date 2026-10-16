@@ -34,7 +34,7 @@ from .serializers import AppSettingsSerializer
 class LogoUploadView(APIView):
     """رفع شعار الموقع وإعادته. لا يتطلب صلاحية «الإعدادات» — جزء من الثيمات والتحكم."""
 
-    permission_section = "@themes"
+    permission_section = "themes"
 
     def _save_logo(self, file):
         ext = os.path.splitext(file.name)[1].lower() or ".png"
@@ -206,7 +206,7 @@ class ThemesControlView(APIView):
     يُعرض ويُحدّث فقط حقول المظهر (default_theme) والطباعة (الفوترة) —
     بدون أي صلاحية قسم، لأن هذا القسم مخصص للجميع حتى لو أُغلقت الإعدادات.
     """
-    permission_section = "@themes"
+    permission_section = "themes"
     fields = [
         "logo",
         "default_theme",

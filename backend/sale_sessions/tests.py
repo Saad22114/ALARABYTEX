@@ -276,6 +276,16 @@ class EffectivePermissionsTest(TestCase):
         self.assertFalse(dashboard["fixed"])
         self.assertEqual(dashboard["actions"], ["view"])
 
+    def test_self_service_salary_and_monthly_accounting_report_are_configurable(self):
+        salary = next(section for section in self.sections if section["key"] == "my-salary")
+        accounting = next(section for section in self.sections if section["key"] == "accounting")
+        self.assertEqual(salary["actions"], ["view"])
+        self.assertIn("monthly-report", {window["key"] for window in accounting["windows"]})
+
+        perms = effective_permissions("custom", {})
+        self.assertFalse(perms["my-salary"]["view"])
+        self.assertIn("monthly-report", perms["accounting"]["windows"])
+
     def test_the_missing_section_comes_from_the_role_not_from_blanks(self):
         rows = {
             "admin": True, "supervisor": True, "viewer": True,

@@ -82,11 +82,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       ...(settings?.hidden_sections || []),
     ]);
     if (hidden.has(key)) return false;
-    // قسم «الثيمات والتحكم» مفتوح لكل الموظفين بغض النظر عن صلاحياتهم —
-    // يظهر ما لم يُخفَ مركزياً من «أقسام القائمة» أو لكل موظف على حدة.
-    if (key === 'themes') return true;
-    // «راتبي» و «حساب الماكينة» كعنصر ذاتي الخدمة: يظهر لكل موظف ما لم يُخفَ يدوياً.
-    if (key === 'my-salary') return true;
     const permissions = session?.employee.permissions;
     const perms = permissions ? permissions[key] : null;
     // الأقسام المقيدة بالنطاق: يظهر فرعُ الموظف في القائمة فقط بعد اكتمال

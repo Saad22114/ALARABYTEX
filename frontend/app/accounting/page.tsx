@@ -563,7 +563,7 @@ export default function AccountingPage() {
 
         {/* Tabs */}
         <div className="flex flex-wrap gap-2">
-{tabs.filter((t) => hasWindow(me?.permissions, 'accounting', t.value === 'monthly-report' ? 'statements' : t.value)).map((t) => (
+{tabs.filter((t) => hasWindow(me?.permissions, 'accounting', t.value)).map((t) => (
               <button
                 key={t.value}
                 onClick={() => setActiveTab(t.value)}

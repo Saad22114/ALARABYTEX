@@ -682,7 +682,7 @@ class MyPayrollView(APIView):
     الموظف الحالي من الطلب حصراً (لا معرّف خارجي).
     """
 
-    permission_section = "@payroll"
+    permission_section = "my-salary"
 
     def get(self, request):
         from core.permissions import get_request_employee
