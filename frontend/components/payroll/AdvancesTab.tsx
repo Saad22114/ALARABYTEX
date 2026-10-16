@@ -14,6 +14,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import { Branch, SalaryAdvance } from '@/types';
 import { ADVANCE_METHODS, SALARY_ADVANCE_STATUSES } from '@/lib/constants';
 import {
@@ -53,6 +54,7 @@ export default function AdvancesTab({ branches, employees, defaultDate }: Advanc
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
+  useDefaultEmployeeBranch(setBranchFilter, null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<SalaryAdvance | null>(null);

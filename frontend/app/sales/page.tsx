@@ -40,6 +40,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { hasWindow } from '@/lib/permissions';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { counted } from '@/lib/arabic';
 import {
@@ -63,6 +64,7 @@ export default function SalesPage() {
   const modalEmployees = isManager ? employees : me ? [toEmployee(me)] : [];
 
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setFilterBranch);
   const [filterEmployee, setFilterEmployee] = useUrlState('employee', '');
   const [dateFrom, setDateFrom] = useUrlState('from', getRangeForKey('today').from);
   const [dateTo, setDateTo] = useUrlState('to', getRangeForKey('today').to);

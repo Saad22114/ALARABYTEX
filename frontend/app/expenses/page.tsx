@@ -27,6 +27,7 @@ import { PAYMENT_METHODS_MAP } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 
 /** تبويبا القسم: المصاريف نفسها، وتصنيفاتها التي وُلدت منها. */
 const TABS = [
@@ -44,6 +45,7 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useUrlState('q', '');
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setFilterBranch);
   const [filterCategory, setFilterCategory] = useUrlState('category', '');
   const [tab, setTab] = useUrlState<'list' | 'categories'>('wtab', 'list');
   const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);

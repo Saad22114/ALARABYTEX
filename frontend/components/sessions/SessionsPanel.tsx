@@ -47,6 +47,7 @@ import { ensureCustomer } from '@/lib/registerCustomer';
 import { rollSaleAllowed } from '@/lib/fabrics';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import { toEmployee } from '@/lib/sessionEmployee';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { counted } from '@/lib/arabic';
@@ -109,6 +110,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [loading, setLoading] = useState(true);
 
   const [branchFilter, setBranchFilter] = useState('');
+  useDefaultEmployeeBranch(setBranchFilter, null);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SessionSortKey>('newest');
   const [tick, setTick] = useState(() => Date.now());

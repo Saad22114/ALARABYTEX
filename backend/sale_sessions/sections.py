@@ -1,7 +1,7 @@
 PERMISSION_ACTIONS = ["view", "create", "edit", "delete"]
 
 SECTIONS = [
-    {"key": "dashboard", "label": "الرئيسية", "fixed": True, "actions": ["view"]},
+    {"key": "dashboard", "label": "الرئيسية", "fixed": False, "actions": ["view"]},
     {"key": "branches", "label": "الفروع", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
         {"key": "branches", "label": "قائمة الفروع"},
         {"key": "detail", "label": "تفاصيل الفرع"},

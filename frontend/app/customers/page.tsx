@@ -31,6 +31,7 @@ import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import SessionCustomerInvoiceModal from '@/components/sessions/SessionCustomerInvoiceModal';
 import CopyButton from '@/components/ui/CopyButton';
 
@@ -56,6 +57,7 @@ export default function CustomersPage() {
   const [search, setSearch] = useUrlState('q', '');
   const [page, setPage] = useUrlState('page', 1);
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setFilterBranch);
   const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
   const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
   // «الكل» رايةٌ مستقلّةٌ لا تاريخان فارغان. فراغُ التاريخين يُحذف من العنوان

@@ -271,6 +271,11 @@ class EffectivePermissionsTest(TestCase):
         self.assertTrue(perms["attendance"]["view"])
         self.assertTrue(perms["attendance"]["edit"])
 
+    def test_homepage_is_configurable_in_employee_permissions(self):
+        dashboard = next(section for section in self.sections if section["key"] == "dashboard")
+        self.assertFalse(dashboard["fixed"])
+        self.assertEqual(dashboard["actions"], ["view"])
+
     def test_the_missing_section_comes_from_the_role_not_from_blanks(self):
         rows = {
             "admin": True, "supervisor": True, "viewer": True,

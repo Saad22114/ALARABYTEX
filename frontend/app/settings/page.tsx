@@ -888,7 +888,7 @@ export default function SettingsPage() {
           <Card title="إظهار/إخفاء أقسام القائمة" subtitle="اختر الأقسام التي تظهر في القائمة الجانبية لجميع المستخدمين">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-w-4xl">
               {(sections.length ? sections : [
-                { key: 'dashboard', label: 'الرئيسية', fixed: true },
+                { key: 'dashboard', label: 'الرئيسية', fixed: false },
                 { key: 'branches', label: 'الفروع', fixed: false },
                 { key: 'suppliers', label: 'الموردون', fixed: false },
                 { key: 'customers', label: 'الزبائن', fixed: false },

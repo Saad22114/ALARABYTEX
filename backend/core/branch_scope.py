@@ -1,8 +1,9 @@
 """نطاق الفروع المسموح للموظف الحالي.
 
 القاعدة:
-- مدير النظام / المشرف / الموظف صاحب «دخول متعدد الفروع» يرون كل الفروع.
-- عدا ذلك: يرى الموظف فرعه فقط (وإن لم يكن له فرع فلا يرى شيئاً).
+- مدير النظام والمشرف يرون كل الفروع.
+- الموظف الآخر يرى فرعه الأساسي والفروع الإضافية المحددة له في صلاحياته.
+- وإن لم يكن له فرع أساسي ولا فروع محددة، فلا يرى فروعاً.
 """
 
 from django.db.models import Q
@@ -25,9 +26,7 @@ def employee_branch_scope(employee):
             allowed.add(employee.branch_id)
         allowed.update(employee.allowed_branches.values_list("id", flat=True))
         return allowed or set()
-    # سلوك قديم: «دخول متعدد الفروع» يعني كل الفروع؛ أو فرع واحد فقط؛ أو لا شيء.
-    if employee.multi_branch_access:
-        return None
+    # نطاق الوصول الصريح: الفرع الأساسي مع أي فروع إضافية اختيرت في الصلاحيات.
     if not employee.branch_id:
         return set()
     return {employee.branch_id}

@@ -18,6 +18,7 @@ import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { PAYMENT_METHODS_MAP, ANALYTICS_REPORTS, REPORT_GROUPS } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { hasWindow } from '@/lib/permissions';
 import AnalyticsReportView from '@/components/reports/AnalyticsReportView';
@@ -87,6 +88,7 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useUrlState('from', currentMonthRange().from);
   const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setFilterBranch);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(false);
 

@@ -222,6 +222,20 @@ class SearchScopeTests(TestCase):
         Warehouse.objects.create(name="مخزن معزول", code="WC", branch=self.branch_a)
         self.assertEqual(self.client.get("/api/search/?q=مخزن معزول").json()["total"], 0)
 
+    def test_non_manager_multi_branch_flag_does_not_grant_every_branch(self):
+        self.employee.role = Employee.Role.SALES
+        self.employee.apply_role_preset(Employee.Role.SALES)
+        self.employee.multi_branch_access = True
+        self.employee.save()
+        self.assertEqual(employee_branch_scope(self.employee), {self.branch_a.pk})
+
+    def test_non_manager_sees_primary_and_explicitly_allowed_branches(self):
+        self.employee.role = Employee.Role.SALES
+        self.employee.apply_role_preset(Employee.Role.SALES)
+        self.employee.save()
+        self.employee.allowed_branches.add(self.branch_b)
+        self.assertEqual(employee_branch_scope(self.employee), {self.branch_a.pk, self.branch_b.pk})
+
     def test_unscoped_types_are_visible_to_all(self):
         Supplier.objects.create(name="مورد عام للكل")
         self.assertEqual(self.client.get("/api/search/?q=عام للكل").json()["total"], 1)

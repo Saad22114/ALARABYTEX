@@ -45,6 +45,7 @@ import { counted } from '@/lib/arabic';
 import { downloadCsv, csvFilename } from '@/lib/csv';
 import { useToast } from '@/components/ui/Toast';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 
 const METHODS = [
   { value: 'transfer', label: 'تحويل بنكي' },
@@ -94,6 +95,7 @@ export default function MachineAccountPage() {
   const [from, setFrom] = useUrlState('from', currentMonthRange().from);
   const [to, setTo] = useUrlState('to', currentMonthRange().to);
   const [branchFilter, setBranchFilter] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setBranchFilter);
   const [tab, setTab] = useState<AccountTab>('all');
 
   const [form, setForm] = useState({

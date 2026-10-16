@@ -9,6 +9,7 @@ import { Branch } from '@/types';
 import { listBranches } from '@/services/branches';
 import { getPayrollDates, getPayrollEmployees } from '@/services/payroll';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import RunsTab from '@/components/payroll/RunsTab';
 import AdvancesTab from '@/components/payroll/AdvancesTab';
 import StructuresTab from '@/components/payroll/StructuresTab';
@@ -27,6 +28,7 @@ export default function PayrollPage() {
   const [tab, setTab] = useUrlState('tab', 'runs');
   const [month, setMonth] = useUrlState('month', '');
   const [branchFilter, setBranchFilter] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setBranchFilter);
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<StructureEmployeeOption[]>([]);

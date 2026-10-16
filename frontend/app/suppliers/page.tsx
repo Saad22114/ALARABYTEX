@@ -30,6 +30,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import SettlementAccountPicker, {
   SETTLEMENT_LABELS,
 } from '@/components/forms/SettlementAccountPicker';
@@ -48,6 +49,7 @@ export default function SuppliersPage() {
   const [dateTo, setDateTo] = useUrlState('to', currentMonthRange().to);
   const [filterWarehouse, setFilterWarehouse] = useUrlState('warehouse', '');
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setFilterBranch);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [modalOpen, setModalOpen] = useState(false);

@@ -24,6 +24,8 @@ interface Props {
   initialPermissions: EmployeePermissions | null | undefined;
   initialHidden: string[];
   initialAllowedBranches: number[];
+  primaryBranch: number | null;
+  primaryBranchName: string | null;
   branches: BranchOption[];
   saving: boolean;
   onClose: () => void;
@@ -52,7 +54,7 @@ const ACTION_LABELS: Record<string, { label: string }> = {
 
 export default function PermissionsModal({
   open, employeeName, info, initialRole, initialPermissions, initialHidden,
-  initialAllowedBranches, branches, saving, onClose, onSave,
+  initialAllowedBranches, primaryBranch, primaryBranchName, branches, saving, onClose, onSave,
 }: Props) {
   const sections = info?.sections || [];
   const [role, setRole] = useState<EmployeeRole>('admin');
@@ -75,7 +77,8 @@ export default function PermissionsModal({
     [sections]
   );
 
-  const visibleSectionCount = sections.filter((s) => !hidden.includes(s.key)).length;
+  const visibleSectionCount = sections.filter((s) => perms[s.key]?.view && !hidden.includes(s.key)).length;
+  const isManager = role === 'admin' || role === 'supervisor';
 
   const handleRoleSelect = (roleKey: EmployeeRole) => {
     setRole(roleKey);
@@ -139,41 +142,52 @@ export default function PermissionsModal({
           </div>
         </div>
 
-        {/* Branch access */}
-        <div>
-          <p className="text-sm font-medium text-neutral-700 mb-2">فروع الموظف (يفتحها جميعاً)</p>
-          {branches.length === 0 ? (
-            <p className="text-xs text-neutral-400">لا توجد فروع مسجلة بعد — أضف فرعاً أولاً.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {branches.map((b) => {
-                const enabled = allowedBranches.includes(b.id);
-                return (
-                  <button
-                    key={b.id}
-                    type="button"
-                    onClick={() =>
-                      setAllowedBranches((prev) =>
-                        enabled ? prev.filter((id) => id !== b.id) : [...prev, b.id]
-                      )
-                    }
-                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm transition-colors ${
-                      enabled
-                        ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300'
-                        : 'border-sand-200 text-neutral-500 hover:border-sand-300 dark:border-neutral-700'
-                    }`}
-                  >
-                    {enabled ? <Check size={14} /> : <Plus size={14} />}
-                    {b.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <p className="text-xs text-neutral-400 mt-2">
-            الفرع الأساسي في بطاقة الموظف يُضاف تلقائياً إلى هذه القائمة عند الدخول — اختر هنا الفروع الإضافية التي يفتحها الموظف.
-          </p>
-        </div>
+        {/* Branch scope */}
+        {isManager ? (
+          <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
+            المدير والمشرف لديهما نطاق جميع الفروع.
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm font-medium text-neutral-700 mb-2">الفروع الظاهرة لهذا الموظف في القوائم والفلاتر</p>
+            {primaryBranch && (
+              <div className="mb-2 rounded-lg bg-brand-50 border border-brand-100 px-3 py-2 text-sm text-brand-800">
+                الفرع الأساسي: <b>{primaryBranchName || 'محدد في بطاقة الموظف'}</b> <span className="text-xs">(يظهر دائماً)</span>
+              </div>
+            )}
+            {branches.filter((b) => b.id !== primaryBranch).length === 0 ? (
+              <p className="text-xs text-neutral-400">لا توجد فروع إضافية للاختيار.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {branches.filter((b) => b.id !== primaryBranch).map((b) => {
+                  const enabled = allowedBranches.includes(b.id);
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() =>
+                        setAllowedBranches((prev) =>
+                          enabled ? prev.filter((id) => id !== b.id) : [...prev, b.id]
+                        )
+                      }
+                      className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm transition-colors ${
+                        enabled
+                          ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                          : 'border-sand-200 text-neutral-500 hover:border-sand-300 dark:border-neutral-700'
+                      }`}
+                    >
+                      {enabled ? <Check size={14} /> : <Plus size={14} />}
+                      {b.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-xs text-neutral-400 mt-2">
+              سيظهر فرعه الأساسي تلقائياً، ويمكنك إضافة فروع أخرى. الفروع المختارة هي التي تظهر في الفلاتر وتحدد البيانات التي يستطيع الوصول إليها.
+            </p>
+          </div>
+        )}
 
         {/* Quick actions */}
         <div className="flex flex-wrap items-center justify-between gap-3">

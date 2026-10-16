@@ -12,6 +12,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import { Branch, SalaryStructure } from '@/types';
 import {
   createSalaryStructure,
@@ -37,6 +38,7 @@ export default function StructuresTab({ branches, month, onSaved }: StructuresTa
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
+  useDefaultEmployeeBranch(setBranchFilter, null);
   const [activeOnly, setActiveOnly] = useState('1');
 
   const [formOpen, setFormOpen] = useState(false);

@@ -34,6 +34,7 @@ import { downloadCsv, csvFilename } from '@/lib/csv';
 import { useToast } from '@/components/ui/Toast';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { useUrlState } from '@/lib/useUrlState';
+import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 
 interface EmployeeForm {
   name: string;
@@ -50,7 +51,6 @@ interface EmployeeForm {
   position: string;
   email: string;
   employee_code: string;
-  multi_branch_access: boolean;
   birth_date: string;
   civil_id: string;
   address: string;
@@ -94,7 +94,6 @@ const emptyForm = (): EmployeeForm => ({
   position: '',
   email: '',
   employee_code: '',
-  multi_branch_access: false,
   birth_date: '',
   civil_id: '',
   address: '',
@@ -114,6 +113,7 @@ export default function EmployeesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useUrlState('q', '');
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
+  useDefaultEmployeeBranch(setFilterBranch);
   const [filterRole, setFilterRole] = useUrlState('role', '');
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -224,7 +224,6 @@ export default function EmployeesPage() {
           position: emp.position || '',
           email: emp.email || '',
           employee_code: emp.employee_code || '',
-          multi_branch_access: emp.multi_branch_access,
           birth_date: emp.birth_date || '',
           civil_id: emp.civil_id || '',
           address: emp.address || '',
@@ -614,6 +613,11 @@ export default function EmployeesPage() {
                   options={ROLE_OPTIONS}
                 />
               </div>
+              {!MANAGER_ROLES.includes(form.role) && (
+                <p className="text-xs text-neutral-400">
+                  الفرع المحدد هو نطاق الموظف الأساسي. لإضافة فروع أخرى إلى القوائم والفلاتر، استخدم إدارة الصلاحيات.
+                </p>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Input
                   label="المسمى الوظيفي"
@@ -765,20 +769,6 @@ export default function EmployeesPage() {
             </div>
 
             <div className="rounded-xl bg-sand-50 border border-sand-200 p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-neutral-700">دخول متعدد الفروع</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">
-                    يتيح للموظف فتح ورديات في أكثر من فرع
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={form.multi_branch_access}
-                  onChange={(e) => setForm({ ...form, multi_branch_access: e.target.checked })}
-                  className="h-4 w-4 accent-brand-600"
-                />
-              </div>
               {editing && (
                 <div className="flex items-center justify-between border-t border-sand-200 pt-3">
                   <span className="text-sm font-medium text-neutral-700">موظف نشط</span>
@@ -815,6 +805,8 @@ export default function EmployeesPage() {
           initialPermissions={permsTarget?.permissions}
           initialHidden={permsTarget?.hidden_sections || []}
           initialAllowedBranches={permsTarget?.allowed_branches || []}
+          primaryBranch={permsTarget?.branch || null}
+          primaryBranchName={permsTarget?.branch_name || null}
           branches={branches}
           saving={permsSaving}
           onClose={() => setPermsTarget(null)}

@@ -80,6 +80,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `try{var t=localStorage.getItem('qomash_theme');if(t)document.documentElement.dataset.theme=t;var d=localStorage.getItem('qomash_dark');var dark=d?d==='1':window.matchMedia('(prefers-color-scheme:dark)').matches;if(dark)document.documentElement.classList.add('dark')}catch(e){}`,
           }}
         />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{history.scrollRestoration='manual';var qomashScrollKey=function(){return 'qomash_scroll:'+location.pathname+location.search};addEventListener('pagehide',function(){sessionStorage.setItem(qomashScrollKey(),String(scrollY))});addEventListener('pageshow',function(){var k=qomashScrollKey(),y=sessionStorage.getItem(k);if(y!==null){requestAnimationFrame(function(){scrollTo(0,Number(y))});setTimeout(function(){scrollTo(0,Number(y))},120);sessionStorage.removeItem(k)}})}catch(e){}`,
+          }}
+        />
       </head>
       <body className={`${cairo.variable} ${ibm.variable} ${amiri.variable} ${noto.variable} ${almarai.variable} ${tajawal.variable} ${rubik.variable} ${changa.variable} ${mada.variable} bg-sand-50 text-neutral-800 antialiased`}>
         <AuthProvider>
