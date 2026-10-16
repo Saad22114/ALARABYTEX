@@ -25,7 +25,7 @@ import {
   Landmark,
   CircleDollarSign,
 } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { logoUrl } from '@/services/settings';
@@ -44,8 +44,8 @@ const navItems = [
   { key: 'attendance', href: '/attendance', label: 'الحضور', icon: Clock },
   { key: 'payroll', href: '/payroll', label: 'الرواتب', icon: Wallet },
   { key: 'my-salary', href: '/my-salary', label: 'راتبي', icon: CircleDollarSign },
-  { key: 'machine_account', href: '/machine-account', label: 'التسويات المالية', icon: Landmark },
   { key: 'accounting', href: '/accounting', label: 'المحاسبة', icon: Calculator },
+  { key: 'machine_account', href: '/machine-account', label: 'التسويات المالية', icon: Landmark },
   { key: 'messages', href: '/messages', label: 'التواصل', icon: MessageSquareText },
   { key: 'themes', href: '/themes', label: 'الثيمات والتحكم', icon: Palette },
   { key: 'settings', href: '/settings', label: 'الإعدادات', icon: Settings },
@@ -60,6 +60,7 @@ interface SidebarProps {
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const navRef = useRef<HTMLElement>(null);
+  const [logoPreviewOpen, setLogoPreviewOpen] = useState(false);
   const { settings } = useSettings();
   const { session } = useAuth();
 
@@ -125,11 +126,18 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {logoUrl(settings?.logo) ? (
-                  <img
-                    src={logoUrl(settings?.logo)}
-                    alt="شعار الموقع"
-                    className="w-9 h-9 rounded-xl object-contain bg-white p-0.5"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setLogoPreviewOpen(true)}
+                    aria-label="عرض الشعار بحجم كبير"
+                    className="w-9 h-9 rounded-xl bg-white p-0.5 cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-gold-400"
+                  >
+                    <img
+                      src={logoUrl(settings?.logo)}
+                      alt="شعار الموقع"
+                      className="w-full h-full rounded-[10px] object-contain"
+                    />
+                  </button>
                 ) : (
                   <div className="p-2 rounded-xl bg-gold-500/20">
                     <Layers size={24} className="text-gold-400" />
@@ -187,6 +195,30 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <p className="text-[11px] text-[#d9d3c6]/40">إصدار النظام: 1.0.0</p>
         </div>
       </aside>
+      {logoPreviewOpen && logoUrl(settings?.logo) && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="صورة الشعار"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setLogoPreviewOpen(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setLogoPreviewOpen(false)}
+            aria-label="إغلاق الصورة"
+            className="absolute right-5 top-5 rounded-full bg-white/15 p-3 text-white transition hover:bg-white/25 focus:outline-none focus:ring-2 focus:ring-white"
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={logoUrl(settings?.logo)}
+            alt="شعار الموقع بحجم كبير"
+            onClick={(event) => event.stopPropagation()}
+            className="max-h-[90vh] max-w-[90vw] rounded-xl bg-white object-contain p-3 shadow-2xl"
+          />
+        </div>
+      )}
     </>
   );
 }

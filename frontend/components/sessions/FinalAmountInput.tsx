@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Input from '@/components/ui/Input';
-import { formatCurrencyOneDecimal as formatCurrency } from '@/lib/format';
+import { formatCurrency } from '@/lib/format';
 
 interface Props {
   /** إجمالي الصنف قبل الخصم (كمية × سعر)، أو null إن لم تُكمَل البيانات */

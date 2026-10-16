@@ -1,5 +1,6 @@
 from decimal import Decimal
 from datetime import date, timedelta
+from django.db import transaction
 
 from django.db.models import Sum
 from django.utils import timezone
@@ -236,9 +237,30 @@ class MachineCollectionViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+        with transaction.atomic():
+            row = serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+            from accounting.services import post_machine_collection
+            post_machine_collection(
+                row, created_by=self.request.user if self.request.user.is_authenticated else None
+            )
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            row = serializer.save()
+            from accounting.services import post_machine_collection
+            post_machine_collection(
+                row, created_by=self.request.user if self.request.user.is_authenticated else None
+            )
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            from accounting.models import JournalEntry
+            from accounting.services import unpost_source
+            unpost_source(JournalEntry.Source.SETTLEMENT, instance.pk)
+            instance.delete()
 
     @action(detail=False, methods=["post"], url_path="transfer")
+    @transaction.atomic
     def transfer(self, request):
         """«حوِّل من الماكينة إلى البنك»: مالٌ يخرج من الماكينة إلى البنك في خطوة.
 
@@ -306,6 +328,10 @@ class MachineCollectionViewSet(viewsets.ModelViewSet):
             reference=str(request.data.get("reference") or "")[:100],
             notes=str(request.data.get("notes") or "")[:255],
             created_by=request.user if request.user.is_authenticated else None,
+        )
+        from accounting.services import post_machine_collection
+        post_machine_collection(
+            row, created_by=request.user if request.user.is_authenticated else None
         )
         _, _, remaining = _account_figures(
             request, EPOCH, timezone.localdate(), branch, MachineCollection.Account.MACHINE

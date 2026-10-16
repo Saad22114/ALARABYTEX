@@ -89,3 +89,26 @@ export async function closePeriod(periodEnd: string, description?: string): Prom
     body: JSON.stringify({ period_end: periodEnd, description: description || '' }),
   });
 }
+
+export interface MonthlyFinalReport {
+  month: string;
+  period: { from: string; to: string };
+  sales: number;
+  expenses: number;
+  supplier_payments: number;
+  payroll: number;
+  net: number;
+  previous_month: {
+    month: string;
+    sales: number;
+    expenses: number;
+    supplier_payments: number;
+    payroll: number;
+    net: number;
+  };
+}
+
+export async function getMonthlyFinalReport(month: string): Promise<MonthlyFinalReport> {
+  const q = buildQuery({ month });
+  return apiRequest<MonthlyFinalReport>(`/reports/monthly-final/${q}`);
+}

@@ -11,6 +11,8 @@ from branches.models import Branch
 from expenses.models import Expense, ExpenseCategory
 from partners.models import Partner, PartnerOperation
 from sale_sessions.models import Employee
+from sales.models import DailySale
+from payroll.models import Payslip, PayrollRun
 from suppliers.models import Fabric, LedgerEntry, Supplier
 from warehouses.models import FabricRoll, Warehouse
 
@@ -495,6 +497,45 @@ class ReportsTests(AccountingSetup):
 
 
 class AccountingAPITests(AccountingSetup):
+    def test_monthly_final_report_aggregates_only_selected_month(self):
+        DailySale.objects.create(
+            branch=self.branch, date=date(2026, 5, 10), total_sales=Decimal("1000"),
+            cash_amount=Decimal("1000"),
+        )
+        DailySale.objects.create(
+            branch=self.branch, date=date(2026, 6, 1), total_sales=Decimal("9000"),
+            cash_amount=Decimal("9000"),
+        )
+        Expense.objects.create(
+            branch=self.branch, category=self.expense_cat, date=date(2026, 5, 12),
+            amount=Decimal("100"),
+        )
+        LedgerEntry.objects.create(
+            supplier=self.supplier, date=date(2026, 5, 14),
+            entry_type=LedgerEntry.EntryType.PAYMENT, amount=Decimal("-200"),
+        )
+        run = PayrollRun.objects.create(month=date(2026, 5, 1), branch=self.branch, status=PayrollRun.Status.PAID)
+        Payslip.objects.create(
+            run=run, employee=self.employee, branch=self.branch,
+            base_salary=Decimal("500"), housing_allowance=Decimal("50"),
+        )
+        next_month_run = PayrollRun.objects.create(
+            month=date(2026, 6, 1), branch=self.branch, status=PayrollRun.Status.PAID,
+        )
+        Payslip.objects.create(run=next_month_run, employee=self.employee, branch=self.branch, base_salary=Decimal("9000"))
+
+        res = self.client.get("/api/reports/monthly-final/?month=2026-05")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["sales"], Decimal("1000"))
+        self.assertEqual(res.data["expenses"], Decimal("100"))
+        self.assertEqual(res.data["supplier_payments"], Decimal("200"))
+        self.assertEqual(res.data["payroll"], Decimal("550"))
+        self.assertEqual(res.data["net"], Decimal("150"))
+
+    def test_monthly_final_report_rejects_invalid_month(self):
+        res = self.client.get("/api/reports/monthly-final/?month=2026-13")
+        self.assertEqual(res.status_code, 400)
+
     def test_reports_trial_balance(self):
         res = self.client.get("/api/reports/trial-balance/")
         self.assertEqual(res.status_code, 200)

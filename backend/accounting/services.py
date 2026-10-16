@@ -190,7 +190,7 @@ def unpost_source(source, source_id):
 
 
 def _round2(value):
-    return (value or Decimal("0")).quantize(Decimal("0.01"))
+    return Decimal(str(value or "0")).quantize(Decimal("0.01"))
 
 
 # ---------------------------------------------------------------------------
@@ -221,16 +221,29 @@ def post_session_close(session):
         rows = list(session.items.select_related("fabric").filter(is_returned=False))
         if not rows:
             return
+        # استخدم أساس التكلفة نفسه المستخدم في تقارير الربحية، بدلاً من سعر
+        # الشراء الحالي للقماش الذي قد يختلف عن متوسط تكلفة الاستلامات.
+        from reports.cogs import fabric_average_costs
+
+        costs = fabric_average_costs({row.fabric_id for row in rows})
         by_date = {}
         for r in rows:
             entry = by_date.setdefault(r.sale_date, {
                 "totals": {m: Decimal("0") for m in SaleSessionItem.PaymentMethod.values},
-                "cogs": Decimal("0"),
+                "yards_by_fabric": defaultdict(lambda: Decimal("0")),
             })
             entry["totals"][r.payment_method] += _round2(r.net_total)
-            entry["cogs"] += _round2((r.fabric.purchase_price or Decimal("0")) * r.yards_effective)
+            entry["yards_by_fabric"][r.fabric_id] += r.yards_effective
         groups = [
-            (sale_date, data["totals"], data["cogs"])
+            (
+                sale_date,
+                data["totals"],
+                sum(
+                    (_round2((costs.get(fid) or Decimal("0")) * yards)
+                     for fid, yards in data["yards_by_fabric"].items()),
+                    Decimal("0"),
+                ),
+            )
             for sale_date, data in sorted(by_date.items())
         ]
 
@@ -246,7 +259,13 @@ def post_session_close(session):
                     continue
                 # تُودَع متحصلات الكاش في البنك بحسب طريقة العمل المعتمدة.
                 # هذا خاص بمبيعات الورديات؛ المدفوعات النقدية الأخرى تبقى بالخزنة.
-                acc = bank_account() if method == "cash" else payment_account(method)
+                # البطاقة والتحويل يبقيان مستحقين حتى تسجيل استلامهما في قسم التسوية.
+                if method == "card":
+                    acc = ensure_account("MACHINE_RECEIVABLE", "1106", "ذمم شركة الماكينة")
+                elif method == "transfer":
+                    acc = ensure_account("BANK_RECEIVABLE", "1107", "مستحقات عند البنك")
+                else:
+                    acc = bank_account() if method == "cash" else payment_account(method)
                 lines.append((acc, amount, Decimal("0"), ""))
             lines.append((revenue_account(), Decimal("0"), total, ""))
         if cogs > 0:
@@ -327,6 +346,27 @@ def post_supplier_entry(entry):
         JournalEntry.Source.PURCHASE,
         entry.pk,
         lines,
+    )
+
+
+def post_machine_collection(collection, created_by=None):
+    """ترحيل دفعة التسوية: إثبات دخول النقد/البنك وإقفال المستحق المقابل."""
+    unpost_source(JournalEntry.Source.SETTLEMENT, collection.pk)
+    amount = _round2(collection.amount)
+    if amount <= 0:
+        return
+    key = "MACHINE_RECEIVABLE" if collection.account == "machine" else "BANK_RECEIVABLE"
+    code, name = ("1106", "ذمم شركة الماكينة") if collection.account == "machine" else ("1107", "مستحقات عند البنك")
+    receivable = ensure_account(key, code, name)
+    received_account = cash_account() if collection.method == "cash" else bank_account()
+    create_entry(
+        collection.date,
+        f"تسوية مالية — {collection.get_account_display()} {collection.reference or ''}".strip(),
+        JournalEntry.Source.SETTLEMENT,
+        collection.pk,
+        [(received_account, amount, Decimal("0"), "استلام دفعة التسوية"),
+         (receivable, Decimal("0"), amount, "تخفيض المستحق")],
+        created_by=created_by,
     )
 
 

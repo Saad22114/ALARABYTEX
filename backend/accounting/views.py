@@ -1,7 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, Sum
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -22,6 +24,68 @@ from .services import (
     trial_balance,
 )
 from .models import ClosedPeriod
+
+
+class MonthlyFinalReportView(APIView):
+    """ملخص شهري نهائي للمبيعات والمصاريف والمدفوعات والرواتب."""
+    permission_section = "accounting"
+
+    def get(self, request):
+        month_value = request.query_params.get("month")
+        try:
+            month_start = date.fromisoformat(f"{month_value}-01") if month_value else timezone.localdate().replace(day=1)
+            if month_start.day != 1 or month_start.isoformat()[:7] != (month_value or month_start.isoformat()[:7]):
+                raise ValueError
+        except (TypeError, ValueError):
+            return Response({"detail": "أرسل الشهر بصيغة YYYY-MM"}, status=status.HTTP_400_BAD_REQUEST)
+        def month_end_for(start):
+            following = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+            return following - timedelta(days=1)
+
+        from expenses.models import Expense
+        from payroll.models import Payslip, PayrollRun
+        from sales.models import DailySale
+        from suppliers.models import LedgerEntry
+
+        def summarize(start):
+            date_range = (start, month_end_for(start))
+            sales_total = DailySale.objects.filter(date__range=date_range).aggregate(total=Sum("total_sales"))["total"] or Decimal("0")
+            expenses_total = Expense.objects.filter(date__range=date_range).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+            supplier_payments = LedgerEntry.objects.filter(
+                date__range=date_range,
+                entry_type=LedgerEntry.EntryType.PAYMENT,
+                amount__lt=0,
+            ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+            payroll_total = Decimal("0")
+            payslips = Payslip.objects.filter(
+                run__month=start,
+                run__status__in=(PayrollRun.Status.APPROVED, PayrollRun.Status.PAID),
+            ).only(
+                "base_salary", "housing_allowance", "transport_allowance", "other_allowance",
+                "overtime_amount", "bonus", "commission_amount",
+            )
+            for slip in payslips:
+                payroll_total += slip.gross
+            supplier_payments = abs(supplier_payments)
+            net = sales_total - expenses_total - supplier_payments - payroll_total
+            return {
+                "sales": sales_total,
+                "expenses": expenses_total,
+                "supplier_payments": supplier_payments,
+                "payroll": payroll_total,
+                "net": net,
+            }
+
+        current = summarize(month_start)
+        previous_start = (month_start - timedelta(days=1)).replace(day=1)
+        previous = summarize(previous_start)
+        month_end = month_end_for(month_start)
+        return Response({
+            "month": month_start.strftime("%Y-%m"),
+            "period": {"from": month_start.isoformat(), "to": month_end.isoformat()},
+            **current,
+            "previous_month": {"month": previous_start.strftime("%Y-%m"), **previous},
+        })
 
 
 class AccountViewSet(viewsets.ModelViewSet):

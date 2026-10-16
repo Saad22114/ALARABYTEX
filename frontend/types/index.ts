@@ -12,6 +12,7 @@
   monthly_sales_target: number;
   monthly_sales: number;
   monthly_expenses: number;
+  monthly_cogs?: number;
   target_progress_pct: number | null;
   last_session?: {
     id: number;

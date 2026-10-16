@@ -17,7 +17,7 @@ import SearchInput from '@/components/ui/SearchInput';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useUrlState } from '@/lib/useUrlState';
-import { Plus, Pencil, Trash2, RotateCcw, ChevronDown, Lock } from 'lucide-react';
+import { Plus, Pencil, Trash2, RotateCcw, ChevronDown, Lock, Printer, Eye, Copy } from 'lucide-react';
 import {
   Account,
   AccountType,
@@ -44,6 +44,8 @@ import {
   getIncomeStatement,
   getBalanceSheet,
   getCashFlow,
+  getMonthlyFinalReport,
+  MonthlyFinalReport,
   getCashBox,
   listClosedPeriods,
   closePeriod,
@@ -51,8 +53,9 @@ import {
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { hasWindow } from '@/lib/permissions';
+import { openMonthlyFinalReport } from '@/lib/monthlyFinalReport';
 
-type Tab = 'journal' | 'accounts' | 'trial-balance' | 'statements' | 'cashbox';
+type Tab = 'journal' | 'accounts' | 'trial-balance' | 'statements' | 'cashbox' | 'monthly-report';
 type StatementTab = 'income' | 'balance' | 'cash-flow';
 
 const tabs: { value: Tab; label: string }[] = [
@@ -61,6 +64,7 @@ const tabs: { value: Tab; label: string }[] = [
   { value: 'trial-balance', label: 'ميزان المراجعة' },
   { value: 'statements', label: 'القوائم المالية' },
   { value: 'cashbox', label: 'الخزينة والإقفال' },
+  { value: 'monthly-report', label: 'التقرير الشهري النهائي' },
 ];
 
 const statementTabs: { value: StatementTab; label: string }[] = [
@@ -162,6 +166,8 @@ export default function AccountingPage() {
   const [income, setIncome] = useState<IncomeStatement | null>(null);
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlow | null>(null);
+  const [monthlyReport, setMonthlyReport] = useState<MonthlyFinalReport | null>(null);
+  const [reportMonth, setReportMonth] = useUrlState('report_month', today.slice(0, 7));
 
   // cashbox / closing
   const [cashBoxData, setCashBoxData] = useState<CashBox | null>(null);
@@ -256,6 +262,17 @@ export default function AccountingPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [activeTab, statementTab, dateFrom, dateTo, toast]);
+
+  useEffect(() => {
+    if (activeTab !== 'monthly-report' || !reportMonth) return;
+    let cancelled = false;
+    setLoading(true);
+    getMonthlyFinalReport(reportMonth)
+      .then((res) => { if (!cancelled) setMonthlyReport(res); })
+      .catch((err: any) => { if (!cancelled) toast('error', err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, reportMonth, toast]);
 
   useEffect(() => {
     if (activeTab === 'cashbox') return loadCashboxAndPeriods();
@@ -428,6 +445,42 @@ export default function AccountingPage() {
     }
   };
 
+  const reportChange = (current: number, previous: number) => {
+    if (previous === 0) return current === 0 ? 'لا تغيير' : 'جديد';
+    const percent = ((current - previous) / Math.abs(previous)) * 100;
+    return `${percent > 0 ? '+' : ''}${percent.toFixed(1)}% عن الشهر السابق`;
+  };
+
+  const reportChangeTone = (current: number, previous: number, goodWhenUp: boolean) => {
+    if (current === previous) return 'text-neutral-400';
+    return ((current > previous) === goodWhenUp) ? 'text-emerald-600' : 'text-red-600';
+  };
+
+  const openMonthlyReport = (autoPrint: boolean) => {
+    if (!monthlyReport) return;
+    if (!openMonthlyFinalReport(monthlyReport, settings, autoPrint)) {
+      toast('error', 'تعذر فتح التقرير. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.');
+    }
+  };
+
+  const copyMonthlyReport = async () => {
+    if (!monthlyReport) return;
+    const summary = [
+      `التقرير الشهري النهائي — ${monthlyReport.month}`,
+      `المبيعات: ${formatCurrency(monthlyReport.sales)}`,
+      `المصاريف: ${formatCurrency(monthlyReport.expenses)}`,
+      `مدفوعات الموردين: ${formatCurrency(monthlyReport.supplier_payments)}`,
+      `الرواتب: ${formatCurrency(monthlyReport.payroll)}`,
+      `صافي الشهر: ${formatCurrency(monthlyReport.net)}`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(summary);
+      toast('success', 'تم نسخ ملخص التقرير');
+    } catch {
+      toast('error', 'تعذر النسخ من هذا المتصفح');
+    }
+  };
+
   const tree = useMemo(() => {
     const childrenMap = new Map<number | null, Account[]>();
     accounts.forEach((a) => {
@@ -455,6 +508,17 @@ export default function AccountingPage() {
         {/* Filters */}
         <Card className="!p-4">
           <div className="flex flex-wrap items-end gap-4">
+            {activeTab === 'monthly-report' && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-neutral-500">الشهر</label>
+                <input
+                  type="month"
+                  value={reportMonth}
+                  onChange={(e) => setReportMonth(e.target.value)}
+                  className="rounded-xl border border-sand-300 bg-surface px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                />
+              </div>
+            )}
             {activeTab === 'journal' && (
               <>
                 <DateRangePicker from={dateFrom} to={dateTo} onChangeFrom={setDateFrom} onChangeTo={setDateTo} />
@@ -499,7 +563,7 @@ export default function AccountingPage() {
 
         {/* Tabs */}
         <div className="flex flex-wrap gap-2">
-{tabs.filter((t) => hasWindow(me?.permissions, 'accounting', t.value)).map((t) => (
+{tabs.filter((t) => hasWindow(me?.permissions, 'accounting', t.value === 'monthly-report' ? 'statements' : t.value)).map((t) => (
               <button
                 key={t.value}
                 onClick={() => setActiveTab(t.value)}
@@ -521,6 +585,57 @@ export default function AccountingPage() {
           ) : (
             <>
               {/* Journal Tab */}
+              {activeTab === 'monthly-report' && monthlyReport && (
+                <div className="p-4 sm:p-6 space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-neutral-800">التقرير الشهري النهائي</h3>
+                      <p className="text-sm text-neutral-500 mt-1">{monthlyReport.period.from} — {monthlyReport.period.to}</p>
+                      <p className="text-xs text-neutral-400 mt-1">الرواتب من مسيّرات الشهر المعتمدة أو المصروفة</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => openMonthlyReport(false)}><Eye size={16} /> معاينة منسقة</Button>
+                      <Button size="sm" onClick={() => openMonthlyReport(true)}><Printer size={16} /> تصدير PDF</Button>
+                      <Button variant="secondary" size="sm" onClick={copyMonthlyReport}><Copy size={16} /> نسخ الملخص</Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                    {[
+                      { key: 'sales', label: 'كامل المبيعات', value: monthlyReport.sales, previous: monthlyReport.previous_month.sales, tone: 'text-emerald-700', goodWhenUp: true },
+                      { key: 'expenses', label: 'كامل المصاريف', value: monthlyReport.expenses, previous: monthlyReport.previous_month.expenses, tone: 'text-red-600', goodWhenUp: false },
+                      { key: 'supplier_payments', label: 'مدفوعات الموردين', value: monthlyReport.supplier_payments, previous: monthlyReport.previous_month.supplier_payments, tone: 'text-red-600', goodWhenUp: false },
+                      { key: 'payroll', label: 'كامل الرواتب', value: monthlyReport.payroll, previous: monthlyReport.previous_month.payroll, tone: 'text-red-600', goodWhenUp: false },
+                    ].map((item) => (
+                      <div key={item.key} className="rounded-xl border border-sand-200 bg-surface p-4">
+                        <div className="text-sm text-neutral-500">{item.label}</div>
+                        <div className={`mt-2 text-xl font-bold tabular-nums ${item.tone}`}>{formatCurrency(item.value)}</div>
+                        <div className={`mt-1 text-xs ${reportChangeTone(item.value, item.previous, item.goodWhenUp)}`}>{reportChange(item.value, item.previous)} · السابق {formatCurrency(item.previous)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className={`flex items-center justify-between rounded-xl px-5 py-4 ${monthlyReport.net >= 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                    <div>
+                      <div className="font-semibold">صافي الشهر</div>
+                      <div className="mt-1 text-xs opacity-80">المبيعات − المصاريف − مدفوعات الموردين − الرواتب</div>
+                      <div className={`mt-1 text-xs ${monthlyReport.net >= 0 ? 'opacity-80' : 'opacity-90'}`}>{reportChange(monthlyReport.net, monthlyReport.previous_month.net)} · السابق {formatCurrency(monthlyReport.previous_month.net)}</div>
+                    </div>
+                    <div className="text-xl font-bold tabular-nums">{formatCurrency(monthlyReport.net)}</div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-sand-50 border border-sand-200 p-4">
+                      <div className="text-sm text-neutral-500">هامش صافي الشهر</div>
+                      <div className="mt-1 text-lg font-bold text-brand-700">{monthlyReport.sales ? `${((monthlyReport.net / monthlyReport.sales) * 100).toFixed(1)}%` : '—'}</div>
+                    </div>
+                    <div className="rounded-xl bg-sand-50 border border-sand-200 p-4">
+                      <div className="text-sm text-neutral-500">إجمالي المصاريف والمدفوعات والرواتب من المبيعات</div>
+                      <div className="mt-1 text-lg font-bold text-neutral-700">{monthlyReport.sales ? `${(((monthlyReport.expenses + monthlyReport.supplier_payments + monthlyReport.payroll) / monthlyReport.sales) * 100).toFixed(1)}%` : '—'}</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-neutral-400">مقارنة الأرقام مع {monthlyReport.previous_month.month}. ارتفاع المبيعات وصافي الشهر جيد؛ وانخفاض المصاريف والمدفوعات والرواتب يظهر كتغير إيجابي.</p>
+                </div>
+              )}
+
+              {/* Monthly Final Report Tab */}
               {activeTab === 'journal' && (
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-sand-100">

@@ -6,8 +6,10 @@ from django.utils import timezone
 from django.db.models import Sum
 from rest_framework import serializers
 from core.daterange import resolve_range
+from core.money import q2
 from suppliers.models import Fabric
 from warehouses.models import Warehouse
+from reports.cogs import fabric_average_costs, sold_by_fabric
 from .models import Branch, FabricBranchPrice
 
 # عدد الياردات في القطعة الواحدة — أساس تحويل سعر القطعة إلى سعر بيع الياردة
@@ -19,6 +21,7 @@ class BranchSerializer(serializers.ModelSerializer):
     expenses_count = serializers.SerializerMethodField()
     monthly_sales = serializers.SerializerMethodField()
     monthly_expenses = serializers.SerializerMethodField()
+    monthly_cogs = serializers.SerializerMethodField()
     target_progress_pct = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(default=True)
     last_session = serializers.SerializerMethodField()
@@ -28,7 +31,7 @@ class BranchSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "code", "phone", "address", "city", "notes",
             "is_active", "sales_count", "expenses_count",
-            "monthly_sales_target", "monthly_sales", "monthly_expenses", "target_progress_pct",
+            "monthly_sales_target", "monthly_sales", "monthly_expenses", "monthly_cogs", "target_progress_pct",
             "last_session",
             "created_at", "updated_at",
         ]
@@ -60,6 +63,19 @@ class BranchSerializer(serializers.ModelSerializer):
             .aggregate(total=Sum("amount"))["total"]
         )
         return float(total or 0)
+
+    def get_monthly_cogs(self, obj):
+        start_date, end_date = self._range()
+        sold = sold_by_fabric(start_date, end_date, branch_id=obj.pk)
+        costs = getattr(self, "_monthly_cogs_costs", None)
+        if costs is None:
+            costs = fabric_average_costs()
+            self._monthly_cogs_costs = costs
+        total = sum(
+            (q2((costs.get(fabric_id) or Decimal("0")) * yards) for fabric_id, yards in sold.items()),
+            Decimal("0"),
+        )
+        return float(q2(total))
 
     def get_target_progress_pct(self, obj):
         target = obj.monthly_sales_target

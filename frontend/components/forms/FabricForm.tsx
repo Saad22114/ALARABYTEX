@@ -30,6 +30,10 @@ const FABRIC_TYPE_OPTIONS = [
 
 /** عدد الياردات في القطعة الواحدة — يحوّل سعر القطعة إلى سعر بيع الياردة. */
 const PIECE_YARDS = 3.5;
+const oneDecimal = (value: string | number) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(1) : '';
+};
 
 interface FabricFormProps {
   initial?: Partial<Fabric>;
@@ -105,13 +109,12 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
     return () => { cancelled = true; };
   }, []);
 
-  const fillFromFabric = (f: Fabric, copyIdentity: boolean) => {
-    const identity = copyIdentity
-      ? { name: f.name || '', code: f.code || '', barcode: f.barcode || '' }
-      : { barcode: f.barcode || '' };
+  const fillFromFabric = (f: Fabric) => {
     setForm((prev) => ({
       ...prev,
-      ...identity,
+      name: f.name || '',
+      code: f.code || '',
+      barcode: f.barcode || '',
       unit: f.unit || 'yard',
       fabric_type: f.fabric_type || '',
       color: f.color || '',
@@ -132,6 +135,24 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       overrides[k] = v ? 'true' : 'false';
     }
     setRollOverrides(overrides);
+    listBranchPrices({ fabric: f.id, page_size: 100 })
+      .then((res) => {
+        const map: Record<string, BranchPriceForm> = {};
+        const manual = new Set<number>();
+        for (const p of res.results) {
+          map[String(p.branch)] = {
+            sale_price_yard: p.sale_price_yard != null ? oneDecimal(p.sale_price_yard) : '',
+            min_sale_yard: p.min_sale_yard != null ? Number(p.min_sale_yard).toFixed(2) : '',
+            sale_price_roll: p.sale_price_roll != null ? oneDecimal(p.sale_price_roll) : '',
+            min_sale_roll: p.min_sale_roll != null ? oneDecimal(p.min_sale_roll) : '',
+            piece_price: p.piece_price != null ? String(p.piece_price) : '',
+          };
+          if (p.min_sale_yard != null) manual.add(p.branch);
+        }
+        setBranchPricing(map);
+        setManualMinBranches(manual);
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -190,10 +211,10 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         for (const p of res.results) {
           map[String(p.branch)] = {
             id: p.id,
-            sale_price_yard: p.sale_price_yard ? String(p.sale_price_yard) : '',
+            sale_price_yard: p.sale_price_yard ? oneDecimal(p.sale_price_yard) : '',
             min_sale_yard: p.min_sale_yard ? Number(p.min_sale_yard).toFixed(2) : '',
-            sale_price_roll: p.sale_price_roll != null ? String(p.sale_price_roll) : '',
-            min_sale_roll: p.min_sale_roll != null ? String(p.min_sale_roll) : '',
+            sale_price_roll: p.sale_price_roll != null ? oneDecimal(p.sale_price_roll) : '',
+            min_sale_roll: p.min_sale_roll != null ? oneDecimal(p.min_sale_roll) : '',
             piece_price: p.piece_price != null ? String(p.piece_price) : '',
           };
         }
@@ -241,8 +262,8 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       const br = bf.sale_price_roll.trim() === '' ? null : Number(bf.sale_price_roll);
       const mr = bf.min_sale_roll.trim() === '' ? null : Number(bf.min_sale_roll);
       const pc = bf.piece_price.trim() === '' ? null : Number(bf.piece_price);
-      const autoRoll = br == null && by != null ? Number((by * 25).toFixed(2)) : null;
-      const autoMinRoll = mr == null && by != null ? Number((by * 21).toFixed(2)) : null;
+      const autoRoll = br == null && by != null ? Number((by * 25).toFixed(1)) : null;
+      const autoMinRoll = mr == null && by != null ? Number((by * 21).toFixed(1)) : null;
       if (by != null && by < 0) e[`bp_${branch.id}_yard`] = 'لا يمكن أن تكون سالبة';
       if (my != null && my < 0) e[`bp_${branch.id}_miny`] = 'لا يمكن أن تكون سالبة';
       if (br != null && br < 0) e[`bp_${branch.id}_roll`] = 'لا يمكن أن تكون سالبة';
@@ -321,8 +342,8 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         min_sale_yard: manualMinBranches.has(branch.id)
           ? (bf.min_sale_yard.trim() === '' ? 0 : Number(Number(bf.min_sale_yard).toFixed(2)))
           : (automaticMinYard === '' ? 0 : Number(automaticMinYard)),
-        sale_price_roll: bf.sale_price_roll.trim() === '' ? null : Number(bf.sale_price_roll),
-        min_sale_roll: bf.min_sale_roll.trim() === '' ? null : Number(bf.min_sale_roll),
+        sale_price_roll: bf.sale_price_roll.trim() === '' ? null : Number(oneDecimal(bf.sale_price_roll)),
+        min_sale_roll: bf.min_sale_roll.trim() === '' ? null : Number(oneDecimal(bf.min_sale_roll)),
         piece_price: bf.piece_price.trim() === '' ? null : Number(bf.piece_price),
       });
     }
@@ -364,7 +385,7 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
       const next = { ...cur, piece_price: value };
       const piece = value === '' ? null : Number(value);
       if (piece != null && Number.isFinite(piece) && piece > 0) {
-        const yardStr = (piece / PIECE_YARDS).toFixed(2);
+        const yardStr = (piece / PIECE_YARDS).toFixed(1);
         next.sale_price_yard = yardStr;
         if (!manualMinBranches.has(branchId)) {
           next.min_sale_yard = branchMinForYard(yardStr);
@@ -394,18 +415,16 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
           setImportSource(id);
           const f = fabrics.find((x) => String(x.id) === id);
           if (f) {
-            fillFromFabric(f, !initial?.id);
+            fillFromFabric(f);
             setImportedName(f.name);
           }
         }}
-        options={[{ value: '', label: 'اختر قماشاً لنسخ بياناته...' }, ...fabrics.filter((f) => f.id !== initial?.id).map((f) => ({ value: String(f.id), label: `${f.name}${f.code ? ` (${f.code})` : ''}` }))]}
+        options={fabrics.filter((f) => f.id !== initial?.id).map((f) => ({ value: String(f.id), label: `${f.name}${f.code ? ` (${f.code})` : ''}` }))}
         placeholder="اختر قماشاً لنسخ بياناته..."
       />
       {importedName && (
         <p className="text-xs text-emerald-600">
-          {initial?.id
-            ? `تم استيراد بيانات «${importedName}» — تُستبدل بيانات المواصفات والتسعير مع بقاء الاسم والكود الحاليين.`
-            : `تم استيراد جميع بيانات «${importedName}» — غيّر الاسم والكود ليتناسبا مع القماش المطلوب ثم أكمل الحفظ.`}
+          {`تم استيراد جميع بيانات «${importedName}» بما فيها الاسم والكود والباركود — عدّل ما تريده قبل الحفظ.`}
         </p>
       )}
 
@@ -457,8 +476,8 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
         const br = bf.sale_price_roll.trim() === '' ? null : Number(bf.sale_price_roll);
         const mr = bf.min_sale_roll.trim() === '' ? null : Number(bf.min_sale_roll);
         const ypr = num(form.yards_per_roll);
-        const autoRoll = br == null && by != null ? Number((by * 25).toFixed(2)) : null;
-        const autoMinRoll = mr == null && by != null ? Number((by * 21).toFixed(2)) : null;
+        const autoRoll = br == null && by != null ? Number((by * 25).toFixed(1)) : null;
+        const autoMinRoll = mr == null && by != null ? Number((by * 21).toFixed(1)) : null;
         const bCost = num(form.purchase_price) ?? 0;
         const profitY = by != null && by > 0 ? by - bCost : null;
         const margin = by != null && by > 0 ? ((by - bCost) / by) * 100 : null;
@@ -474,26 +493,26 @@ export default function FabricForm({ initial, onSubmit, onCancel }: FabricFormPr
                 <Input label="سعر القطعة" type="number" step="0.001" min="0" value={bf.piece_price} onChange={(e) => setBranchPiecePrice(branch.id, e.target.value)} error={errors[`bp_${branch.id}_piece`]} placeholder="مثال: 70" />
                 <p className="text-xs text-neutral-400">يُقسَم تلقائياً على 3.5 ليملأ سعر بيع الياردة بهذا الفرع — ويمكن تعديله بعده.</p>
               </div>
-              <Input label="سعر بيع الياردة" type="number" step="0.001" min="0" value={bf.sale_price_yard} onChange={(e) => setBranchYard(branch.id, e.target.value)} error={errors[`bp_${branch.id}_yard`]} placeholder="" />
+              <Input label="سعر بيع الياردة" type="number" step="0.1" min="0" value={bf.sale_price_yard} onChange={(e) => setBranchYard(branch.id, e.target.value)} onBlur={() => setBranchYard(branch.id, oneDecimal(bf.sale_price_yard))} error={errors[`bp_${branch.id}_yard`]} placeholder="" />
               <div className="space-y-1.5">
                 <Input label="الحد الأدنى لسعر بيع الياردة" type="number" step="0.001" min="0" value={bf.min_sale_yard} onChange={(e) => { setBf({ min_sale_yard: e.target.value }); markMinManual(branch.id); }} error={errors[`bp_${branch.id}_miny`]} placeholder="" />
                 <p className="text-xs text-neutral-400">يُحدَّث تلقائياً مع كل تعديل للسعر بنسبة {minSalePercent}% من سعر بيع الياردة — التعديل اليدوي يوقف التعبئة التلقائية لهذا الفرع.</p>
               </div>
-              <Input label="سعر بيع الطاقة" type="number" step="0.01" min="0" value={bf.sale_price_roll || (autoRoll == null ? '' : autoRoll.toFixed(2))} onChange={(e) => setBf({ sale_price_roll: e.target.value })} error={errors[`bp_${branch.id}_roll`]} placeholder="سعر الياردة × 25" />
-              <Input label="الحد الأدنى لسعر بيع الطاقة" type="number" step="0.01" min="0" value={bf.min_sale_roll || (autoMinRoll == null ? '' : autoMinRoll.toFixed(2))} onChange={(e) => setBf({ min_sale_roll: e.target.value })} error={errors[`bp_${branch.id}_minr`]} placeholder="سعر الياردة × 21" />
+              <Input label="سعر بيع الطاقة" type="number" step="0.1" min="0" value={bf.sale_price_roll || (autoRoll == null ? '' : autoRoll.toFixed(1))} onChange={(e) => setBf({ sale_price_roll: e.target.value })} onBlur={() => setBf({ sale_price_roll: bf.sale_price_roll === '' ? '' : oneDecimal(bf.sale_price_roll) })} error={errors[`bp_${branch.id}_roll`]} placeholder="سعر الياردة × 25" />
+              <Input label="الحد الأدنى لسعر بيع الطاقة" type="number" step="0.1" min="0" value={bf.min_sale_roll || (autoMinRoll == null ? '' : autoMinRoll.toFixed(1))} onChange={(e) => setBf({ min_sale_roll: e.target.value })} onBlur={() => setBf({ min_sale_roll: bf.min_sale_roll === '' ? '' : oneDecimal(bf.min_sale_roll) })} error={errors[`bp_${branch.id}_minr`]} placeholder="سعر الياردة × 21" />
             </div>
             {(autoRoll != null || autoMinRoll != null || profitY != null || profitR != null || margin != null) && (
               <div className="rounded-xl bg-white border border-sand-200 divide-y divide-sand-200 overflow-hidden">
                 {autoRoll != null && (
                   <div className="px-4 py-2.5 flex items-center justify-between text-sm">
                     <span className="text-neutral-600">سعر بيع الطاقة (تلقائي)</span>
-                    <span className="font-bold text-brand-700">{autoRoll.toFixed(2)}</span>
+                    <span className="font-bold text-brand-700">{autoRoll.toFixed(1)}</span>
                   </div>
                 )}
                 {autoMinRoll != null && (
                   <div className="px-4 py-2.5 flex items-center justify-between text-sm">
                     <span className="text-neutral-600">الحد الأدنى لسعر الطاقة (تلقائي)</span>
-                    <span className="font-bold text-brand-700">{autoMinRoll.toFixed(2)}</span>
+                    <span className="font-bold text-brand-700">{autoMinRoll.toFixed(1)}</span>
                   </div>
                 )}
                 {profitR != null && (

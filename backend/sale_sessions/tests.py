@@ -454,7 +454,11 @@ class SaleSessionAPITest(TestCase):
         self.branch = Branch.objects.create(name="B", code="B")
         self.wh = Warehouse.objects.create(name="فرع: B", code="BR-B", branch=self.branch)
         self.emp = Employee.objects.create(name="علي", branch=self.branch)
-        self.fabric = Fabric.objects.create(name="قطن", code="C1", sale_price_yard=5, yards_per_roll=50)
+        self.fabric = Fabric.objects.create(
+            name="قطن", code="C1", sale_price_yard=5, sale_price_roll=250, yards_per_roll=50
+        )
+        self.fabric.roll_sale_overrides = {str(self.branch.id): True}
+        self.fabric.save(update_fields=["roll_sale_overrides"])
         self.roll = FabricRoll.objects.create(
             warehouse=self.wh, fabric=self.fabric, yards=500, remaining_yards=500
         )
@@ -805,6 +809,8 @@ class SaleSessionAPITest(TestCase):
             name="لفة قليلة", code="C8", sale_price_yard=5,
             yards_per_roll=50, sale_price_roll=250,
         )
+        f2.roll_sale_overrides = {str(self.branch.id): True}
+        f2.save(update_fields=["roll_sale_overrides"])
         FabricRoll.objects.create(
             warehouse=self.wh, fabric=f2, yards=100, remaining_yards=100
         )
@@ -837,6 +843,8 @@ class SaleSessionAPITest(TestCase):
             name="قماش لفة", code="C3", sale_price_yard=5,
             sale_price_roll=230, yards_per_roll=50,
         )
+        f2.roll_sale_overrides = {str(self.branch.id): True}
+        f2.save(update_fields=["roll_sale_overrides"])
         FabricRoll.objects.create(warehouse=self.wh, fabric=f2, yards=100, remaining_yards=100)
         sid = self._open_session()["id"]
         r = self.c.post(f"/api/sale-sessions/{sid}/items/",

@@ -48,7 +48,7 @@ import { rollSaleAllowed } from '@/lib/fabrics';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { toEmployee } from '@/lib/sessionEmployee';
-import { formatCurrencyOneDecimal as formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { counted } from '@/lib/arabic';
 import { saleGroupBadges, saleGroupKey } from '@/lib/saleGroups';
 import { elapsedLabel, elapsedMinutes } from '@/lib/shiftClock';

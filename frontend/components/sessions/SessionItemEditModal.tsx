@@ -12,7 +12,7 @@ import {
   FabricBranchPrice,
 } from '@/types';
 import { updateSessionItem } from '@/services/sessions';
-import { formatCurrencyOneDecimal as formatCurrency } from '@/lib/format';
+import { formatCurrency } from '@/lib/format';
 import { rollSaleAllowed } from '@/lib/fabrics';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -27,6 +27,7 @@ const CARD_TYPE_OPTIONS: { value: SessionCardType; label: string }[] = [
   { value: 'credit', label: 'إئتماني / Credit' },
   { value: 'debit', label: 'خصم مباشر / Debit' },
 ];
+
 
 interface Props {
   open: boolean;

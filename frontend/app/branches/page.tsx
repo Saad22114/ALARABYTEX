@@ -76,6 +76,7 @@ export default function BranchesPage() {
         (acc, b) => {
           acc.sales += b.monthly_sales || 0;
           acc.expenses += b.monthly_expenses || 0;
+          acc.cogs += b.monthly_cogs || 0;
           acc.active += b.is_active ? 1 : 0;
           if (b.monthly_sales_target) {
             acc.target += b.monthly_sales_target;
@@ -84,7 +85,7 @@ export default function BranchesPage() {
           if (!acc.top || (b.monthly_sales || 0) > acc.top.monthly_sales) acc.top = b;
           return acc;
         },
-        { sales: 0, expenses: 0, active: 0, target: 0, targetSales: 0, top: null as Branch | null }
+        { sales: 0, expenses: 0, cogs: 0, active: 0, target: 0, targetSales: 0, top: null as Branch | null }
       )
     : null;
   const achievement = totals && totals.target > 0 ? (totals.targetSales / totals.target) * 100 : null;
@@ -165,9 +166,9 @@ export default function BranchesPage() {
           <StatCard
             icon={<Wallet size={20} />}
             iconBg="bg-brand-50 text-brand-600"
-            label="الصافي"
-            value={formatCurrency((totals?.sales ?? 0) - (totals?.expenses ?? 0))}
-            sub="المبيعات − المصاريف"
+            label="الربح بعد التكلفة والمصاريف"
+            value={formatCurrency((totals?.sales ?? 0) - (totals?.cogs ?? 0) - (totals?.expenses ?? 0))}
+            sub="المبيعات − تكلفة البضاعة − المصاريف"
           />
           <StatCard
             icon={<Target size={20} />}

@@ -129,10 +129,17 @@ class FabricSerializer(serializers.ModelSerializer):
         sale_roll = self._display_roll(
             instance.sale_price_roll, Decimal("25"), instance.sale_price_yard
         )
-        min_roll = self._display_roll(
-            instance.min_sale_roll, Decimal("21"), instance.sale_price_yard
-        )
         data["sale_price_roll_display"] = sale_roll
+        if instance.min_sale_roll is not None:
+            min_roll = instance.min_sale_roll
+        elif instance.min_sale_yard is not None and instance.yards_per_roll:
+            min_roll = (
+                instance.min_sale_yard * instance.yards_per_roll
+            ).quantize(Decimal("0.01"))
+        else:
+            min_roll = self._display_roll(
+                None, Decimal("21"), instance.sale_price_yard
+            )
         data["min_sale_roll_display"] = min_roll
         data["profit_yard"] = (instance.sale_price_yard or 0) - (instance.purchase_price or 0)
         return data

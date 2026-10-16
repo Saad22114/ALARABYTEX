@@ -22,11 +22,12 @@ import {
   Plus, Pencil, Trash2, Eye, Package, AlertTriangle,
   IndianRupee, Boxes, Tags, TrendingUp, Percent,
 } from 'lucide-react';
-import { Fabric, FabricStockResult, FabricSummary, Paginated } from '@/types';
+import { Fabric, FabricBranchPrice, FabricStockResult, FabricSummary, Paginated } from '@/types';
 import {
   listFabrics, createFabric, updateFabric, deleteFabric,
   getFabricSummary, getFabricStock, bulkPriceUpdate,
 } from '@/services/fabrics';
+import { listBranchPrices } from '@/services/branches';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -71,6 +72,7 @@ export default function FabricsPage() {
   const pageSize = settings?.default_page_size ?? 10;
 
   const [data, setData] = useState<Paginated<Fabric> | null>(null);
+  const [branchPricesByFabric, setBranchPricesByFabric] = useState<Record<number, FabricBranchPrice[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useUrlState('q', '');
   const [fabricType, setFabricType] = useUrlState('type', '');
@@ -117,6 +119,23 @@ export default function FabricsPage() {
   }, [page, pageSize, search, fabricType, unit, status, lowStock]);
 
   useEffect(() => fetchData(), [fetchData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fabrics = data?.results ?? [];
+    if (!fabrics.length) {
+      setBranchPricesByFabric({});
+      return () => { cancelled = true; };
+    }
+    Promise.all(fabrics.map((fabric) =>
+      listBranchPrices({ fabric: fabric.id, page_size: 100 })
+        .then((response) => [fabric.id, response.results] as const)
+        .catch(() => [fabric.id, []] as const)
+    )).then((entries) => {
+      if (!cancelled) setBranchPricesByFabric(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+  }, [data]);
 
   const fetchSummary = useCallback(() => {
     let cancelled = false;
@@ -286,16 +305,50 @@ export default function FabricsPage() {
                           {f.color && <span className="block text-xs text-neutral-400">{f.color}</span>}
                         </Td>
                         <Td>
-                          <span className="block text-sm tabular-nums">{formatCurrency(f.sale_price_yard)} <span className="text-xs text-neutral-400">/ياردة</span></span>
-                          <span className="block text-xs tabular-nums text-neutral-500">{f.sale_price_roll_display != null ? formatCurrency(f.sale_price_roll_display) : '-'} <span className="text-neutral-400">/طاقة</span></span>
+                          {(branchPricesByFabric[f.id]?.length ?? 0) > 0 ? (
+                            <div className="space-y-1">
+                              {branchPricesByFabric[f.id].map((price) => {
+                                const yardPrice = Number(price.sale_price_yard) || (price.piece_price ? Number(price.piece_price) / 3.5 : Number(price.global_sale_price_yard)) || 0;
+                                return (
+                                  <div key={price.id} className="text-xs tabular-nums">
+                                    <span className="font-medium text-neutral-700">{price.branch_name}: </span>
+                                    <span className="text-neutral-600">{formatCurrency(yardPrice)} /ي</span>
+                                    <span className="text-neutral-400"> • </span>
+                                    <span className="text-neutral-600">{price.sale_price_roll_display != null ? formatCurrency(Number(price.sale_price_roll_display)) : '-'} /ط</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <>
+                              <span className="block text-sm tabular-nums">{formatCurrency(f.sale_price_yard)} <span className="text-xs text-neutral-400">/ياردة</span></span>
+                              <span className="block text-xs tabular-nums text-neutral-500">{f.sale_price_roll_display != null ? formatCurrency(f.sale_price_roll_display) : '-'} <span className="text-neutral-400">/طاقة</span></span>
+                            </>
+                          )}
                         </Td>
                         <Td>
-                          <span className="block text-xs tabular-nums text-neutral-500">ي: {formatCurrency(f.min_sale_yard)}</span>
-                          {f.min_sale_roll_display != null && <span className="block text-xs tabular-nums text-neutral-500">ط: {formatCurrency(f.min_sale_roll_display)}</span>}
+                          {(branchPricesByFabric[f.id]?.length ?? 0) > 0 ? (
+                            <div className="space-y-1">
+                              {branchPricesByFabric[f.id].map((price) => (
+                                <div key={price.id} className="text-xs tabular-nums text-neutral-500">
+                                  <span className="font-medium text-neutral-700">{price.branch_name}: </span>
+                                  ي: {formatCurrency(Number(price.min_sale_yard) || Number(f.min_sale_yard) || 0)}
+                                  <span className="text-neutral-400"> • </span>
+                                  ط: {price.min_sale_roll_display != null ? formatCurrency(Number(price.min_sale_roll_display)) : (f.min_sale_roll_display != null ? formatCurrency(f.min_sale_roll_display) : '-')}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <>
+                              <span className="block text-xs tabular-nums text-neutral-500">ي: {formatCurrency(f.min_sale_yard)}</span>
+                              {f.min_sale_roll_display != null && <span className="block text-xs tabular-nums text-neutral-500">ط: {formatCurrency(f.min_sale_roll_display)}</span>}
+                            </>
+                          )}
                         </Td>
                         <Td>
                           <span className="block text-sm tabular-nums">{formatNumber(f.stock_yards)} <span className="text-xs text-neutral-400">ياردة</span></span>
                           <span className="block text-xs tabular-nums text-neutral-500">{formatNumber(f.total_rolls)} <span className="text-neutral-400">طاقة</span></span>
+                          {f.min_stock > 0 && <span className="block text-[11px] tabular-nums text-neutral-400">الحد الأدنى: {formatNumber(f.min_stock)} ياردة</span>}
                           {f.low_stock && <Badge variant="warning">منخفض</Badge>}
                         </Td>
                         <Td className="tabular-nums">
@@ -362,21 +415,25 @@ export default function FabricsPage() {
                   <p className="text-xs text-neutral-500 mb-1">سعر القطعة</p>
                   <p className="text-sm font-semibold tabular-nums">{details.piece_price != null ? formatCurrency(details.piece_price) : '-'}</p>
                 </div>
-                <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
+                {(branchPricesByFabric[details.id]?.length ?? 0) === 0 && <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
                   <p className="text-xs text-neutral-500 mb-1">سعر بيع الياردة</p>
                   <p className="text-sm font-semibold tabular-nums">{formatCurrency(details.sale_price_yard)}</p>
-                </div>
-                <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
+                </div>}
+                {(branchPricesByFabric[details.id]?.length ?? 0) === 0 && <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
                   <p className="text-xs text-neutral-500 mb-1">سعر بيع الطاقة</p>
                   <p className="text-sm font-semibold tabular-nums">{details.sale_price_roll_display != null ? formatCurrency(details.sale_price_roll_display) : '-'}</p>
-                </div>
-                <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
+                </div>}
+                {(branchPricesByFabric[details.id]?.length ?? 0) === 0 && <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
                   <p className="text-xs text-neutral-500 mb-1">حد أدنى ياردة</p>
                   <p className="text-sm font-semibold tabular-nums">{formatCurrency(details.min_sale_yard)}</p>
-                </div>
-                <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
+                </div>}
+                {(branchPricesByFabric[details.id]?.length ?? 0) === 0 && <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
                   <p className="text-xs text-neutral-500 mb-1">حد أدنى طاقة</p>
                   <p className="text-sm font-semibold tabular-nums">{details.min_sale_roll_display != null ? formatCurrency(details.min_sale_roll_display) : '-'}</p>
+                </div>}
+                <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
+                  <p className="text-xs text-neutral-500 mb-1">الحد الأدنى للمخزون</p>
+                  <p className="text-sm font-semibold tabular-nums">{formatNumber(details.min_stock)} ياردة</p>
                 </div>
                 <div className="rounded-xl bg-sand-50 border border-sand-200 p-3">
                   <p className="text-xs text-neutral-500 mb-1">هامش الربح</p>
@@ -386,7 +443,31 @@ export default function FabricsPage() {
                 </div>
               </div>
 
-              {details.barcode || details.fabric_type || details.color || details.composition ? (
+              {(branchPricesByFabric[details.id]?.length ?? 0) > 0 && (
+                <div className="rounded-xl border border-sand-200 p-4">
+                  <h4 className="mb-2 text-sm font-bold text-neutral-800">أسعار البيع والحد الأدنى حسب الفرع</h4>
+                  <div className="divide-y divide-sand-200">
+                    {branchPricesByFabric[details.id].map((price) => {
+                      const yardPrice = Number(price.sale_price_yard) || (price.piece_price ? Number(price.piece_price) / 3.5 : Number(price.global_sale_price_yard)) || 0;
+                      return (
+                        <div key={price.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 text-sm tabular-nums">
+                          <span className="font-medium text-neutral-700">{price.branch_name}</span>
+                          <span className="text-neutral-600">
+                            ياردة {formatCurrency(yardPrice)} · طاقة {price.sale_price_roll_display != null ? formatCurrency(Number(price.sale_price_roll_display)) : '-'}
+                          </span>
+                          <span className="text-neutral-500">
+                            الحد الأدنى: ياردة {formatCurrency(Number(price.min_sale_yard) || Number(details.min_sale_yard) || 0)} · طاقة {price.min_sale_roll_display != null ? formatCurrency(Number(price.min_sale_roll_display)) : (details.min_sale_roll_display != null ? formatCurrency(details.min_sale_roll_display) : '-')}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {details.barcode || details.fabric_type || details.color || details.composition ||
+                details.width_cm != null || details.weight_gsm != null || details.origin ||
+                details.manufacturer || details.supplier_name || details.description ? (
                 <div className="rounded-xl border border-sand-200 divide-y divide-sand-200">
                   {details.barcode && (
                     <div className="px-4 py-2 flex items-center justify-between">
@@ -440,6 +521,12 @@ export default function FabricsPage() {
                     <div className="px-4 py-2 flex items-center justify-between">
                       <span className="text-sm text-neutral-500">المورد</span>
                       <span className="text-sm">{details.supplier_name}</span>
+                    </div>
+                  )}
+                  {details.description && (
+                    <div className="px-4 py-2">
+                      <span className="block text-sm text-neutral-500 mb-1">الوصف</span>
+                      <p className="text-sm whitespace-pre-wrap">{details.description}</p>
                     </div>
                   )}
                 </div>

@@ -8,6 +8,7 @@ router.register("accounts", views.AccountViewSet, basename="account")
 router.register("journal", views.JournalEntryViewSet, basename="journal-entry")
 
 urlpatterns = [
+    path("reports/monthly-final/", views.MonthlyFinalReportView.as_view()),
     path("reports/trial-balance/", views.TrialBalanceView.as_view()),
     path("reports/income-statement/", views.IncomeStatementView.as_view()),
     path("reports/balance-sheet/", views.BalanceSheetView.as_view()),

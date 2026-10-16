@@ -340,7 +340,7 @@ def kpi_summary(request, date_from, date_to, prev_from, prev_to):
             "sales": sales["total"],
             "expenses": expenses["total"],
             "cogs": cogs,
-            "net": sales["total"] - expenses["total"],
+            "net": sales["total"] - cogs - expenses["total"],
             "gross": sales["total"] - cogs,
             "sessions": sessions["count"],
             "yards": sum(sold.values(), ZERO),
@@ -352,7 +352,7 @@ def kpi_summary(request, date_from, date_to, prev_from, prev_to):
     cards = [
         kpi("sales", "إجمالي المبيعات", cur["sales"], prev["sales"]),
         kpi("expenses", "المصاريف", cur["expenses"], prev["expenses"]),
-        kpi("net", "صافي الفرق", cur["net"], prev["net"]),
+        kpi("net", "الربح بعد التكلفة والمصاريف", cur["net"], prev["net"]),
         kpi("cogs", "تكلفة البضاعة المباعة", cur["cogs"], prev["cogs"]),
         kpi("gross", "مجمل الربح", cur["gross"], prev["gross"]),
         kpi("margin", "هامش الربح %", margin, prev_margin, type_="percent"),
@@ -422,8 +422,11 @@ def sales_trend(request, date_from, date_to, prev_from, prev_to):
         })
 
     cur_total = sum((r["total_sales"] for r in rows), 0.0)
-    prev_total = sum(prev_series, 0.0)
+    # لا تستخدم السلسلة المقتطعة للرسم البياني؛ حدود التجميع قد تجعل الفترة
+    # السابقة تحتوي سلالاً شهرية/أسبوعية أكثر من الحالية رغم تساوي عدد الأيام.
+    prev_total = sum((slot["total"] for slot in prev_acc.values()), ZERO)
     invoices = sum(r["invoices"] for r in rows)
+    prev_invoices = sum(slot["count"] for slot in prev_acc.values())
     columns = [
         column("period", "الفترة", "text"),
         column("total_sales", "إجمالي المبيعات", total=True),
@@ -442,7 +445,7 @@ def sales_trend(request, date_from, date_to, prev_from, prev_to):
         kpis=[
             kpi("total", "إجمالي المبيعات", cur_total, prev_total),
             kpi("avg", "متوسط الفاتورة", (cur_total / invoices) if invoices else 0,
-                (prev_total / max(len([v for v in prev_series if v]), 1)) if prev_total else 0),
+                (prev_total / prev_invoices) if prev_invoices else 0),
         ],
         period_=(date_from, date_to), previous=(prev_from, prev_to),
         group=key,
@@ -469,7 +472,7 @@ def branch_performance(request, date_from, date_to, prev_from, prev_to):
         sessions = sessions_totals(request, date_from, date_to, bid)
         sales = cur_sales["total"]
         gross = sales - cogs
-        net = sales - expenses["total"]
+        net = gross - expenses["total"]
         rows.append({
             "branch": bid,
             "branch_name": branch.name,
@@ -780,7 +783,7 @@ def supplier_aging(request, date_from, date_to, prev_from, prev_to):
 
     today = date_to
     entries = defaultdict(list)
-    for supplier_id, when, amount in LedgerEntry.objects.values_list(
+    for supplier_id, when, amount in LedgerEntry.objects.filter(date__lte=today).values_list(
         "supplier_id", "date", "amount"
     ).order_by("date", "id"):
         entries[supplier_id].append((when, amount))

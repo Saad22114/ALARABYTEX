@@ -950,7 +950,7 @@ class AnalyticsReportsTests(TestCase):
         row = next(x for x in r.data["rows"] if x["branch_name"] == "فرع التقارير")
         self.assertEqual(row["sales"], 1000.0)
         self.assertEqual(row["expenses"], 300.0)
-        self.assertEqual(row["net"], 700.0)
+        self.assertEqual(row["net"], 540.0)
         self.assertEqual(row["share"], 100.0)
 
     def test_employee_performance(self):
