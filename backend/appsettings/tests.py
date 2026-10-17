@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 import json
 import shutil
 import struct
@@ -11,6 +11,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from core.testsupport import AUTH_ADMIN_BRANCH_CODE, authenticate_admin
 
@@ -20,8 +21,17 @@ from sale_sessions.models import Employee
 from sales.models import DailySale
 from suppliers.models import Supplier
 
-from .backup import export_backup as bk_export, restore_backup
+from .backup import (
+    export_backup as bk_export,
+    restore_backup,
+    run_auto_backup_if_due,
+    should_run_auto_backup,
+)
 from .models import AppSettings
+
+
+def response_bytes(response):
+    return b"".join(response.streaming_content) if response.streaming else response.content
 
 
 class SettingsAPITest(TestCase):
@@ -149,6 +159,11 @@ class BackupEncryptionTest(TestCase):
     PASSWORD = "s3cret-passphrase"
 
     def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="backup-encryption-"))
+        self.override = override_settings(MEDIA_ROOT=self.tmp)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.c = APIClient()
         authenticate_admin(self.c)
         self.today = date.today().isoformat()
@@ -187,6 +202,40 @@ class BackupEncryptionTest(TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertFalse(AppSettings.load().backup_password)
 
+    def test_auto_backup_cannot_be_enabled_without_encryption_password(self):
+        r = self.c.patch(
+            "/api/settings/",
+            {"auto_backup_enabled": True, "auto_backup_every_hours": 24},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("auto_backup_enabled", r.data)
+        self.assertFalse(AppSettings.load().auto_backup_enabled)
+
+    def test_minute_interval_is_saved_and_validated(self):
+        self._set_password(self.PASSWORD)
+        saved = self.c.patch(
+            "/api/settings/",
+            {
+                "auto_backup_enabled": True,
+                "auto_backup_time": "02:35",
+                "auto_backup_every_hours": 1,
+                "auto_backup_every_minutes": 30,
+            },
+            format="json",
+        )
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.assertEqual(saved.data["auto_backup_every_minutes"], 30)
+        self.assertEqual(saved.data["auto_backup_every_hours"], 1)
+        self.assertTrue(saved.data["auto_backup_time"].startswith("02:35"))
+        persisted = AppSettings.load()
+        persisted.refresh_from_db()
+        self.assertEqual(persisted.auto_backup_every_hours, 1)
+        self.assertEqual(persisted.auto_backup_every_minutes, 30)
+
+        invalid = self.c.patch("/api/settings/", {"auto_backup_every_minutes": 60}, format="json")
+        self.assertEqual(invalid.status_code, 400)
+
     def test_blank_password_cannot_disable_encryption(self):
         """الفراغ يعني «لم تُغيّر» — لا باب لإلغاء التشفير بعد ضبطه."""
         self._set_password(self.PASSWORD)
@@ -200,7 +249,7 @@ class BackupEncryptionTest(TestCase):
         DailySale.objects.create(
             branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
         )
-        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        raw = response_bytes(self.c.get("/api/settings/backup/")).decode("utf-8")
         self.assertNotIn("مركز مسقط", raw)
         self.assertNotIn("tables", raw)
         envelope = json.loads(raw)
@@ -213,7 +262,7 @@ class BackupEncryptionTest(TestCase):
         DailySale.objects.create(
             branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
         )
-        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        raw = response_bytes(self.c.get("/api/settings/backup/")).decode("utf-8")
 
         # محاكاة تثبيت جديد: لا كلمة محفوظة في القاعدة إطلاقاً.
         s = AppSettings.load()
@@ -231,7 +280,7 @@ class BackupEncryptionTest(TestCase):
 
     def test_wrong_supplied_password_is_rejected(self):
         self._set_password(self.PASSWORD)
-        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        raw = response_bytes(self.c.get("/api/settings/backup/")).decode("utf-8")
         s = AppSettings.load()
         s.backup_password = ""
         s.save(update_fields=["backup_password", "updated_at"])
@@ -250,7 +299,7 @@ class BackupEncryptionTest(TestCase):
         DailySale.objects.create(
             branch=self.branch, date=self.today, total_sales=100, cash_amount=100,
         )
-        raw = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        raw = response_bytes(self.c.get("/api/settings/backup/")).decode("utf-8")
         self.c.patch("/api/settings/", {"backup_password": "another-pass"}, format="json")
 
         r = self.c.post("/api/settings/restore/", {"content": raw}, format="json")
@@ -266,10 +315,10 @@ class BackupEncryptionTest(TestCase):
 
         r = self.c.get("/api/settings/backup/")
         self.assertEqual(r.status_code, 200)
-        envelope = r.json()
+        raw_text = response_bytes(r).decode("utf-8")
+        envelope = json.loads(raw_text)
         self.assertTrue(envelope["encrypted"])
         self.assertEqual(envelope["format"], "qomash-backup")
-        raw_text = r.content.decode("utf-8")
 
         self._clear_data()
         self.assertEqual(DailySale.objects.count(), 0)
@@ -281,7 +330,7 @@ class BackupEncryptionTest(TestCase):
 
     def test_restore_encrypted_with_wrong_password_fails(self):
         self._set_password(self.PASSWORD)
-        raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        raw_text = response_bytes(self.c.get("/api/settings/backup/")).decode("utf-8")
 
         self._set_password("another-passphrase")
         r = self.c.post("/api/settings/restore/", {"content": raw_text}, format="json")
@@ -290,7 +339,7 @@ class BackupEncryptionTest(TestCase):
 
     def test_restore_encrypted_without_password_fails(self):
         self._set_password(self.PASSWORD)
-        raw_text = self.c.get("/api/settings/backup/").content.decode("utf-8")
+        raw_text = response_bytes(self.c.get("/api/settings/backup/")).decode("utf-8")
 
         s = AppSettings.load()
         s.backup_password = ""
@@ -310,10 +359,41 @@ class BackupEncryptionTest(TestCase):
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
 
 
+class AutoBackupMinuteScheduleTest(TestCase):
+    def test_minute_interval_waits_until_due(self):
+        now = timezone.now()
+        settings = AppSettings(
+            auto_backup_enabled=True,
+            auto_backup_every_hours=0,
+            auto_backup_every_minutes=5,
+            last_auto_backup_at=now - timedelta(minutes=4, seconds=59),
+        )
+        self.assertFalse(should_run_auto_backup(settings, now))
+        settings.last_auto_backup_at = now - timedelta(minutes=5)
+        self.assertTrue(should_run_auto_backup(settings, now))
+
+    def test_minutes_combine_with_hours_as_one_interval(self):
+        now = timezone.now()
+        settings = AppSettings(
+            auto_backup_enabled=True,
+            auto_backup_every_hours=1,
+            auto_backup_every_minutes=15,
+            last_auto_backup_at=now - timedelta(hours=1, minutes=14, seconds=59),
+        )
+        self.assertFalse(should_run_auto_backup(settings, now))
+        settings.last_auto_backup_at -= timedelta(seconds=1)
+        self.assertTrue(should_run_auto_backup(settings, now))
+
+
 class BackupRestoreTest(TestCase):
     PASSWORD = "restore-test-password"
 
     def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="backup-restore-"))
+        self.override = override_settings(MEDIA_ROOT=self.tmp)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.c = APIClient()
         self.admin_user, _ = authenticate_admin(self.c)
         self.today = date.today().isoformat()
@@ -345,11 +425,16 @@ class BackupRestoreTest(TestCase):
             amount=50,
         )
 
-        r = self.c.get("/api/settings/backup/")
+        r = self.c.get("/api/settings/backup/", HTTP_ORIGIN="http://localhost:3000")
         self.assertEqual(r.status_code, 200)
         self.assertIn("Content-Disposition", r.headers)
+        self.assertIn("content-disposition", r.headers.get("Access-Control-Expose-Headers", "").lower())
+        filename = r.headers["Content-Disposition"].split('filename="', 1)[1].rstrip('"')
+        self.assertRegex(filename, r"backup_\d{8}_\d{6}(?:-\d+)?\.json")
+        self.assertTrue((self.tmp / "backups" / filename).is_file())
         # التنزيل مُشفّر، فالمحتوى مُغلَّف لا جداول مقروءة.
-        envelope = r.json()
+        raw_backup = response_bytes(r).decode("utf-8")
+        envelope = json.loads(raw_backup)
         self.assertTrue(envelope["encrypted"])
         from appsettings.crypto import decrypt_backup
 
@@ -362,12 +447,14 @@ class BackupRestoreTest(TestCase):
         )
         self.assertEqual(len(plaintext["tables"]["sales.DailySale"]), 1)
         self.assertEqual(len(plaintext["tables"]["expenses.Expense"]), 1)
+        saved_files = self.c.get("/api/settings/auto-backup/").data["files"]
+        self.assertIn(filename, [entry["name"] for entry in saved_files])
 
         self._clear_data()
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 0)
         self.assertEqual(DailySale.objects.count(), 0)
 
-        r = self.c.post("/api/settings/restore/", {"content": r.content.decode("utf-8")}, format="json")
+        r = self.c.post("/api/settings/restore/", {"content": raw_backup}, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).count(), 1)
         self.assertTrue(Branch.objects.filter(code="MHN").exists())
@@ -499,6 +586,11 @@ class LargeBackupRestoreTest(TestCase):
     FILLER_BYTES = 3_000_000
 
     def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="backup-large-"))
+        self.override = override_settings(MEDIA_ROOT=self.tmp)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.c = APIClient()
         authenticate_admin(self.c)
         s = AppSettings.load()
@@ -518,7 +610,7 @@ class LargeBackupRestoreTest(TestCase):
             r = self.c.get("/api/settings/backup/")
             # استجابة التنزيل HttpResponse عادية، لا Response بـ.data
             self.assertEqual(r.status_code, 200)
-            raw = r.content.decode("utf-8")
+            raw = response_bytes(r).decode("utf-8")
         self.assertGreater(len(raw.encode("utf-8")), 2621440, "الاختبار بلا معنى بلا تجاوز الحد")
 
         r = self.c.post(
@@ -591,6 +683,44 @@ class ScheduledBackupEncryptionTest(TestCase):
             call_command("auto_backup", stdout=out, stderr=err)
         self.assertEqual(cm.exception.code, 1)
         self.assertEqual(list((self.tmp / "backups").glob("*.json")), [])
+
+    def test_due_scheduled_run_writes_timestamped_backup_and_records_success(self):
+        s = AppSettings.load()
+        s.backup_password = self.PASSWORD
+        s.auto_backup_enabled = True
+        s.auto_backup_every_hours = 24
+        s.last_auto_backup_at = None
+        s.save(update_fields=[
+            "backup_password", "auto_backup_enabled", "auto_backup_every_hours",
+            "last_auto_backup_at", "updated_at",
+        ])
+
+        rel = run_auto_backup_if_due()
+
+        self.assertIsNotNone(rel)
+        filename = Path(rel).name
+        self.assertRegex(filename, r"backup_\d{8}_\d{6}(?:-\d+)?\.json")
+        self.assertTrue((self.tmp / rel).is_file())
+        self.assertEqual(AppSettings.load().last_auto_backup_path, rel)
+        self.assertIsNotNone(AppSettings.load().last_auto_backup_at)
+        self.assertIsNone(run_auto_backup_if_due(), "لا يُفترض إنشاء نسخة ثانية قبل موعدها")
+
+    def test_auto_backup_download_endpoint_streams_the_saved_file(self):
+        from rest_framework.test import APIClient
+
+        from core.testsupport import authenticate_admin
+
+        backup = self.tmp / "backups" / "backup_download-test.json"
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_text('{"encrypted":true}', encoding="utf-8")
+        client = APIClient()
+        authenticate_admin(client)
+
+        response = client.get("/api/settings/auto-backup/backup_download-test.json/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertEqual(b"".join(response.streaming_content), b'{"encrypted":true}')
 
 
 def _png_bytes(width=64, height=64):

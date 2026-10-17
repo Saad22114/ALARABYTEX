@@ -251,7 +251,7 @@ def should_run_auto_backup(s, now=None):
     Rules:
     - disabled => never
     - first run (last_auto_backup_at is None) => run
-    - interval mode (auto_backup_every_hours > 0) => run if elapsed >= hours
+    - interval mode => combine the configured hours and minutes
     - daily-time mode (auto_backup_time set) => run once the wall clock passes that time
     """
     if not s.auto_backup_enabled:
@@ -264,10 +264,14 @@ def should_run_auto_backup(s, now=None):
         now = timezone.now()
     from django.utils import timezone
 
-    elapsed_h = (now - s.last_auto_backup_at).total_seconds() / 3600.0
+    elapsed_minutes = (now - s.last_auto_backup_at).total_seconds() / 60.0
     candidates = []
-    if s.auto_backup_every_hours and s.auto_backup_every_hours > 0:
-        candidates.append(elapsed_h >= s.auto_backup_every_hours)
+    interval_minutes = (
+        (s.auto_backup_every_hours or 0) * 60
+        + (s.auto_backup_every_minutes or 0)
+    )
+    if interval_minutes > 0:
+        candidates.append(elapsed_minutes >= interval_minutes)
     if s.auto_backup_time is not None:
         local_now = timezone.localtime(now)
         local_last = timezone.localtime(s.last_auto_backup_at)
@@ -275,7 +279,7 @@ def should_run_auto_backup(s, now=None):
         candidates.append(crossed_today)
     if not candidates:
         # Enabled but neither time nor interval is set → default to every 24h
-        candidates.append(elapsed_h >= 24)
+        candidates.append(elapsed_minutes >= 24 * 60)
     return any(candidates)
 
 

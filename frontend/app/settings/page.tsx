@@ -210,8 +210,10 @@ export default function SettingsPage() {
   const [autoBackupInfo, setAutoBackupInfo] = useState<AutoBackupInfo | null>(null);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
   const [autoBackupTime, setAutoBackupTime] = useState('');
-  const [autoBackupEveryHours, setAutoBackupEveryHours] = useState('');
+  const [autoBackupIntervalHours, setAutoBackupIntervalHours] = useState('');
+  const [autoBackupIntervalMinutes, setAutoBackupIntervalMinutes] = useState('');
   const [autoBackupLoading, setAutoBackupLoading] = useState(false);
+  const autoBackupSettingsHydrated = useRef(false);
 
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -261,28 +263,63 @@ export default function SettingsPage() {
   useEffect(() => fetchBudgets(), [fetchBudgets]);
 
   const fetchAutoBackups = () => {
-    getAutoBackups()
+    return getAutoBackups()
       .then((info) => setAutoBackupInfo(info))
       .catch(() => {});
   };
   useEffect(() => { fetchAutoBackups(); }, []);
   useEffect(() => {
-    if (settings) {
+    // settings يتغير أيضاً عند حفظ معلومات النشاط أو كلمة المرور وغيرها.
+    // إعادة التهيئة مع كل تغيير كانت تعيد العداد إلى قيمة استجابة قديمة.
+    if (settings && !autoBackupSettingsHydrated.current) {
+      autoBackupSettingsHydrated.current = true;
       setAutoBackupEnabled(!!settings.auto_backup_enabled);
-      setAutoBackupTime(settings.auto_backup_time || '');
-      setAutoBackupEveryHours(String(settings.auto_backup_every_hours ?? ''));
+      // يعيد Django الوقت غالباً بصيغة HH:MM:SS، بينما حقل الوقت يعرض HH:MM.
+      // ولا نعيد ضبطه إذا كان الخادم أقدم ولا يضمّن الحقل في الاستجابة.
+      if (settings.auto_backup_time !== undefined) {
+        setAutoBackupTime(settings.auto_backup_time?.slice(0, 5) || '');
+      }
+      // إصدارات الخادم الأقدم قد لا تعيد حقلي الفاصل بعد الحفظ؛ لا تمسح
+      // ما أدخله المستخدم لمجرد أن الحقل غير موجود في الاستجابة.
+      if (settings.auto_backup_every_hours !== undefined || settings.auto_backup_every_minutes !== undefined) {
+        const totalMinutes = Number(settings.auto_backup_every_hours ?? 0) * 60
+          + Number(settings.auto_backup_every_minutes ?? 0);
+        setAutoBackupIntervalHours(String(Math.floor(totalMinutes / 60) || ''));
+        setAutoBackupIntervalMinutes(String(totalMinutes % 60 || ''));
+      }
     }
   }, [settings]);
 
   const handleSaveAutoBackup = async () => {
+    if (autoBackupEnabled && !settings?.has_backup_password) {
+      toast('error', 'اضبط كلمة مرور التشفير قبل تفعيل النسخ التلقائي');
+      return;
+    }
     setAutoBackupLoading(true);
     try {
       const patch: any = {
         auto_backup_enabled: autoBackupEnabled,
         auto_backup_time: autoBackupTime || null,
-        auto_backup_every_hours: Number(autoBackupEveryHours) || 0,
+        auto_backup_every_hours: Number(autoBackupIntervalHours) || 0,
+        auto_backup_every_minutes: Number(autoBackupIntervalMinutes) || 0,
       };
-      await updateSettings(patch);
+      const saved = await updateSettings(patch);
+      const savedHours = saved.auto_backup_every_hours;
+      const savedMinutes = saved.auto_backup_every_minutes;
+      if (savedHours === undefined || savedMinutes === undefined
+        || Number(savedHours) !== patch.auto_backup_every_hours
+        || Number(savedMinutes) !== patch.auto_backup_every_minutes) {
+        throw new Error('الخادم لم يؤكد حفظ فاصل النسخ. أعد تشغيل الخادم ثم احفظ الإعدادات مجدداً.');
+      }
+      // اعرض ما أكّد الخادم حفظه، حتى تتطابق الشاشة مع ما سيعود بعد التحديث.
+      if (saved.auto_backup_time !== undefined) {
+        setAutoBackupTime(saved.auto_backup_time?.slice(0, 5) || '');
+      }
+      setAutoBackupIntervalHours(String(savedHours || ''));
+      setAutoBackupIntervalMinutes(String(savedMinutes || ''));
+      // تفعيل الجدولة قد ينشئ النسخة الأولى عند انتهاء طلب الحفظ؛ حدّث
+      // القائمة بعده حتى لا تبقى رسالة «لا توجد نسخ» معروضة من الجلب السابق.
+      await fetchAutoBackups();
       toast('success', 'تم حفظ إعدادات النسخ التلقائي بنجاح');
     } catch (err: any) {
       toast('error', err.message);
@@ -362,6 +399,7 @@ export default function SettingsPage() {
     setBackupDownloading(true);
     try {
       await downloadBackup();
+      await fetchAutoBackups();
       toast('success', 'تم تنزيل النسخة الاحتياطية');
     } catch (err: any) {
       toast('error', err.message || 'فشل تنزيل النسخة الاحتياطية');
@@ -995,9 +1033,12 @@ export default function SettingsPage() {
                   <Badge variant="success">AES-256-GCM</Badge>
                 </div>
                 <p className="text-xs text-neutral-500">
-                  زرّ واحد لكل شيء: تنزيل نسخة كاملة من بيانات النظام — الفروع، الموظفون، الزبائن،
+                  تنزيل نسخة كاملة من بيانات النظام — الفروع، الموظفون، قوالب الصلاحيات، الزبائن،
                   الأقمشة والمخزون، المبيعات، المصاريف، المحاسبة، الرسائل، الشعار والإعدادات — في ملف
                   واحد مشفّر لا يُقرأ إلا بكلمة المرور، وباسم يحمل تاريخه ووقتـه.
+                </p>
+                <p className="text-xs text-neutral-500">
+                  النسخة اليدوية والمجدولة تستخدمان التنسيق والتسمية نفسيهما، ويُضاف رقم تلقائي إذا أُنشئتا في الثانية نفسها.
                 </p>
                 {!settings?.has_backup_password && (
                   <p className="text-xs text-red-600">اضبط كلمة مرور التشفير بالأسفل أولاً — لا تُصدَّر نسخ غير مشفّرة.</p>
@@ -1064,11 +1105,16 @@ export default function SettingsPage() {
           <div className="mt-6 p-4 bg-sand-50 rounded-xl">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-sm font-medium text-neutral-700">النسخ الاحتياطي التلقائي</p>
-                <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
+                <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} disabled={!settings?.has_backup_password && !autoBackupEnabled} />
               </div>
+              {!settings?.has_backup_password && (
+                <p role="status" className="text-xs text-red-600 mb-3">
+                  النسخ التلقائي متوقف حالياً: احفظ كلمة مرور التشفير أعلاه أولاً، ثم فعّل النسخ واحفظ الإعدادات.
+                </p>
+              )}
               <p className="text-xs text-neutral-500 mb-3">
                 عند التفعيل تُنشأ نسخة احتياطية تلقائياً في مجلد النسخ الاحتياطية. حدد موعداً يومياً (الوقت) أو
-                نسخة دورية كل عدة ساعات (أو كليهما معاً). لتشغيلها تلقائياً أنشئ مهمة مجدولة على الخادم تشغّل
+                نسخة دورية كل عدة ساعات (أو كليهما معاً). يفحصها الخادم مع الطلبات الواردة، ولإنشاء نسخ حتى عند عدم استخدام النظام أنشئ مهمة مجدولة على الخادم تشغّل
                 <span className="font-mono text-[11px] bg-sand-100 px-1.5 py-0.5 rounded mx-1" dir="ltr">python manage.py auto_backup</span>
                 بشكل متكرر.
               </p>
@@ -1083,17 +1129,27 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-neutral-500 block mb-1">كل (ساعة)</label>
-                  <Input
-                    type="number"
-                    numeric="int"
-                    min="0"
-                    max="720"
-                    value={autoBackupEveryHours}
-                    onChange={(e) => setAutoBackupEveryHours(e.target.value)}
-                    className="focus:ring-brand-500/40"
-                  />
-                  <p className="text-[11px] text-neutral-400 mt-1">0 = إيقاف الفاصل الزمني</p>
+                  <label className="text-xs font-medium text-neutral-500 block mb-1">الفاصل بين النسخ</label>
+                  <div className="flex gap-3">
+                    {([
+                      { label: 'ساعات', value: autoBackupIntervalHours, set: setAutoBackupIntervalHours, max: 720 },
+                      { label: 'دقائق', value: autoBackupIntervalMinutes, set: setAutoBackupIntervalMinutes, max: 59 },
+                    ] as const).map((counter) => {
+                      const amount = Number(counter.value) || 0;
+                      const step = (delta: number) => counter.set(String(Math.min(counter.max, Math.max(0, amount + delta)) || ''));
+                      return (
+                        <div key={counter.label} className="flex-1 rounded-xl border border-sand-300 bg-surface px-2 py-1.5">
+                          <div className="text-[11px] text-neutral-500 text-center">{counter.label}</div>
+                          <div className="flex items-center justify-between gap-2">
+                            <button type="button" aria-label={`زيادة ${counter.label}`} onClick={() => step(1)} className="h-7 w-7 rounded-lg bg-sand-100 text-neutral-700 hover:bg-sand-200">+</button>
+                            <span className="min-w-8 text-center font-semibold tabular-nums" aria-live="polite">{amount}</span>
+                            <button type="button" aria-label={`تقليل ${counter.label}`} onClick={() => step(-1)} className="h-7 w-7 rounded-lg bg-sand-100 text-neutral-700 hover:bg-sand-200">−</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-neutral-400 mt-1">0 ساعة و0 دقيقة = كل 24 ساعة إذا لم تحدد وقتاً يومياً</p>
                 </div>
                 <div className="flex items-end">
                   <Button variant="secondary" onClick={handleSaveAutoBackup} loading={autoBackupLoading}>
@@ -1124,6 +1180,7 @@ export default function SettingsPage() {
                     <span className="font-semibold text-neutral-700">
                       {autoBackupInfo.kept} من {autoBackupInfo.keep}
                     </span>
+                    {' '}— تشمل القائمة النسخ اليدوية والمجدولة بالتنسيق نفسه.
                     {autoBackupInfo.full && (
                       <span className="text-neutral-400">
                         {' '}
@@ -1177,7 +1234,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-neutral-400 mt-3">لا توجد نسخ تلقائية بعد.</p>
+                <p className="text-xs text-neutral-400 mt-3">لا توجد نسخ محفوظة بعد.</p>
               )}
             </div>
           </Card>

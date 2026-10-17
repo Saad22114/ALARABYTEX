@@ -83,7 +83,10 @@ export function autoBackupDownloadUrl(name: string): string {
 }
 
 export async function downloadBackup(): Promise<void> {
-  await downloadBlob(`${API_URL}/settings/backup/`, 'backup.json');
+  const now = new Date();
+  const pad = (part: number) => String(part).padStart(2, '0');
+  const fallbackName = `backup_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
+  await downloadBlob(`${API_URL}/settings/backup/`, fallbackName);
 }
 
 export async function downloadAutoBackup(name: string): Promise<void> {

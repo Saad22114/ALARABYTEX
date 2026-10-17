@@ -255,6 +255,12 @@ class AppSettings(TimeStampedModel):
         verbose_name="نسخ احتياطي كل (ساعة)",
         help_text="0 = إيقاف الفاصل الزمني (يعمل بالوقت اليومي فقط). مثال: 6 تعني نسخة كل 6 ساعات",
     )
+    auto_backup_every_minutes = models.PositiveIntegerField(
+        default=0,
+        validators=[MaxValueValidator(59)],
+        verbose_name="نسخ احتياطي كل (دقيقة)",
+        help_text="جزء الدقائق من الفاصل الزمني؛ من 0 إلى 59",
+    )
     last_auto_backup_at = models.DateTimeField(
         null=True, blank=True, verbose_name="آخر نسخة تلقائية",
         help_text="يُحدَّث تلقائياً عند نجاح النسخة التلقائية",

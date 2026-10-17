@@ -179,6 +179,9 @@ _frontend = os.getenv("FRONTEND_URL")
 if _frontend:
     CORS_ALLOWED_ORIGINS.append(_frontend)
 CORS_ALLOW_CREDENTIALS = True
+# اسم الملف الذي يرسله الخادم في Content-Disposition يجب أن يكون مقروءاً
+# لواجهة المتصفح كي تحتفظ النسخة اليدوية بتاريخها ووقتها.
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
 # Django REST Framework
 REST_FRAMEWORK = {

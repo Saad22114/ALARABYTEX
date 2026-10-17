@@ -133,20 +133,24 @@ export async function downloadBlob(url: string, fallbackFilename: string): Promi
     if (code === 'must_change_password') {
       redirectToChangePassword();
     }
-    throw new Error(detail || 'تعذر تنزيل الملف');
+    throw new Error(detail || `تعذر تنزيل الملف (رمز ${res.status})`);
   }
   const blob = await res.blob();
   const link = document.createElement('a');
   const objectUrl = URL.createObjectURL(blob);
   link.href = objectUrl;
+  link.style.position = 'fixed';
+  link.style.left = '-10000px';
+  link.style.top = '0';
   // اسم الخادم يحمل التاريخ والوقت، فيُعرف أي نسخة هذا الملف. وتجاهله كان
   // يجعل كل تنزيلات النسخة باسم واحد فيصطدم بعضها ببعض في مجلد التنزيلات.
   link.download = filenameFromDisposition(res.headers.get('Content-Disposition'), fallbackFilename);
   document.body.appendChild(link);
   link.click();
-  link.remove();
-  // لا يُبطَل الرابط قبل أن يبدأ المتصفح قراءته: الإبطال الفوري يقطع
-  // التنزيل في أوله فيخرج ملف نسخة احتياطية ناقصاً لا يُفتح ولا يُستعاد —
-  // والسبب لا يظهر إلا عند الاستعادة بعد شهور.
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+  // إبقاء الرابط في DOM حتى يتسلم المتصفح الملف؛ إزالته فور click قد
+  // يلغي التنزيل في بعض المتصفحات، خصوصاً بعد اكتمال طلب fetch غير المتزامن.
+  setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }, 30_000);
 }

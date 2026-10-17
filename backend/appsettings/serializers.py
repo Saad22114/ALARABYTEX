@@ -33,6 +33,7 @@ class AppSettingsSerializer(serializers.ModelSerializer):
             "logo",
             "backup_password", "has_backup_password",
             "auto_backup_enabled", "auto_backup_time", "auto_backup_every_hours",
+            "auto_backup_every_minutes",
             "last_auto_backup_at", "last_auto_backup_path",
             "created_at", "updated_at",
         ]
@@ -55,3 +56,12 @@ class AppSettingsSerializer(serializers.ModelSerializer):
         if problem:
             raise serializers.ValidationError(problem)
         return value
+
+    def validate(self, attrs):
+        enabled = attrs.get("auto_backup_enabled", getattr(self.instance, "auto_backup_enabled", False))
+        password = attrs.get("backup_password", getattr(self.instance, "backup_password", ""))
+        if enabled and not password:
+            raise serializers.ValidationError({
+                "auto_backup_enabled": "اضبط كلمة مرور النسخ الاحتياطي قبل تفعيل النسخ التلقائي.",
+            })
+        return attrs

@@ -21,7 +21,7 @@ from branches.models import Branch
 from core.testsupport import authenticate_admin
 from machine_account.models import MachineCollection
 from payroll.models import SalaryStructure
-from sale_sessions.models import Employee
+from sale_sessions.models import Employee, PermissionTemplate
 
 from . import backup as bk
 from .models import AppSettings
@@ -68,6 +68,28 @@ class BackupCoverageTest(TestCase):
             "audit.AuditLog",
         ):
             self.assertIn(label, tables, f"{label} غير موجود في ملف النسخة")
+
+    def test_saved_permission_templates_are_exported_and_restored(self):
+        template = PermissionTemplate.objects.create(
+            name="مندوب بمعرض",
+            role="sales",
+            permissions={"sales": {"view": True, "create": True}},
+            hidden_sections=["payroll"],
+            allowed_branches=[11, 14],
+        )
+        payload = bk.export_backup(AppSettings.load())
+        self.assertIn("sale_sessions.PermissionTemplate", payload["tables"])
+        self.assertEqual(
+            payload["tables"]["sale_sessions.PermissionTemplate"][0]["name"],
+            "مندوب بمعرض",
+        )
+
+        PermissionTemplate.objects.all().delete()
+        bk.restore_backup(payload)
+        restored = PermissionTemplate.objects.get(pk=template.pk)
+        self.assertEqual(restored.permissions, {"sales": {"view": True, "create": True}})
+        self.assertEqual(restored.hidden_sections, ["payroll"])
+        self.assertEqual(restored.allowed_branches, [11, 14])
 
     def test_table_keys_keep_their_original_casing(self):
         """``model_name`` صغيرة الحروف بحكم Django — بناؤها منقط، فتنهار المطابقة."""

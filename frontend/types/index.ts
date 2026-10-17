@@ -676,6 +676,7 @@ export interface AppSettings {
   auto_backup_enabled?: boolean;
   auto_backup_time?: string | null;
   auto_backup_every_hours?: number;
+  auto_backup_every_minutes?: number;
   last_auto_backup_at?: string | null;
   last_auto_backup_path?: string;
   created_at: string;

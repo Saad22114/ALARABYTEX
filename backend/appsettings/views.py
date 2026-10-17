@@ -1,7 +1,6 @@
 import json
 import mimetypes
 import os
-from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,7 +19,7 @@ from sale_sessions.models import Employee, SaleSession, SaleSessionItem
 from sales.models import DailySale
 from suppliers.models import Supplier
 
-from .backup import backup_document
+from .backup import backup_file_abspath, backup_document, write_backup_file
 from .crypto import (
     BackupCryptoError,
     BackupPasswordError,
@@ -197,6 +196,9 @@ class AppSettingsView(APIView):
         ser = AppSettingsSerializer(s, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
         ser.save()
+        # أعد القراءة من قاعدة البيانات كي تكون استجابة الحفظ هي القيم
+        # المثبتة فعلياً، لا قيم الذاكرة التي أُرسلت إلى serializer.
+        s.refresh_from_db()
         return Response(ser.data)
 
 
@@ -252,13 +254,20 @@ class BackupView(APIView):
     def get(self, request):
         settings_obj = AppSettings.load()
         try:
-            content = backup_document(settings_obj)
+            # استخدم المسار نفسه للنسخ اليدوية والتلقائية: محتوى مشفّر واحد،
+            # وتسمية موحّدة، وحلقة أسماء تمنع استبدال نسخة أُنشئت في الثانية نفسها.
+            rel_path = write_backup_file(settings_obj, prefix="backup")
         except BackupPasswordError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        response = HttpResponse(content, content_type="application/json; charset=utf-8")
-        filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return response
+        path = backup_file_abspath(Path(rel_path).name)
+        if path is None:
+            raise Http404("تعذر العثور على النسخة بعد إنشائها")
+        return FileResponse(
+            open(path, "rb"),
+            as_attachment=True,
+            filename=path.name,
+            content_type="application/json; charset=utf-8",
+        )
 
 
 def _coerce_v1(payload):
