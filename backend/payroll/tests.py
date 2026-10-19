@@ -226,6 +226,17 @@ class PayrollRunTests(PayrollTestBase):
         r = self.c.get("/api/payroll/preview/", {"month": self.month_str})
         self.assertEqual(self._row(r.data)["advances_total"], 0.0)
 
+    def test_preview_caps_advance_deduction_at_salary_amount(self):
+        self._structure()
+        aid = self._advance_id("3000")
+        self.c.post(f"/api/payroll/advances/{aid}/approve/", {}, format="json")
+
+        r = self.c.get("/api/payroll/preview/", {"month": self.month_str})
+
+        row = self._row(r.data)
+        self.assertEqual(row["advances_total"], 3000.0)
+        self.assertEqual(row["net_estimate"], 0.0)
+
     def test_generate_run_creates_payslips(self):
         self._structure()
         self._closed_session("150")

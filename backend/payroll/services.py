@@ -198,6 +198,10 @@ def build_preview(month, branch=None, employee_ids=None, include_inactive=False)
         overtime_amount = money(overtime_hours * snap["overtime_hour_rate"])
         absence_days = mark.absence_days if mark else ZERO
         absence_deduction = money(absence_days * snap["daily_rate"])
+        # قسيمة الراتب لا تخصم من السلفة أكثر من الأساسي والبدلات؛ يجب أن
+        # تستخدم المعاينة الحد نفسه حتى لا تعرض صافي راتب سالباً على خلاف
+        # القسيمة التي سينشئها generate_run.
+        advance_deduction = money(min(advances_total, money(gross)))
         total_base += snap["base_salary"]
         total_gross += gross
         total_commission += commission
@@ -228,7 +232,10 @@ def build_preview(month, branch=None, employee_ids=None, include_inactive=False)
             "overtime_amount": float(overtime_amount),
             "absence_days": float(absence_days),
             "absence_deduction": float(absence_deduction),
-            "net_estimate": float(money(gross + commission + overtime_amount - advances_total - absence_deduction)),
+            "net_estimate": float(money(
+                gross + commission + overtime_amount
+                - advance_deduction - absence_deduction
+            )),
         })
     return {
         "month": start.isoformat(),

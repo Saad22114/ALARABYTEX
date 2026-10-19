@@ -89,19 +89,31 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         token, _ = Token.objects.get_or_create(user=user)
-        from audit.models import AuditLog
-        last_login = (
-            AuditLog.objects.filter(
-                employee=employee, action=AuditLog.Action.LOGIN
+        last_login = None
+        try:
+            from audit.models import AuditLog
+
+            last_login = (
+                AuditLog.objects.filter(
+                    employee=employee, action=AuditLog.Action.LOGIN
+                )
+                .order_by("-timestamp", "-id")
+                .first()
             )
-            .order_by("-timestamp", "-id")
-            .first()
-        )
+        except Exception:
+            # قراءة سجل التدقيق معلومة مساعدة وليست شرطاً لإتمام الدخول.
+            logger.exception("could not read last login audit entry for %s", employee)
         from django.utils import timezone as dj_timezone
         user.last_login = dj_timezone.now()
         user.save(update_fields=["last_login"])
-        from audit.services import log_audit_login
-        log_audit_login(employee, request)
+        try:
+            from audit.services import log_audit_login
+
+            log_audit_login(employee, request)
+        except Exception:
+            # خلل في سجل التدقيق (مثل تعارض عدّاد قاعدة البيانات) لا يحجب
+            # إنشاء جلسة دخول صحيحة.
+            logger.exception("login audit hook failed for %s", employee)
 
         # حضور الموظف يُفتح مع دخوله. مغطّى بـ try/except لأن فشل قياس
         # الحضور لا يجوز أن يُبطل دخولاً صحيحاً: المستخدم لو مُنع من الدخول

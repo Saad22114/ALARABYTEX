@@ -630,3 +630,15 @@ def restore_backup(payload):
             elif logo_meta is None and real.logo:
                 real.logo = ""
                 real.save(update_fields=["logo", "updated_at"])
+
+            # الصفوف المستعادة تحتفظ بمعرّفاتها الأصلية؛ حدّث عدّادات
+            # التسلسل كي لا تتصادم الإدخالات الجديدة مع تلك المعرّفات.
+            from django.core.management.color import no_style
+            from django.db import connection
+
+            sequence_labels = set(_model_labels()) | set(_through_labels()) | {"appsettings.AppSettings"}
+            sequence_models = [_model(label) for label in sorted(sequence_labels)]
+            with connection.cursor() as cursor:
+                for sql in connection.ops.sequence_reset_sql(no_style(), sequence_models):
+                    cursor.execute(sql)
+
