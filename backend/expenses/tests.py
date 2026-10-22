@@ -1,5 +1,6 @@
 import io
 from datetime import date
+from decimal import Decimal
 
 from django.core.management import call_command
 from django.core.management.base import OutputWrapper
@@ -57,6 +58,41 @@ class ExpenseAPITest(TestCase):
         })
         r = self.c.get("/api/expenses/", {"category": self.cat.id})
         self.assertEqual(r.data["count"], 1)
+
+    def test_filtered_expense_summary_groups_totals_by_category(self):
+        from datetime import timedelta
+
+        self.c.post("/api/expenses/", {
+            "branch": self.branch.id,
+            "category": self.cat.id,
+            "date": self.today,
+            "amount": 50,
+        })
+        self.c.post("/api/expenses/", {
+            "branch": self.branch.id,
+            "category": self.sys_cat.id,
+            "date": self.today,
+            "amount": 100,
+        })
+        self.c.post("/api/expenses/", {
+            "branch": self.branch.id,
+            "category": self.sys_cat.id,
+            "date": (date.fromisoformat(self.today) - timedelta(days=1)).isoformat(),
+            "amount": 300,
+        })
+
+        response = self.c.get("/api/expenses/summary/", {
+            "date_from": self.today,
+            "date_to": self.today,
+            "branch": self.branch.id,
+        })
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(Decimal(str(response.data["total"])), Decimal("150"))
+        grouped = {row["category_name"]: row for row in response.data["categories"]}
+        self.assertEqual(Decimal(str(grouped["Test"]["total"])), Decimal("50"))
+        self.assertEqual(Decimal(str(grouped["إيجار"]["total"])), Decimal("100"))
 
     def test_delete_expense(self):
         r = self.c.post("/api/expenses/", {

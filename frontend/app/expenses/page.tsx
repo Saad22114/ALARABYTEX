@@ -15,9 +15,9 @@ import ExpenseForm from '@/components/forms/ExpenseForm';
 import CategoriesPanel from '@/components/expenses/CategoriesPanel';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, Pencil, Trash2, RefreshCw, Download, Receipt, Tags, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, Download, Receipt, Tags, Eye, FileText } from 'lucide-react';
 import { Expense, Branch, ExpenseCategory, Paginated } from '@/types';
-import { listExpenses, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses, getExpenseReceipt } from '@/services/expenses';
+import { listExpenses, getExpenseSummary, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses, getExpenseReceipt, ExpenseSummary } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { counted } from '@/lib/arabic';
@@ -43,6 +43,7 @@ export default function ExpensesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [summaryLoading, setSummaryLoading] = useState(true);
   const [search, setSearch] = useUrlState('q', '');
   const [filterBranch, setFilterBranch] = useUrlState('branch', '');
   useDefaultEmployeeBranch(setFilterBranch);
@@ -57,6 +58,12 @@ export default function ExpensesPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [recurringLoading, setRecurringLoading] = useState(false);
   const [receiptPreview, setReceiptPreview] = useState<{ expense: Expense; image: string } | null>(null);
+  const [filteredSummary, setFilteredSummary] = useState<ExpenseSummary | null>(null);
+  const [monthlySummary, setMonthlySummary] = useState<ExpenseSummary | null>(null);
+  const [monthlySummaryLoading, setMonthlySummaryLoading] = useState(true);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [selectedExpenses, setSelectedExpenses] = useState<Record<number, number>>({});
+  const monthRange = useMemo(() => currentMonthRange(), []);
 
   const handleViewReceipt = async (expense: Expense) => {
     try {
@@ -73,6 +80,7 @@ export default function ExpensesPage() {
       const res = await runRecurringExpenses();
       toast('success', res.count > 0 ? `تم ترحيل ${counted(res.count, 'مصروف متكرر', 'مصروفان متكرران', 'مصروفات متكررة')}` : 'لا توجد مصاريف مستحقة للترحيل');
       fetchData();
+      fetchMonthlySummary();
     } catch (err: any) {
       toast('error', err.message);
     } finally {
@@ -119,40 +127,107 @@ export default function ExpensesPage() {
   const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
-    const params: Record<string, string | number | undefined | null> = {
-      page,
-      page_size: pageSize,
+    setSummaryLoading(true);
+    const filters: Record<string, string | number | undefined | null> = {
       search: search || undefined,
       branch: filterBranch || undefined,
       category: filterCategory || undefined,
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
     };
-    listExpenses(params)
-      .then((res) => { if (!cancelled) setData(res); })
-      .catch((err) => { if (!cancelled) toast('error', err.message); })
+    listExpenses({ ...filters, page, page_size: pageSize })
+      .then(async (res) => {
+        if (cancelled) return;
+        setData(res);
+        try {
+          const summary = await getExpenseSummary(filters);
+          if (!cancelled) {
+            setFilteredSummary(summary);
+            setSummaryLoading(false);
+          }
+        } catch {
+          if (!cancelled) {
+            setFilteredSummary(null);
+            setSummaryLoading(false);
+          }
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSummaryLoading(false);
+          toast('error', err.message);
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [page, pageSize, search, filterBranch, filterCategory, dateFrom, dateTo, toast]);
 
   useEffect(() => fetchData(), [fetchData]);
-  useAutoRefresh(fetchData);
+
+  const fetchMonthlySummary = useCallback(() => {
+    let cancelled = false;
+    setMonthlySummaryLoading(true);
+    getExpenseSummary({
+      date_from: monthRange.from,
+      date_to: monthRange.to,
+      branch: filterBranch || undefined,
+    })
+      .then((summary) => { if (!cancelled) setMonthlySummary(summary); })
+      .catch(() => { if (!cancelled) setMonthlySummary(null); })
+      .finally(() => { if (!cancelled) setMonthlySummaryLoading(false); });
+    return () => { cancelled = true; };
+  }, [filterBranch, monthRange]);
+
+  useEffect(() => fetchMonthlySummary(), [fetchMonthlySummary]);
+  useAutoRefresh(useCallback(() => {
+    fetchData();
+    fetchMonthlySummary();
+  }, [fetchData, fetchMonthlySummary]));
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
+  const selectedExpenseTotal = useMemo(
+    () => Object.values(selectedExpenses).reduce((total, amount) => total + amount, 0),
+    [selectedExpenses]
+  );
+  const allVisibleSelected = Boolean(data?.results.length && data.results.every((expense) => selectedExpenses[expense.id] !== undefined));
+
+  const toggleExpense = (expense: Expense) => {
+    setSelectedExpenses((current) => {
+      const next = { ...current };
+      if (next[expense.id] !== undefined) delete next[expense.id];
+      else next[expense.id] = Number(expense.amount) || 0;
+      return next;
+    });
+  };
+
+  const toggleVisibleExpenses = () => {
+    setSelectedExpenses((current) => {
+      const next = { ...current };
+      if (allVisibleSelected) data?.results.forEach((expense) => { delete next[expense.id]; });
+      else data?.results.forEach((expense) => { next[expense.id] = Number(expense.amount) || 0; });
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedExpenses({});
 
   const handleCreate = async (d: Partial<Expense>) => {
     await createExpense(d);
+    clearSelection();
     toast('success', 'تم تسجيل المصروف بنجاح');
     setModalOpen(false);
     fetchData();
+    fetchMonthlySummary();
   };
 
   const handleUpdate = async (d: Partial<Expense>) => {
     if (!editing) return;
     await updateExpense(editing.id, d);
+    clearSelection();
     toast('success', 'تم تحديث المصروف بنجاح');
     setEditing(null);
     fetchData();
+    fetchMonthlySummary();
   };
 
   const handleDelete = async () => {
@@ -160,9 +235,11 @@ export default function ExpensesPage() {
     setDeleteLoading(true);
     try {
       await deleteExpense(deleting.id);
+      clearSelection();
       toast('success', 'تم حذف المصروف بنجاح');
       setDeleting(null);
       fetchData();
+      fetchMonthlySummary();
     } catch (err: any) {
       toast('error', err.message);
     } finally {
@@ -203,8 +280,8 @@ export default function ExpensesPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button onClick={() => setModalOpen(true)}>
               <Plus size={18} />
               تسجيل مصروف
@@ -217,6 +294,12 @@ export default function ExpensesPage() {
               <RefreshCw size={18} />
               ترحيل المتكررة
             </Button>
+            {tab === 'list' && (
+              <Button variant="secondary" onClick={() => setSummaryOpen(true)}>
+                <FileText size={18} />
+                ملخص الفترة
+              </Button>
+            )}
           </div>
           <div className="flex items-center gap-1 rounded-xl border border-sand-200 bg-surface p-1">
             {TABS.map((t) => (
@@ -243,26 +326,76 @@ export default function ExpensesPage() {
         <Card className="!p-4">
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]">
-              <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="بحث في المصاريف..." />
+              <SearchInput value={search} onChange={(v) => { clearSelection(); setSearch(v); setPage(1); }} placeholder="بحث في المصاريف..." />
             </div>
             <Select
               value={filterBranch}
-              onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }}
+              onChange={(e) => { clearSelection(); setFilterBranch(e.target.value); setPage(1); }}
               options={[{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
               className="w-full sm:w-48"
             />
             <Select
               value={filterCategory}
-              onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
+              onChange={(e) => { clearSelection(); setFilterCategory(e.target.value); setPage(1); }}
               options={[{ value: '', label: 'كل التصنيفات' }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
               className="w-full sm:w-48"
             />
             <DateRangeToolbar
               from={dateFrom}
               to={dateTo}
-              onChange={(f, t) => { setDateFrom(f); setDateTo(t); setPage(1); }}
+              onChange={(f, t) => { clearSelection(); setDateFrom(f); setDateTo(t); setPage(1); }}
             />
           </div>
+        </Card>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Card className="!p-4">
+            <div className="text-sm text-neutral-500">إجمالي المصاريف حسب الفلتر</div>
+            <div className="mt-1 text-xl font-bold tabular-nums">{summaryLoading ? 'جارٍ الحساب…' : formatCurrency(filteredSummary?.total || 0)}</div>
+            <div className="mt-1 text-xs text-neutral-400">{summaryLoading ? ' ' : `${filteredSummary?.count || 0} مصروف · يشمل كل الصفحات`}</div>
+          </Card>
+          <Card className="!p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-sm text-neutral-500">إجمالي المصاريف المحددة</div>
+                <div className="mt-1 text-xl font-bold tabular-nums">{formatCurrency(selectedExpenseTotal)}</div>
+                <div className="mt-1 text-xs text-neutral-400">{Object.keys(selectedExpenses).length} مصروف محدد، ويمكن التحديد من صفحات مختلفة</div>
+              </div>
+              {Object.keys(selectedExpenses).length > 0 && <Button size="sm" variant="ghost" onClick={clearSelection}>مسح التحديد</Button>}
+            </div>
+          </Card>
+        </div>
+
+        <Card className="!p-4">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="font-semibold text-neutral-800">ملخص الشهر الحالي حسب نوع المصروف</h2>
+              <p className="mt-1 text-xs text-neutral-500">
+                {formatDate(monthRange.from)} – {formatDate(monthRange.to)} · {filterBranch ? branches.find((branch) => String(branch.id) === filterBranch)?.name || 'الفرع المحدد' : 'كل الفروع'}
+              </p>
+            </div>
+            <div className="text-left">
+              <div className="text-xs text-neutral-500">الإجمالي الشهري</div>
+              <div className="text-lg font-bold tabular-nums">{monthlySummaryLoading ? 'جارٍ الحساب…' : formatCurrency(monthlySummary?.total || 0)}</div>
+            </div>
+          </div>
+          {monthlySummaryLoading ? (
+            <div className="flex justify-center py-5"><Spinner size={24} /></div>
+          ) : !monthlySummary || monthlySummary.categories.length === 0 ? (
+            <p className="rounded-lg bg-sand-50 p-4 text-center text-sm text-neutral-500">لا توجد مصاريف مسجلة لهذا الشهر.</p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {monthlySummary.categories.map((category) => (
+                <div key={category.category ?? 'uncategorized'} className="flex items-center justify-between gap-3 rounded-lg border border-sand-200 p-3">
+                  <div>
+                    <div className="text-sm font-medium text-neutral-700">{category.category_name}</div>
+                    <div className="mt-0.5 text-xs text-neutral-400">{category.count} مصروف</div>
+                  </div>
+                  <div className="font-semibold tabular-nums text-neutral-800">{formatCurrency(category.total)}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card>
@@ -275,6 +408,7 @@ export default function ExpensesPage() {
               <Table>
                 <thead>
                   <tr>
+                    <Th className="w-10"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisibleExpenses} aria-label="تحديد كل مصاريف الصفحة" /></Th>
                     <Th>التاريخ</Th>
                     <Th>الفرع</Th>
                     <Th>نوع المصروف</Th>
@@ -290,6 +424,7 @@ export default function ExpensesPage() {
                 <tbody>
                   {data.results.map((e) => (
                     <Tr key={e.id}>
+                      <Td><input type="checkbox" checked={selectedExpenses[e.id] !== undefined} onChange={() => toggleExpense(e)} aria-label={`تحديد مصروف ${e.description || e.id}`} /></Td>
                       <Td>{formatDate(e.date)}</Td>
                       <Td className="font-medium">{e.branch_name}</Td>
                       <Td>{e.category_name}</Td>
@@ -346,6 +481,33 @@ export default function ExpensesPage() {
 
         <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="تسجيل مصروف جديد" maxWidth="max-w-2xl">
           <ExpenseForm branches={branches} categories={categories} onSubmit={handleCreate} onCancel={() => setModalOpen(false)} />
+        </Modal>
+
+        <Modal open={summaryOpen} onClose={() => setSummaryOpen(false)} title="ملخص المصاريف حسب نوع المصروف" maxWidth="max-w-2xl">
+          <div className="space-y-4">
+            <div className="rounded-xl bg-brand-50 p-4 dark:bg-brand-950/30">
+              <div className="text-sm text-neutral-500">إجمالي الفترة المفلترة · {summaryLoading ? 'جارٍ الحساب' : `${filteredSummary?.count || 0} مصروف`}</div>
+              <div className="mt-1 text-2xl font-bold tabular-nums">{summaryLoading ? 'جارٍ الحساب…' : formatCurrency(filteredSummary?.total || 0)}</div>
+            </div>
+            {summaryLoading ? (
+              <div className="py-6"><Spinner size={28} /></div>
+            ) : !filteredSummary || filteredSummary.categories.length === 0 ? (
+              <EmptyState title="لا توجد مصاريف في الفترة" description="غيّر الفترة أو الفلاتر لعرض الملخص" />
+            ) : (
+              <div className="divide-y divide-sand-100 rounded-xl border border-sand-200">
+                {filteredSummary.categories.map((category) => (
+                  <div key={category.category ?? 'uncategorized'} className="flex items-center justify-between gap-4 p-3">
+                    <div>
+                      <div className="font-medium">{category.category_name}</div>
+                      <div className="text-xs text-neutral-500">{category.count} مصروف</div>
+                    </div>
+                    <div className="font-semibold tabular-nums">{formatCurrency(category.total)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button variant="ghost" onClick={() => setSummaryOpen(false)}>إغلاق</Button>
+          </div>
         </Modal>
 
         <Modal open={!!editing} onClose={() => setEditing(null)} title="تعديل المصروف" maxWidth="max-w-2xl">

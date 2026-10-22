@@ -6,6 +6,17 @@ export async function listExpenses(params?: Record<string, string | number | und
   return apiRequest<Paginated<Expense>>(`/expenses/${q}`);
 }
 
+export interface ExpenseSummary {
+  total: number;
+  count: number;
+  categories: { category: number | null; category_name: string; total: number; count: number }[];
+}
+
+export async function getExpenseSummary(params?: Record<string, string | number | undefined | null>): Promise<ExpenseSummary> {
+  const q = buildQuery(params || {});
+  return apiRequest<ExpenseSummary>(`/expenses/summary/${q}`);
+}
+
 export async function getExpense(id: number): Promise<Expense> {
   return apiRequest<Expense>(`/expenses/${id}/`);
 }

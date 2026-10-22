@@ -1,3 +1,4 @@
+from django.db.models import Count, Sum
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -57,6 +58,30 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         except Exception:
             logger.exception("فشل الترحيل التلقائي للمصاريف المتكررة")
         return super().list(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request):
+        """Totals for all filtered expenses, independent of pagination."""
+        expenses = self.filter_queryset(self.get_queryset())
+        totals = expenses.aggregate(total=Sum("amount"), count=Count("id"))
+        categories = list(
+            expenses.values("category_id", "category__name")
+            .annotate(total=Sum("amount"), count=Count("id"))
+            .order_by("category__name")
+        )
+        return Response({
+            "total": totals["total"] or 0,
+            "count": totals["count"] or 0,
+            "categories": [
+                {
+                    "category": row["category_id"],
+                    "category_name": row["category__name"] or "بدون تصنيف",
+                    "total": row["total"] or 0,
+                    "count": row["count"],
+                }
+                for row in categories
+            ],
+        })
 
     @action(detail=False, methods=["post"], url_path="run-recurring")
     def run_recurring(self, request):
