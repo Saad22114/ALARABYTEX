@@ -80,7 +80,15 @@ interface ItemForm {
   card_type: SessionCardType | '';
 }
 
-const emptyItemForm = (payment?: SessionPaymentMethod): ItemForm => ({ fabric: null, sale_type: 'yard', quantity: '3.5', unit_price: '', discount: '', payment_method: payment || 'cash', card_type: '' });
+const emptyItemForm = (payment: SessionPaymentMethod = 'transfer'): ItemForm => ({
+  fabric: null,
+  sale_type: 'yard',
+  quantity: '3.5',
+  unit_price: '',
+  discount: '',
+  payment_method: payment,
+  card_type: payment === 'card' ? 'credit' : '',
+});
 
 const defaultQuantityForType = (saleType?: SessionSaleType): string => (saleType === 'roll' ? '' : '3.5');
 
@@ -95,7 +103,7 @@ const SORT_OPTIONS: { value: SessionSortKey; label: string }[] = [
 
 export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChanged?: () => void; onSaleGenerated?: (session: SaleSession) => void }) {
   const { toast } = useToast();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
   const { session } = useAuth();
   const me = session?.employee;
   const isManager = Boolean(me && (me.role === 'admin' || me.role === 'supervisor'));
@@ -123,7 +131,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [opening, setOpening] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const [lines, setLines] = useState<ItemForm[]>(() => [emptyItemForm(settings?.default_payment_method)]);
+  const defaultPaymentMethod = settings?.default_payment_method || 'transfer';
+  const [lines, setLines] = useState<ItemForm[]>(() => [emptyItemForm(defaultPaymentMethod)]);
   const [adding, setAdding] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -143,6 +152,15 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [deletingItem, setDeletingItem] = useState<SessionSaleItem | null>(null);
   const [deleteItemLoading, setDeleteItemLoading] = useState(false);
   const [customerSalesOpen, setCustomerSalesOpen] = useState(false);
+
+  useEffect(() => {
+    if (settingsLoading || !settings || addOpen) return;
+    setLines((current) => current.map((line) => ({
+      ...line,
+      payment_method: defaultPaymentMethod,
+      card_type: defaultPaymentMethod === 'card' ? (line.card_type || 'credit') : '',
+    })));
+  }, [addOpen, defaultPaymentMethod, settings, settingsLoading]);
 
   const fetchSessions = useCallback((silent = false) => {
     let cancelled = false;
@@ -487,12 +505,12 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
   const addLine = () => {
     const first = lines[0];
-    const payment = first?.payment_method || 'cash';
+    const payment = first?.payment_method || defaultPaymentMethod;
     setLines((cur) => [...cur, { ...emptyItemForm(payment), card_type: first?.card_type || '' }]);
   };
 
   const removeLine = (idx: number) => {
-    setLines((cur) => (cur.length > 1 ? cur.filter((_, i) => i !== idx) : [{ ...emptyItemForm(cur[0]?.payment_method || 'cash'), card_type: cur[0]?.card_type || '' }]));
+    setLines((cur) => (cur.length > 1 ? cur.filter((_, i) => i !== idx) : [{ ...emptyItemForm(cur[0]?.payment_method || defaultPaymentMethod), card_type: cur[0]?.card_type || '' }]));
   };
 
   const updateLine = (idx: number, patch: Partial<ItemForm>) => {
@@ -568,7 +586,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         void ensureCustomer(custName, custPhone, selected.branch);
       }
       // بعد الحفظ تعود طريقة الدفع إلى الافتراضية من الإعدادات (لا تبقى على آخر اختيار مثل الماكينة)
-      setLines([emptyItemForm(settings?.default_payment_method)]);
+      setLines([emptyItemForm(defaultPaymentMethod)]);
       setCustName('');
       setCustPhone('');
       fetchSessions();
@@ -870,7 +888,11 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={() => { setLines([emptyItemForm(settings?.default_payment_method)]); setAddOpen(true); }}>
+              <Button
+                disabled={settingsLoading || !settings}
+                title={settingsLoading || !settings ? 'جارٍ تحميل إعدادات النظام' : undefined}
+                onClick={() => { setLines([emptyItemForm(defaultPaymentMethod)]); setAddOpen(true); }}
+              >
                 <Plus size={18} />
                 إضافة بيع
               </Button>

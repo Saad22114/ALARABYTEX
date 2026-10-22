@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     AppSettingsPublicView,
     AppSettingsView,
+    DefaultPaymentMethodView,
     AutoBackupDownloadView,
     AutoBackupView,
     BackupView,
@@ -16,6 +17,7 @@ from .views import (
 urlpatterns = [
     path("", AppSettingsView.as_view(), name="app-settings"),
     path("public/", AppSettingsPublicView.as_view(), name="app-settings-public"),
+    path("default-payment-method/", DefaultPaymentMethodView.as_view(), name="app-settings-default-payment-method"),
     path("themes-control/", ThemesControlView.as_view(), name="app-settings-themes-control"),
     path("logo/", LogoUploadView.as_view(), name="app-settings-logo"),
     path("logo-file/", LogoFileView.as_view(), name="app-settings-logo-file"),

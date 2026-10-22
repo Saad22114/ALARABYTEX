@@ -109,6 +109,15 @@ class AppSettingsPublicView(APIView):
         )
 
 
+class DefaultPaymentMethodView(APIView):
+    """Expose only the shared sale payment default to authenticated staff."""
+
+    permission_section = "@identity"
+
+    def get(self, request):
+        return Response({"default_payment_method": AppSettings.load().default_payment_method})
+
+
 class AutoBackupView(APIView):
     """GET lists previously created auto-backups; POST runs one now."""
     permission_section = "settings"

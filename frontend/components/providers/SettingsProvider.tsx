@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { AppSettings, SettingsContextValue } from '@/types';
-import { getSettings, updateSettings as apiUpdateSettings } from '@/services/settings';
+import { getDefaultPaymentMethod, getSettings, updateSettings as apiUpdateSettings } from '@/services/settings';
 import { configureCurrency, configureDateFormat } from '@/lib/format';
 import { FONT_PRESETS, STORAGE_KEYS, THEME_PRESETS } from '@/lib/themes';
 
@@ -63,23 +63,32 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
 
   const refreshSettings = useCallback(async () => {
     setLoading(true);
+    const paymentRequest = getDefaultPaymentMethod()
+      .then((value) => {
+        return value.default_payment_method;
+      })
+      .catch(() => null);
     try {
       const res = await getSettings();
-      setSettings(res);
+      const payment = await paymentRequest;
+      const current = payment ? { ...res, default_payment_method: payment } : res;
+      setSettings(current);
       setError(null);
       try {
-        localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(res));
+        localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(current));
       } catch {}
-      applyCurrency(res);
+      applyCurrency(current);
     } catch (err: any) {
+      const payment = await paymentRequest;
       let fallback: AppSettings | null = null;
       try {
         const cached = localStorage.getItem(STORAGE_KEYS.settings);
         if (cached) fallback = JSON.parse(cached) as AppSettings;
       } catch {}
       if (fallback) {
-        setSettings(fallback);
-        applyCurrency(fallback);
+        const current = payment ? { ...fallback, default_payment_method: payment } : fallback;
+        setSettings(current);
+        applyCurrency(current);
       }
       setError(err?.message || 'خطأ في تحميل الإعدادات');
     } finally {

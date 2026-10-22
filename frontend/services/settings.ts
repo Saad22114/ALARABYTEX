@@ -5,6 +5,10 @@ export function getSettings(): Promise<AppSettings> {
   return apiRequest<AppSettings>('/settings/');
 }
 
+export function getDefaultPaymentMethod(): Promise<{ default_payment_method: AppSettings['default_payment_method'] }> {
+  return apiRequest<{ default_payment_method: AppSettings['default_payment_method'] }>('/settings/default-payment-method/');
+}
+
 export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   return apiRequest<AppSettings>('/settings/', { method: 'PATCH', body: JSON.stringify(patch) });
 }

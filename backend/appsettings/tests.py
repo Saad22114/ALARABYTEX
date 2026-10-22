@@ -52,6 +52,16 @@ class SettingsAPITest(TestCase):
         self.assertEqual(r.data["min_sale_percent"], "15.00")
         self.assertEqual(r.data["min_piece_price_multiplier"], "1.00")
 
+    def test_authenticated_staff_can_read_shared_default_payment_method(self):
+        settings = AppSettings.load()
+        settings.default_payment_method = "transfer"
+        settings.save(update_fields=["default_payment_method"])
+
+        response = self.c.get("/api/settings/default-payment-method/")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data, {"default_payment_method": "transfer"})
+
     def test_patch_invoice_registration_fields(self):
         r = self.c.patch("/api/settings/", {
             "trade_name": "مؤسسة الأقمشة العربية",

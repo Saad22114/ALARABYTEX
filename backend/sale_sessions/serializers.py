@@ -470,7 +470,7 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
     )
     payment_method = serializers.ChoiceField(
         choices=SaleSessionItem.PaymentMethod.choices,
-        default=SaleSessionItem.PaymentMethod.CASH,
+        required=False,
     )
     card_type = serializers.ChoiceField(
         choices=SaleSessionItem.CardType.choices,
@@ -659,8 +659,10 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
         attrs["total"] -= discount
 
         payment_method = attrs.get(
-            "payment_method", SaleSessionItem.PaymentMethod.CASH
+            "payment_method",
+            settings.default_payment_method or SaleSessionItem.PaymentMethod.TRANSFER,
         )
+        attrs["payment_method"] = payment_method
         card_type = attrs.get("card_type") or ""
         if payment_method == SaleSessionItem.PaymentMethod.CARD:
             if card_type not in SaleSessionItem.CardType.values:

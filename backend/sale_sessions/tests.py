@@ -512,6 +512,23 @@ class SaleSessionAPITest(TestCase):
             data["card_type"] = "credit"
         return self.c.post(f"/api/sale-sessions/{sid}/items/", data, format="json")
 
+    def test_item_payment_defaults_to_the_system_setting_when_omitted(self):
+        from appsettings.models import AppSettings
+
+        settings = AppSettings.load()
+        settings.default_payment_method = "transfer"
+        settings.save(update_fields=["default_payment_method", "updated_at"])
+        sid = self._open_session()["id"]
+
+        response = self.c.post(
+            f"/api/sale-sessions/{sid}/items/",
+            {"fabric": self.fabric.id, "quantity": 1, "unit_price": 5},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["payment_method"], "transfer")
+
     def test_open_session_uses_employee_branch(self):
         d = self._open_session()
         self.assertEqual(d["branch"], self.branch.id)
