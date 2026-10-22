@@ -106,6 +106,9 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [sessions, setSessions] = useState<SaleSession[]>([]);
   const [summary, setSummary] = useState<SaleSessionSummary | null>(null);
   const [stock, setStock] = useState<SaleStockResult | null>(null);
+  const [stockBranch, setStockBranch] = useState<number | null>(null);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockLoadFailed, setStockLoadFailed] = useState(false);
   const [branchPrices, setBranchPrices] = useState<FabricBranchPrice[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -219,6 +222,26 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     [fabrics],
   );
 
+  const inStockSaleFabrics = useMemo(() => {
+    if (!stock || stockBranch !== selected?.branch) return [];
+    const availableIds = new Set(
+      stock.items.filter((item) => Number(item.yards) > 0).map((item) => item.fabric),
+    );
+    return saleFabrics.filter((fabric) => availableIds.has(fabric.id));
+  }, [saleFabrics, selected?.branch, stock, stockBranch]);
+
+  const editableSaleFabrics = useMemo(() => {
+    if (!editingItem) return [];
+    const currentFabricId = editingItem.item.fabric;
+    const availableIds = new Set<number>([currentFabricId]);
+    if (stock && stockBranch === editingItem.session.branch) {
+      for (const item of stock.items) {
+        if (Number(item.yards) > 0) availableIds.add(item.fabric);
+      }
+    }
+    return saleFabrics.filter((fabric) => availableIds.has(fabric.id));
+  }, [editingItem, saleFabrics, stock, stockBranch]);
+
   useEffect(() => {
     let cancelled = false;
     if (!selected?.branch) { setBranchPrices([]); return; }
@@ -307,10 +330,32 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
   useEffect(() => {
     let cancelled = false;
-    if (!selected) { setStock(null); return; }
-    getSaleStock(selected.branch)
-      .then((res) => { if (!cancelled) setStock(res); })
-      .catch(() => { if (!cancelled) setStock(null); });
+    if (!selected?.branch) {
+      setStock(null);
+      setStockBranch(null);
+      setStockLoading(false);
+      setStockLoadFailed(false);
+      return;
+    }
+    const branchId = selected.branch;
+    setStock(null);
+    setStockBranch(null);
+    setStockLoading(true);
+    setStockLoadFailed(false);
+    getSaleStock(branchId)
+      .then((res) => {
+        if (!cancelled) {
+          setStock(res);
+          setStockBranch(branchId);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStock(null);
+          setStockLoadFailed(true);
+        }
+      })
+      .finally(() => { if (!cancelled) setStockLoading(false); });
     return () => { cancelled = true; };
   }, [selected]);
 
@@ -1067,8 +1112,17 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       label="القماش"
                       value={line.fabric ?? ''}
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
-                      options={saleFabrics.map((f) => ({ value: f.id, label: f.name }))}
-                      placeholder="اختر القماش"
+                      options={inStockSaleFabrics.map((f) => ({ value: f.id, label: f.name }))}
+                      placeholder={
+                        stockLoading
+                          ? 'جارٍ تحميل مخزون الفرع...'
+                          : stockLoadFailed
+                            ? 'تعذر تحميل مخزون الفرع'
+                            : inStockSaleFabrics.length
+                              ? 'اختر القماش'
+                              : 'لا توجد أقمشة متوفرة في مخزون الفرع'
+                      }
+                      disabled={stockLoading || !stock || stockBranch !== selected?.branch || inStockSaleFabrics.length === 0}
                     />
                     <div>
                       <label className="block text-sm font-medium text-neutral-700 mb-1.5">نوع البيع</label>
@@ -1263,7 +1317,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
         open={!!editingItem}
         session={editingItem?.session ?? null}
         item={editingItem?.item ?? null}
-        fabrics={saleFabrics}
+        fabrics={editableSaleFabrics}
         branchPriceById={branchPriceByFabric}
         onClose={() => setEditingItem(null)}
         onSaved={() => {
