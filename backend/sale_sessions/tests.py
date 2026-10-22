@@ -1723,6 +1723,20 @@ class SessionOpeningPermissionTest(TestCase):
         self.assertEqual(r.status_code, 201, r.data)
         self.assertEqual(r.data["branch"], self.branch_a.id)
 
+    def test_sales_create_permission_allows_adding_item_to_existing_shift(self):
+        c = self._login(self.emp_a)
+        opened = c.post("/api/sale-sessions/", {"employee": self.emp_a.id}, format="json")
+        self.assertEqual(opened.status_code, 201, opened.data)
+        self.emp_a.permissions["sessions"]["create"] = False
+        self.emp_a.permissions["sales"]["create"] = True
+        self.emp_a.save(update_fields=["permissions"])
+
+        response = c.post(f"/api/sale-sessions/{opened.data['id']}/items/", {}, format="json")
+
+        # Invalid item data should reach serializer validation (400), not be
+        # rejected by the permission gate (403).
+        self.assertEqual(response.status_code, 400, response.data)
+
     def test_sales_cannot_open_session_for_other(self):
         c = self._login(self.emp_a)
         r = c.post("/api/sale-sessions/", {"employee": self.emp_b.id}, format="json")

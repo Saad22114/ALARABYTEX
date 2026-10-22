@@ -686,6 +686,8 @@ export interface AppSettings {
 export interface SettingsContextValue {
   settings: AppSettings | null;
   loading: boolean;
+  defaultPaymentMethod: SessionPaymentMethod;
+  defaultPaymentLoading: boolean;
   error: string | null;
   updateSettings: (partial: Partial<AppSettings>) => Promise<AppSettings>;
   refreshSettings: () => Promise<void>;

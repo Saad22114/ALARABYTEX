@@ -9,6 +9,8 @@ import { FONT_PRESETS, STORAGE_KEYS, THEME_PRESETS } from '@/lib/themes';
 const SettingsContext = createContext<SettingsContextValue>({
   settings: null,
   loading: true,
+  defaultPaymentMethod: 'transfer',
+  defaultPaymentLoading: true,
   error: null,
   updateSettings: async () => undefined as unknown as AppSettings,
   refreshSettings: async () => {},
@@ -21,6 +23,8 @@ export function useSettings() {
 export default function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<AppSettings['default_payment_method']>('transfer');
+  const [defaultPaymentLoading, setDefaultPaymentLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const applyTheme = useCallback(() => {
@@ -63,15 +67,19 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
 
   const refreshSettings = useCallback(async () => {
     setLoading(true);
+    setDefaultPaymentLoading(true);
     const paymentRequest = getDefaultPaymentMethod()
       .then((value) => {
+        setDefaultPaymentMethod(value.default_payment_method);
         return value.default_payment_method;
       })
       .catch(() => null);
     try {
       const res = await getSettings();
       const payment = await paymentRequest;
-      const current = payment ? { ...res, default_payment_method: payment } : res;
+      const currentPayment = payment || res.default_payment_method;
+      setDefaultPaymentMethod(currentPayment);
+      const current = { ...res, default_payment_method: currentPayment };
       setSettings(current);
       setError(null);
       try {
@@ -86,12 +94,17 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
         if (cached) fallback = JSON.parse(cached) as AppSettings;
       } catch {}
       if (fallback) {
-        const current = payment ? { ...fallback, default_payment_method: payment } : fallback;
+        const currentPayment = payment || fallback.default_payment_method;
+        setDefaultPaymentMethod(currentPayment);
+        const current = { ...fallback, default_payment_method: currentPayment };
         setSettings(current);
         applyCurrency(current);
+      } else if (payment) {
+        setDefaultPaymentMethod(payment);
       }
       setError(err?.message || 'خطأ في تحميل الإعدادات');
     } finally {
+      setDefaultPaymentLoading(false);
       setLoading(false);
     }
   }, [applyCurrency]);
@@ -105,6 +118,7 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
     async (partial: Partial<AppSettings>): Promise<AppSettings> => {
       const res = await apiUpdateSettings(partial);
       setSettings(res);
+      setDefaultPaymentMethod(res.default_payment_method);
       try {
         localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(res));
       } catch {}
@@ -115,8 +129,8 @@ export default function SettingsProvider({ children }: { children: React.ReactNo
   );
 
   const value = useMemo(
-    () => ({ settings, loading, error, updateSettings, refreshSettings }),
-    [settings, loading, error, updateSettings, refreshSettings]
+    () => ({ settings, loading, defaultPaymentMethod, defaultPaymentLoading, error, updateSettings, refreshSettings }),
+    [settings, loading, defaultPaymentMethod, defaultPaymentLoading, error, updateSettings, refreshSettings]
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

@@ -66,4 +66,8 @@ class SystemPermission(BasePermission):
         action = METHOD_TO_ACTION.get(request.method.upper(), "view")
         if action == "view":
             return section_view_allowed(request, section)
+        action_name = getattr(view, "action", None)
+        alternatives = getattr(view, "permission_section_alternatives", {}).get(action_name, ())
+        if alternatives:
+            return any(employee.has_permission(candidate, action) for candidate in (section, *alternatives))
         return bool(employee.has_permission(section, action))

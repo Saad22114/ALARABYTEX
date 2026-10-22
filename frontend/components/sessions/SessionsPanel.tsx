@@ -103,7 +103,7 @@ const SORT_OPTIONS: { value: SessionSortKey; label: string }[] = [
 
 export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChanged?: () => void; onSaleGenerated?: (session: SaleSession) => void }) {
   const { toast } = useToast();
-  const { settings, loading: settingsLoading } = useSettings();
+  const { settings, defaultPaymentMethod, defaultPaymentLoading } = useSettings();
   const { session } = useAuth();
   const me = session?.employee;
   const isManager = Boolean(me && (me.role === 'admin' || me.role === 'supervisor'));
@@ -131,7 +131,6 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [opening, setOpening] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const defaultPaymentMethod = settings?.default_payment_method || 'transfer';
   const [lines, setLines] = useState<ItemForm[]>(() => [emptyItemForm(defaultPaymentMethod)]);
   const [adding, setAdding] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -154,13 +153,13 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
   const [customerSalesOpen, setCustomerSalesOpen] = useState(false);
 
   useEffect(() => {
-    if (settingsLoading || !settings || addOpen) return;
+    if (defaultPaymentLoading || addOpen) return;
     setLines((current) => current.map((line) => ({
       ...line,
       payment_method: defaultPaymentMethod,
       card_type: defaultPaymentMethod === 'card' ? (line.card_type || 'credit') : '',
     })));
-  }, [addOpen, defaultPaymentMethod, settings, settingsLoading]);
+  }, [addOpen, defaultPaymentMethod, defaultPaymentLoading]);
 
   const fetchSessions = useCallback((silent = false) => {
     let cancelled = false;
@@ -889,8 +888,8 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                disabled={settingsLoading || !settings}
-                title={settingsLoading || !settings ? 'جارٍ تحميل إعدادات النظام' : undefined}
+                disabled={defaultPaymentLoading}
+                title={defaultPaymentLoading ? 'جارٍ تحميل طريقة الدفع الافتراضية' : undefined}
                 onClick={() => { setLines([emptyItemForm(defaultPaymentMethod)]); setAddOpen(true); }}
               >
                 <Plus size={18} />

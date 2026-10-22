@@ -93,6 +93,12 @@ class PermissionTemplateViewSet(viewsets.ModelViewSet):
 
 class SaleSessionViewSet(viewsets.ModelViewSet):
     permission_section = "sessions"
+    # A staff member authorized to create sales may add items to an open shift,
+    # even if they are not authorized to open or administer shifts themselves.
+    permission_section_alternatives = {
+        "add_item": ("sales",),
+        "add_items": ("sales",),
+    }
     queryset = SaleSession.objects.select_related("employee", "branch").all()
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
