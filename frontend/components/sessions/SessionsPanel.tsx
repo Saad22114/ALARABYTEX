@@ -202,9 +202,6 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       setEmployees([toEmployee(me)]);
       setOpeningEmp((cur) => cur ?? me.id);
     }
-    listFabrics({ page_size: 100 })
-      .then((res) => { if (!cancelled) setFabrics(res.results); })
-      .catch(() => {});
     listBranches({ page_size: 100 })
       .then((res) => { if (!cancelled) setBranches(res.results.filter((b) => b.is_active)); })
       .catch(() => {});
@@ -227,12 +224,21 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
 
   const selected = useMemo(() => sessions.find((s) => s.id === selectedId) || null, [sessions, selectedId]);
 
+  const fabricsBranch = selected?.branch ?? editingItem?.session.branch ?? (branchFilter ? Number(branchFilter) : undefined);
+  useEffect(() => {
+    let cancelled = false;
+    listFabrics({ page_size: 200, branch: fabricsBranch })
+      .then((res) => { if (!cancelled) setFabrics(res.results); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [fabricsBranch]);
+
   const groupBadges = useMemo(() => saleGroupBadges(selected?.items ?? []), [selected]);
 
   const saleFabrics = useMemo(
     () =>
       [...fabrics].sort((a, b) => {
-        const diff = (b.sold_count ?? 0) - (a.sold_count ?? 0);
+        const diff = (b.sold_quantity ?? 0) - (a.sold_quantity ?? 0);
         if (diff !== 0) return diff;
         return a.name.localeCompare(b.name, 'ar');
       }),
@@ -1133,7 +1139,10 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       label="القماش"
                       value={line.fabric ?? ''}
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
-                      options={inStockSaleFabrics.map((f) => ({ value: f.id, label: f.name }))}
+                      options={inStockSaleFabrics.map((f, index) => ({
+                        value: f.id,
+                        label: `${index < 3 && Number(f.sold_quantity ?? 0) > 0 ? `★ ${formatNumber(f.sold_quantity ?? 0)} ياردة مباعة — ` : ''}${f.name}`,
+                      }))}
                       placeholder={
                         stockLoading
                           ? 'جارٍ تحميل مخزون الفرع...'

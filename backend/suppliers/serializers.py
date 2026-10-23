@@ -51,6 +51,7 @@ class FabricSerializer(serializers.ModelSerializer):
     profit_yard = serializers.DecimalField(max_digits=12, decimal_places=3, read_only=True)
     profit_margin_pct = serializers.SerializerMethodField()
     sold_count = serializers.SerializerMethodField()
+    sold_quantity = serializers.SerializerMethodField()
 
     class Meta:
         model = Fabric
@@ -65,6 +66,7 @@ class FabricSerializer(serializers.ModelSerializer):
             "profit_yard", "profit_margin_pct",
             "total_rolls", "stock_yards", "stock_cost_value", "low_stock",
             "sold_count",
+            "sold_quantity",
             "yards_per_roll", "min_stock", "description", "is_active", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -123,6 +125,9 @@ class FabricSerializer(serializers.ModelSerializer):
 
     def get_sold_count(self, obj):
         return getattr(obj, "sold_count", 0)
+
+    def get_sold_quantity(self, obj):
+        return getattr(obj, "sold_quantity", 0)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

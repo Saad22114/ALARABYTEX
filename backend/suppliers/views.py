@@ -3,7 +3,7 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, F, IntegerField, Q, OuterRef, Subquery, Sum, Window
+from django.db.models import Case, Count, DecimalField, F, IntegerField, Q, OuterRef, Subquery, Sum, When, Window
 from django.db.models.deletion import ProtectedError
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -12,7 +12,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from core.daterange import resolve_range
-from core.branch_scope import scope_queryset, scope_queryset_or
+from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 from core.money import money
 from sale_sessions.models import SaleSessionItem
 from warehouses.models import FabricRoll
@@ -134,18 +134,47 @@ class FabricViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         available = Q(rolls__status=FabricRoll.Status.AVAILABLE)
+        sold_items = SaleSessionItem.objects.filter(fabric=OuterRef("pk"))
+        branch_id = self.request.query_params.get("branch")
+        if branch_id:
+            allowed = allowed_branch_ids(self.request)
+            try:
+                requested_branch_id = int(branch_id)
+            except (TypeError, ValueError):
+                requested_branch_id = None
+            if requested_branch_id is not None and (allowed is None or requested_branch_id in allowed):
+                sold_items = sold_items.filter(session__branch_id=requested_branch_id)
+            else:
+                sold_items = sold_items.none()
         sold = (
-            SaleSessionItem.objects.filter(fabric=OuterRef("pk"))
+            sold_items
             .order_by()
             .values("fabric")
             .annotate(c=Count("id"))
             .values("c")
+        )
+        sold_quantity = (
+            sold_items.filter(is_returned=False)
+            .order_by()
+            .values("fabric")
+            .annotate(
+                quantity=Sum(Case(
+                    When(sale_type=SaleSessionItem.SaleType.ROLL, then=F("quantity") * F("fabric__yards_per_roll")),
+                    default=F("quantity"),
+                    output_field=DecimalField(max_digits=18, decimal_places=3),
+                ))
+            )
+            .values("quantity")
         )
         qs = (
             Fabric.objects.all()
             .select_related("supplier")
             .annotate(
                 sold_count=Coalesce(Subquery(sold), 0, output_field=IntegerField()),
+                sold_quantity=Coalesce(
+                    Subquery(sold_quantity), Decimal("0"),
+                    output_field=DecimalField(max_digits=18, decimal_places=3),
+                ),
                 total_rolls=Count("rolls", filter=available),
                 stock_yards=Coalesce(
                     Sum("rolls__remaining_yards", filter=available), Decimal("0")

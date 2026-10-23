@@ -133,6 +133,8 @@ export interface Fabric {
   stock_yards: number;
   stock_cost_value: number;
   sold_count?: number;
+  /** إجمالي الياردات المباعة (الطاقات محولة إلى ياردات)، مع استثناء المرتجعات */
+  sold_quantity?: number;
   low_stock: boolean;
   min_stock: number;
   yards_per_roll: number | null;
