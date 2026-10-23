@@ -11,6 +11,7 @@ import DateRangeToolbar, { getRangeForKey, DateRangeKey } from '@/components/ui/
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import SessionsPanel from '@/components/sessions/SessionsPanel';
+import FabricPriceGuide from '@/components/sales/FabricPriceGuide';
 import SessionItemEditModal from '@/components/sessions/SessionItemEditModal';
 import SessionDetailsModal from '@/components/sessions/SessionDetailsModal';
 import SessionEditModal from '@/components/sessions/SessionEditModal';
@@ -22,6 +23,7 @@ import {
   Plus, Pencil, Trash2, Store, Timer,
   IndianRupee, Banknote, Users, ChevronDown, ChevronLeft, Archive, Eye, EyeOff, ChevronsUp, ChevronsDownUp,
   Printer, Share2, CheckCircle,
+  Tags,
 } from 'lucide-react';
 import {
   Branch, Employee, DailySale,
@@ -56,7 +58,7 @@ export default function SalesPage() {
   const { session } = useAuth();
   const me = session?.employee;
   const isManager = Boolean(me && (me.role === 'admin' || me.role === 'supervisor'));
-  const [tab, setTab] = useUrlState<'sales' | 'sessions'>('tab', 'sales');
+  const [tab, setTab] = useUrlState<'sales' | 'sessions' | 'fabric-prices'>('tab', 'sales');
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -356,7 +358,7 @@ export default function SalesPage() {
       <div className="space-y-4 lg:space-y-6">
         {/* Tab bar + actions */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex rounded-xl border border-sand-300 overflow-hidden bg-surface">
+          <div className="flex flex-wrap rounded-xl border border-sand-300 overflow-hidden bg-surface">
             {hasWindow(me?.permissions, 'sales', 'sales') && (
               <button type="button" onClick={() => setTab('sales')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'sales' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
                 <Store size={16} />
@@ -367,6 +369,12 @@ export default function SalesPage() {
               <button type="button" onClick={() => setTab('sessions')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'sessions' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
                 <Timer size={16} />
                 ورديات البيع
+              </button>
+            )}
+            {hasWindow(me?.permissions, 'sales', 'sales') && (
+              <button type="button" onClick={() => setTab('fabric-prices')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'fabric-prices' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
+                <Tags size={16} />
+                دليل أسعار الأقمشة
               </button>
             )}
           </div>
@@ -888,9 +896,11 @@ export default function SalesPage() {
         />
 
         </>
-        ) : (
+        ) : tab === 'sessions' ? (
           <SessionsPanel onChanged={refreshSalesTab} onSaleGenerated={handleSaleGenerated} />
-        )}
+        ) : hasWindow(me?.permissions, 'sales', 'sales') ? (
+          <FabricPriceGuide />
+        ) : null}
 
         <ManualSessionModal
           open={manualOpen}
