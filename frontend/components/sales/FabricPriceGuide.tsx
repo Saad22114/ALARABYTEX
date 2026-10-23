@@ -16,6 +16,18 @@ import EmptyState from '@/components/ui/EmptyState';
 import { useAuth } from '@/components/providers/AuthProvider';
 
 const PAGE_SIZE = 200;
+const BRANCH_STYLES = [
+  { header: 'bg-sky-100 text-sky-900', cell: 'bg-sky-50/60', divider: 'border-l-2 border-l-sky-300' },
+  { header: 'bg-emerald-100 text-emerald-900', cell: 'bg-emerald-50/60', divider: 'border-l-2 border-l-emerald-300' },
+  { header: 'bg-violet-100 text-violet-900', cell: 'bg-violet-50/60', divider: 'border-l-2 border-l-violet-300' },
+  { header: 'bg-amber-100 text-amber-900', cell: 'bg-amber-50/60', divider: 'border-l-2 border-l-amber-300' },
+  { header: 'bg-rose-100 text-rose-900', cell: 'bg-rose-50/60', divider: 'border-l-2 border-l-rose-300' },
+  { header: 'bg-teal-100 text-teal-900', cell: 'bg-teal-50/60', divider: 'border-l-2 border-l-teal-300' },
+];
+
+function branchStyle(index: number) {
+  return BRANCH_STYLES[index % BRANCH_STYLES.length];
+}
 
 async function getAllPages<T>(fetchPage: (page: number) => Promise<{ count: number; results: T[] }>): Promise<T[]> {
   const all: T[] = [];
@@ -112,13 +124,16 @@ export default function FabricPriceGuide() {
           <thead>
             <tr>
               <th rowSpan={2} className="sticky right-0 z-20 min-w-48 border-b border-sand-200 bg-sand-100 px-4 py-3 text-right text-xs font-semibold text-neutral-600">القماش / الكود</th>
-              {branches.map((branch) => (
-                <th key={branch.id} colSpan={5} className="border-b border-sand-200 bg-sand-100 px-4 py-3 text-center text-xs font-semibold text-neutral-600">{branch.name}</th>
-              ))}
+              {branches.map((branch, index) => {
+                const style = branchStyle(index);
+                return (
+                <th key={branch.id} colSpan={5} className={`border-b border-sand-200 px-4 py-3 text-center text-xs font-bold ${style.header} ${style.divider}`}>{branch.name}</th>
+                );
+              })}
             </tr>
             <tr>
-              {branches.map((branch) => (
-                <FragmentBranchHead key={branch.id} branchId={branch.id} />
+              {branches.map((branch, index) => (
+                <FragmentBranchHead key={branch.id} branchId={branch.id} style={branchStyle(index)} />
               ))}
             </tr>
           </thead>
@@ -129,7 +144,8 @@ export default function FabricPriceGuide() {
                   <span className="block text-neutral-800">{fabric.name}</span>
                   <span className="mt-0.5 block font-mono text-xs text-neutral-400" dir="ltr">{fabric.code}</span>
                 </Td>
-                {branches.map((branch) => {
+                {branches.map((branch, branchIndex) => {
+                  const style = branchStyle(branchIndex);
                   const branchPrice = priceMap.get(`${fabric.id}:${branch.id}`);
                   const yardPrice = Number(branchPrice?.sale_price_yard)
                     || (Number(branchPrice?.piece_price) > 0 ? Number(branchPrice?.piece_price) / 3.5 : 0)
@@ -167,6 +183,7 @@ export default function FabricPriceGuide() {
                       rollPrice={rollPrice}
                       minRoll={minRoll}
                       money={money}
+                      style={style}
                     />
                   );
                 })}
@@ -179,14 +196,14 @@ export default function FabricPriceGuide() {
   );
 }
 
-function FragmentBranchHead({ branchId }: { branchId: number }) {
+function FragmentBranchHead({ branchId, style }: { branchId: number; style: (typeof BRANCH_STYLES)[number] }) {
   return (
     <>
-      <Th key={`${branchId}-piece`} className="whitespace-nowrap">سعر القطعة</Th>
-      <Th key={`${branchId}-min-piece`} className="whitespace-nowrap">أدنى قطعة</Th>
-      <Th key={`${branchId}-roll`} className="whitespace-nowrap">سعر الطاقة</Th>
-      <Th key={`${branchId}-min-roll`} className="whitespace-nowrap">أدنى طاقة</Th>
-      <Th key={`${branchId}-allowed`} className="whitespace-nowrap">بيع الطاقة</Th>
+      <Th key={`${branchId}-piece`} className={`whitespace-nowrap ${style.header}`}>سعر القطعة</Th>
+      <Th key={`${branchId}-min-piece`} className={`whitespace-nowrap ${style.header}`}>أدنى قطعة</Th>
+      <Th key={`${branchId}-roll`} className={`whitespace-nowrap ${style.header}`}>سعر الطاقة</Th>
+      <Th key={`${branchId}-min-roll`} className={`whitespace-nowrap ${style.header}`}>أدنى طاقة</Th>
+      <Th key={`${branchId}-allowed`} className={`whitespace-nowrap ${style.header} ${style.divider}`}>بيع الطاقة</Th>
     </>
   );
 }
@@ -198,6 +215,7 @@ function FragmentPriceCells({
   rollPrice,
   minRoll,
   money: formatMoney,
+  style,
 }: {
   piecePrice: number;
   minPiece: number;
@@ -205,14 +223,15 @@ function FragmentPriceCells({
   rollPrice: number;
   minRoll: number;
   money: (value: number | null | undefined) => string;
+  style: (typeof BRANCH_STYLES)[number];
 }) {
   return (
     <>
-      <Td className="whitespace-nowrap tabular-nums">{formatMoney(piecePrice)}</Td>
-      <Td className="whitespace-nowrap tabular-nums text-amber-700">{formatMoney(minPiece)}</Td>
-      <Td className="whitespace-nowrap tabular-nums">{rollAllowed ? formatMoney(rollPrice) : '—'}</Td>
-      <Td className="whitespace-nowrap tabular-nums text-amber-700">{rollAllowed ? formatMoney(minRoll) : '—'}</Td>
-      <Td className="whitespace-nowrap text-xs font-medium">
+      <Td className={`whitespace-nowrap tabular-nums ${style.cell}`}>{formatMoney(piecePrice)}</Td>
+      <Td className={`whitespace-nowrap tabular-nums text-amber-700 ${style.cell}`}>{formatMoney(minPiece)}</Td>
+      <Td className={`whitespace-nowrap tabular-nums ${style.cell}`}>{rollAllowed ? formatMoney(rollPrice) : '—'}</Td>
+      <Td className={`whitespace-nowrap tabular-nums text-amber-700 ${style.cell}`}>{rollAllowed ? formatMoney(minRoll) : '—'}</Td>
+      <Td className={`whitespace-nowrap text-xs font-medium ${style.cell} ${style.divider}`}>
         <span className={rollAllowed ? 'text-emerald-700' : 'text-neutral-400'}>{rollAllowed ? 'مسموح' : 'غير مسموح'}</span>
       </Td>
     </>
