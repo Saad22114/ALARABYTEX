@@ -1141,7 +1141,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
                       options={inStockSaleFabrics.map((f, index) => ({
                         value: f.id,
-                        label: `${index < 3 && Number(f.sold_quantity ?? 0) > 0 ? `★ ${formatNumber(f.sold_quantity ?? 0)} ياردة مباعة — ` : ''}${f.name}`,
+                        label: `${index === 0 && Number(f.sold_quantity ?? 0) > 0 ? '★ الأكثر مبيعًا — ' : ''}${f.name}`,
                       }))}
                       placeholder={
                         stockLoading
