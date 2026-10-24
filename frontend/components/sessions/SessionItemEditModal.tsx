@@ -16,6 +16,7 @@ import { formatCurrency } from '@/lib/format';
 import { rollSaleAllowed } from '@/lib/fabrics';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import CustomerPicker from '@/components/sessions/CustomerPicker';
 
 const PAYMENT_OPTIONS = [
   { value: 'cash', label: 'كاش' },
@@ -48,6 +49,8 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
   const [quantity, setQuantity] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
   const [discount, setDiscount] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<SessionPaymentMethod>(settings?.default_payment_method || 'cash');
   const [cardType, setCardType] = useState<SessionCardType | ''>('');
   const [saving, setSaving] = useState(false);
@@ -59,6 +62,8 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
       setQuantity(String(item.quantity));
       setUnitPrice(String(item.unit_price));
       setDiscount(item.discount_amount > 0 ? String(item.discount_amount) : '');
+      setCustomerName(item.customer_name || '');
+      setCustomerPhone(item.customer_phone || '');
       setPaymentMethod(item.payment_method);
       setCardType((item.card_type === 'credit' || item.card_type === 'debit' ? item.card_type : '') as SessionCardType | '');
     }
@@ -153,6 +158,8 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
         discount_amount: discountNum,
         payment_method: paymentMethod,
         card_type: paymentMethod === 'card' ? (cardType || '') : '',
+        customer_name: customerName.trim(),
+        customer_phone: customerPhone.trim(),
       });
       toast('success', 'تم تعديل البيع بنجاح');
       onClose();
@@ -167,6 +174,13 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
   return (
     <Modal open={open} onClose={onClose} title="تعديل بيعة من الوردية" maxWidth="max-w-2xl">
       <div className="space-y-4">
+        <CustomerPicker
+          name={customerName}
+          onChangeName={setCustomerName}
+          phone={customerPhone}
+          onChangePhone={setCustomerPhone}
+          compact
+        />
         <div className="grid gap-4 sm:grid-cols-2">
           <Select
             label="القماش"

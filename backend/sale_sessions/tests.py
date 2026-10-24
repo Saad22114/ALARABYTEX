@@ -1305,7 +1305,8 @@ class ClosedSessionEditDeleteTest(TestCase):
         sid = r.data["id"]
         self.c.post(f"/api/sale-sessions/{sid}/items/",
                     {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 20,
-                     "payment_method": "cash"}, format="json")
+                     "payment_method": "cash", "customer_name": "أحمد سالم",
+                     "customer_phone": "99123456"}, format="json")
         self.c.post(f"/api/sale-sessions/{sid}/items/",
                     {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 10,
                      "payment_method": "card", "card_type": "credit"}, format="json")
@@ -1335,6 +1336,22 @@ class ClosedSessionEditDeleteTest(TestCase):
         self.assertEqual(
             StockMovement.objects.filter(movement_type=StockMovement.Type.SALE).count(), 2
         )
+
+    def test_edit_item_without_customer_fields_preserves_saved_customer(self):
+        sid = self._closed_session()
+        item = SaleSessionItem.objects.filter(session_id=sid).order_by("id").first()
+
+        response = self.c.put(
+            f"/api/sale-sessions/{sid}/items/{item.id}/",
+            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 18,
+             "unit_price": 5, "payment_method": "cash"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        item.refresh_from_db()
+        self.assertEqual(item.customer_name, "أحمد سالم")
+        self.assertEqual(item.customer_phone, "99123456")
 
     def test_edit_closed_item_changes_payment_method(self):
         sid = self._closed_session()

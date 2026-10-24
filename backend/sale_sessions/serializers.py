@@ -705,6 +705,11 @@ class SaleSessionItemCreateSerializer(serializers.Serializer):
 class SaleSessionItemEditSerializer(SaleSessionItemCreateSerializer):
     def validate(self, attrs):
         item = self.instance
+        # The base create serializer supplies blank defaults for these fields.
+        # On a partial edit, remove those implicit defaults when the client did
+        # not send customer data, so the update service leaves the saved values intact.
+        supplied_customer_name = "customer_name" in self.initial_data
+        supplied_customer_phone = "customer_phone" in self.initial_data
         if "fabric" not in attrs:
             attrs["fabric"] = item.fabric
         if "sale_type" not in attrs:
@@ -720,6 +725,10 @@ class SaleSessionItemEditSerializer(SaleSessionItemCreateSerializer):
         if "card_type" not in attrs:
             attrs["card_type"] = item.card_type
         attrs = super().validate(attrs)
+        if not supplied_customer_name:
+            attrs.pop("customer_name", None)
+        if not supplied_customer_phone:
+            attrs.pop("customer_phone", None)
         attrs.pop("sale_date", None)
         return attrs
 
