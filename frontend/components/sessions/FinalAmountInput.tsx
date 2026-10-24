@@ -31,6 +31,7 @@ export default function FinalAmountInput({
 }: Props) {
   const [draft, setDraft] = useState<string | null>(null);
   const [raised, setRaised] = useState(false);
+  const [discounted, setDiscounted] = useState(false);
 
   const discountNum = discount.trim() !== '' && !isNaN(parseFloat(discount)) ? parseFloat(discount) : 0;
   const derived = subtotal != null ? round1(Math.max(0, subtotal - discountNum)) : null;
@@ -43,6 +44,7 @@ export default function FinalAmountInput({
   const handleChange = (raw: string) => {
     setDraft(raw);
     setRaised(false);
+    setDiscounted(false);
     if (subtotal == null) return;
     const amount = raw.trim() === '' ? NaN : parseFloat(raw);
     if (isNaN(amount) || amount < 0) {
@@ -50,13 +52,18 @@ export default function FinalAmountInput({
       return;
     }
     const finalAmount = round1(amount);
+    if (finalAmount < subtotal) {
+      onDiscountChange(String(round2(subtotal - finalAmount)));
+      setDiscounted(true);
+      return;
+    }
     if (canUpdateUnitPrice && quantity) {
       onUnitPriceChange!(String(round3(finalAmount / quantity)));
       onDiscountChange('');
       setRaised(true);
       return;
     }
-    onDiscountChange(finalAmount <= subtotal ? String(round2(subtotal - finalAmount)) : '');
+    onDiscountChange('');
   };
 
   return (
@@ -78,13 +85,15 @@ export default function FinalAmountInput({
             e.target.select();
           }
         }}
-        onBlur={() => { setDraft(null); setRaised(false); }}
+        onBlur={() => { setDraft(null); setRaised(false); setDiscounted(false); }}
         placeholder={subtotal == null ? 'أكمل الكمية والسعر أولاً' : ''}
-        className={subtotal == null ? 'opacity-60 cursor-not-allowed' : ''}
+        className={`${subtotal == null ? 'opacity-60 cursor-not-allowed' : ''} !bg-emerald-50/70 !border-emerald-200 focus:!border-emerald-400 focus:!ring-emerald-100`}
         error={exceeds && subtotal != null ? `المبلغ أكبر من الإجمالي (${formatCurrency(subtotal)}) — الخصم لا يكون سالباً` : undefined}
       />
       {raised ? (
-        <p className="mt-1 text-xs text-amber-600">تحدّث سعر الوحدة تلقائيًا وأُلغي الخصم ليطابق الإجمالي المبلغ النهائي</p>
+        <p className="mt-1 text-xs text-amber-600">تحدّث سعر الوحدة تلقائيًا ليطابق الإجمالي المبلغ النهائي</p>
+      ) : discounted ? (
+        <p className="mt-1 text-xs text-emerald-700">تم احتساب الفرق كخصم تلقائيًا</p>
       ) : !exceeds && (
         <p className="mt-1 text-xs text-neutral-400">اكتب المبلغ النهائي لتحديث سعر الوحدة تلقائياً وإلغاء الخصم</p>
       )}

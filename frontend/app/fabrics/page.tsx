@@ -20,11 +20,11 @@ import FabricForm from '@/components/forms/FabricForm';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import {
   Plus, Pencil, Trash2, Eye, Package, AlertTriangle,
-  IndianRupee, Boxes, Tags, TrendingUp, Percent,
+  IndianRupee, Boxes, Tags, TrendingUp, Percent, Save,
 } from 'lucide-react';
 import { Fabric, FabricBranchPrice, FabricStockResult, FabricSummary, Paginated } from '@/types';
 import {
-  listFabrics, createFabric, updateFabric, deleteFabric,
+  listFabrics, createFabric, updateFabric, patchFabric, deleteFabric,
   getFabricSummary, getFabricStock, bulkPriceUpdate,
 } from '@/services/fabrics';
 import { listBranchPrices } from '@/services/branches';
@@ -82,6 +82,9 @@ export default function FabricsPage() {
   const [page, setPage] = useUrlState('page', 1);
 
   const [summary, setSummary] = useState<FabricSummary | null>(null);
+  const [activeTab, setActiveTab] = useState<'fabrics' | 'purchase-prices'>('fabrics');
+  const [purchaseDrafts, setPurchaseDrafts] = useState<Record<number, string>>({});
+  const [savingPurchaseId, setSavingPurchaseId] = useState<number | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Fabric | null>(null);
@@ -167,6 +170,30 @@ export default function FabricsPage() {
     fetchData();
     fetchSummary();
     return updated;
+  };
+
+  const handlePurchasePriceSave = async (fabric: Fabric) => {
+    const raw = purchaseDrafts[fabric.id] ?? String(fabric.purchase_price ?? 0);
+    const purchasePrice = Number(raw);
+    if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
+      toast('error', 'أدخل سعر شراء صحيحاً');
+      return;
+    }
+    setSavingPurchaseId(fabric.id);
+    try {
+      const updated = await patchFabric(fabric.id, { purchase_price: purchasePrice });
+      setData((current) => current ? {
+        ...current,
+        results: current.results.map((item) => item.id === fabric.id ? { ...item, ...updated } : item),
+      } : current);
+      setPurchaseDrafts((current) => { const next = { ...current }; delete next[fabric.id]; return next; });
+      toast('success', `تم حفظ سعر شراء ${fabric.name}`);
+      fetchSummary();
+    } catch (err: any) {
+      toast('error', err.message || 'تعذر حفظ سعر الشراء');
+    } finally {
+      setSavingPurchaseId(null);
+    }
   };
 
   const handleDelete = async () => {
@@ -269,11 +296,61 @@ export default function FabricsPage() {
           </div>
         </div>
 
+        <div className="flex gap-2 border-b border-sand-200" role="tablist" aria-label="طرق عرض الأقمشة">
+          <button type="button" role="tab" aria-selected={activeTab === 'fabrics'} onClick={() => setActiveTab('fabrics')}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'fabrics' ? 'border-brand-600 text-brand-700' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}>
+            <span className="inline-flex items-center gap-2"><Package size={16} /> قائمة الأقمشة</span>
+          </button>
+          <button type="button" role="tab" aria-selected={activeTab === 'purchase-prices'} onClick={() => setActiveTab('purchase-prices')}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'purchase-prices' ? 'border-brand-600 text-brand-700' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}>
+            <span className="inline-flex items-center gap-2"><IndianRupee size={16} /> أسعار الشراء</span>
+          </button>
+        </div>
+
+        {activeTab === 'purchase-prices' && (
+          <p className="text-sm text-neutral-500">عدّل سعر شراء كل قماش مباشرة من الجدول. السعر نفسه متاح أيضاً في تعديل بيانات القماش.</p>
+        )}
+
         <Card>
           {loading ? (
             <div className="flex justify-center py-12"><Spinner size={32} /></div>
           ) : !data || data.results.length === 0 ? (
             <EmptyState title="لا توجد أقمشة" description="لم يتم العثور على نتائج مطابقة" />
+          ) : activeTab === 'purchase-prices' ? (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <thead><tr><Th>القماش / الكود</Th><Th>النوع</Th><Th>المورد</Th><Th>سعر الشراء للياردة</Th><Th>حفظ</Th></tr></thead>
+                  <tbody>
+                    {data.results.map((fabric) => {
+                      const draft = purchaseDrafts[fabric.id];
+                      const changed = draft !== undefined && Number(draft) !== Number(fabric.purchase_price);
+                      return (
+                        <Tr key={fabric.id}>
+                          <Td><span className="block text-sm font-semibold text-neutral-800">{fabric.name}</span><span className="block font-mono text-xs text-neutral-400">{fabric.code}</span></Td>
+                          <Td className="text-sm">{fabric.fabric_type || '-'}</Td>
+                          <Td className="text-sm">{fabric.supplier_name || '-'}</Td>
+                          <Td>
+                            <div className="max-w-48">
+                              <Input type="number" min={0} step="0.001" aria-label={`سعر شراء ${fabric.name}`}
+                                value={draft ?? String(fabric.purchase_price ?? 0)}
+                                onChange={(event) => setPurchaseDrafts((current) => ({ ...current, [fabric.id]: event.target.value }))} />
+                            </div>
+                          </Td>
+                          <Td>
+                            <Button type="button" variant="secondary" disabled={!changed || savingPurchaseId === fabric.id} onClick={() => handlePurchasePriceSave(fabric)}>
+                              {savingPurchaseId === fabric.id ? <Spinner size={16} /> : <Save size={16} />}
+                              حفظ
+                            </Button>
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              </div>
+              <Pagination page={page} totalPages={totalPages} onChange={setPage} count={data.count} pageSize={pageSize} />
+            </>
           ) : (
             <>
               <div className="overflow-x-auto">

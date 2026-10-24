@@ -248,6 +248,7 @@ export default function SessionItemEditModal({ open, session, item, fabrics, bra
             onChange={(e) => setDiscount(e.target.value)}
             placeholder=""
             selectOnFocus
+            className="!bg-amber-50/70 !border-amber-200 focus:!border-amber-400 focus:!ring-amber-100"
           />
           <FinalAmountInput
             subtotal={subtotal}

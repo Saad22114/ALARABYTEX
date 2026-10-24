@@ -30,7 +30,7 @@ import {
   SaleSummary, SalesByEmployeeResult, SaleSession, SessionSaleItem, Fabric,
 } from '@/types';
 import { listSales, getSalesSummary, getSalesByEmployee } from '@/services/sales';
-import { listSaleSessions, removeSessionItem, deleteSaleSession } from '@/services/sessions';
+import { listSaleSessions, removeSessionItem, deleteSaleSession, getSessionFabricCost } from '@/services/sessions';
 import { listBranches } from '@/services/branches';
 import { listEmployees } from '@/services/employees';
 import { listFabrics } from '@/services/fabrics';
@@ -84,6 +84,8 @@ export default function SalesPage() {
   const [generatedSales, setGeneratedSales] = useState<DailySale[]>([]);
 
   const [closedSessions, setClosedSessions] = useState<SaleSession[]>([]);
+  const [closedFabricCost, setClosedFabricCost] = useState<number | null>(null);
+  const [closedFabricCostEstimated, setClosedFabricCostEstimated] = useState(false);
   const [closedLoading, setClosedLoading] = useState(true);
   const [expandedClosed, setExpandedClosed] = useState<Set<number>>(new Set());
   const [showClosedSessions, setShowClosedSessions] = useState<boolean>(true);
@@ -298,6 +300,39 @@ export default function SalesPage() {
   }, [closedSessions]);
 
   const summaryClosedSessions = selectedClosed.size > 0 ? selectedClosedSessions : closedSessions;
+  const summarySessionIds = useMemo(() => summaryClosedSessions.map((s) => s.id), [summaryClosedSessions]);
+  useEffect(() => {
+    let cancelled = false;
+    if (me?.role !== 'admin') {
+      setClosedFabricCost(null);
+      setClosedFabricCostEstimated(false);
+      return () => { cancelled = true; };
+    }
+    const currentPriceCost = summaryClosedSessions.reduce((sum, session) => sum + session.items
+      .filter((item) => !item.is_returned)
+      .reduce((sessionSum, item) => {
+        const fabric = fabrics.find((entry) => entry.id === item.fabric);
+        return sessionSum + Number(item.yards_effective || 0) * Number(fabric?.purchase_price || 0);
+      }, 0), 0);
+    if (summarySessionIds.length === 0) {
+      setClosedFabricCost(0);
+      setClosedFabricCostEstimated(false);
+      return () => { cancelled = true; };
+    }
+    setClosedFabricCost(null);
+    setClosedFabricCostEstimated(false);
+    getSessionFabricCost(summarySessionIds)
+      .then((res) => { if (!cancelled) setClosedFabricCost(res.cost); })
+      .catch(() => {
+        if (!cancelled) {
+          // Keep the manager's indicator useful if an older API server does not
+          // yet expose the historical-cost endpoint.
+          setClosedFabricCost(currentPriceCost);
+          setClosedFabricCostEstimated(true);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [summarySessionIds, summaryClosedSessions, fabrics, me?.role]);
   const sTotals = useMemo(() => {
     let items = 0, yards = 0, cash = 0, transfer = 0, card = 0, total = 0;
     for (const s of summaryClosedSessions) {
@@ -562,6 +597,7 @@ export default function SalesPage() {
                 <SummaryChip label="ورديات" value={String(sTotals.sessions)} />
                 <SummaryChip label="بنود" value={formatNumber(sTotals.items)} />
                 <SummaryChip label="ياردات" value={formatNumber(sTotals.yards)} />
+                {me?.role === 'admin' && <SummaryChip label={closedFabricCostEstimated ? 'تكلفة القماش المباع · حسب السعر الحالي' : 'تكلفة القماش المباع'} value={closedFabricCost == null ? '…' : formatCurrency(closedFabricCost)} color="text-amber-700" />}
                 <SummaryChip label="كاش" value={formatCurrency(sTotals.cash)} color="text-emerald-600" />
                 <SummaryChip label="تحويل" value={formatCurrency(sTotals.transfer)} />
                 <SummaryChip label="ماكينة" value={formatCurrency(sTotals.card)} color="text-amber-600" />

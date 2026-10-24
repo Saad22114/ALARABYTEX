@@ -39,6 +39,11 @@ export async function getSaleSessionSummary(
   return apiRequest<SaleSessionSummary>(`/sale-sessions/summary/${q}`);
 }
 
+export async function getSessionFabricCost(sessionIds: number[]): Promise<{ cost: number }> {
+  const ids = sessionIds.join(',');
+  return apiRequest<{ cost: number }>(`/sale-sessions/fabric-cost/?session_ids=${encodeURIComponent(ids)}`);
+}
+
 export async function getSaleSession(id: number): Promise<SaleSession> {
   return apiRequest<SaleSession>(`/sale-sessions/${id}/`);
 }

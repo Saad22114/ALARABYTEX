@@ -218,7 +218,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
     const id = setInterval(() => {
       fetchSessions(true);
       fetchSummary();
-    }, 20000);
+    }, 60000);
     return () => clearInterval(id);
   }, [fetchSessions, fetchSummary]);
 
@@ -1116,6 +1116,35 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
             compact
           />
 
+          <div className="grid gap-4 rounded-xl border border-sand-200 bg-sand-50/60 p-3 sm:grid-cols-2">
+            <Select
+              label="طريقة الدفع (تُطبَّق على كل أصناف البيعة)"
+              value={lines[0]?.payment_method ?? defaultPaymentMethod}
+              onChange={(e) => {
+                const v = e.target.value as SessionPaymentMethod;
+                setLines((cur) => cur.map((l) => ({ ...l, payment_method: v, card_type: v === 'card' ? (l.card_type || 'credit') : '' })));
+              }}
+              options={PAYMENT_OPTIONS}
+            />
+            {lines[0]?.payment_method === 'card' && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1.5">نوع الماكينة (يُطبَّق على كل الأصناف)</label>
+                <div className="flex rounded-xl border border-sand-300 overflow-hidden bg-surface">
+                  {CARD_TYPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setLines((cur) => cur.map((l) => ({ ...l, card_type: opt.value as SessionCardType })))}
+                      className={`flex-1 py-2.5 text-sm font-medium transition-colors ${lines[0]?.card_type === opt.value ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="space-y-3">
             {lines.map((line, idx) => {
               const calc = lineCalc(line);
@@ -1181,35 +1210,6 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                         </button>
                       </div>
                     </div>
-                    {idx === 0 && (
-                      <Select
-                        label="طريقة الدفع (تُطبَّق على كل أصناف هذه البيعة)"
-                        value={line.payment_method}
-                        onChange={(e) => {
-                          const v = e.target.value as SessionPaymentMethod;
-                          setLines((cur) => cur.map((l) => ({ ...l, payment_method: v, card_type: v === 'card' ? (l.card_type || 'credit') : '' })));
-                        }}
-                        options={PAYMENT_OPTIONS}
-                      />
-                    )}
-                    {idx === 0 && line.payment_method === 'card' && (
-                      <div>
-                        <label className="block text-sm font-medium text-neutral-700 mb-1.5">نوع الماكينة (تُطبَّق على كل الأصناف)</label>
-                        <div className="flex rounded-xl border border-sand-300 overflow-hidden">
-                          {CARD_TYPE_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => setLines((cur) => cur.map((l) => ({ ...l, card_type: opt.value as SessionCardType })))}
-                              className={`flex-1 py-2.5 text-sm font-medium transition-colors ${line.card_type === opt.value ? 'bg-brand-600 text-white' : 'bg-surface text-neutral-600 hover:bg-sand-100'}`}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-xs text-neutral-400 mt-1">عمولة الماكينة {calc.feePercent}% — يُسجَّل صافي المبيعات بعد خصمها</p>
-                      </div>
-                    )}
                     <div>
                       <Input
                         label={line.sale_type === 'roll' ? 'عدد الطاقات' : 'الكمية (ياردات)'}
@@ -1245,6 +1245,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       onChange={(e) => updateLine(idx, { discount: e.target.value })}
                       placeholder=""
                       selectOnFocus
+                      className="!bg-amber-50/70 !border-amber-200 focus:!border-amber-400 focus:!ring-amber-100"
                     />
                     <FinalAmountInput
                       subtotal={calc.subtotal}

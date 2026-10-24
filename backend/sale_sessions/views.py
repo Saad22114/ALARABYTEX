@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 
 from core.branch_scope import scope_queryset
 from core.phones import find_by_phone
+from reports.cogs import fabric_average_costs
 from .models import Employee, PermissionTemplate, SaleSession, SaleSessionItem
 from .sections import ROLE_PRESETS, SECTIONS
 from .serializers import (
@@ -98,6 +99,7 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
     permission_section_alternatives = {
         "add_item": ("sales",),
         "add_items": ("sales",),
+        "fabric_cost": ("sales",),
     }
     queryset = SaleSession.objects.select_related("employee", "branch").all()
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
@@ -221,6 +223,33 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
                 "card": float(totals["card"]),
             }
         )
+
+    @action(detail=False, methods=["get"], url_path="fabric-cost")
+    def fabric_cost(self, request):
+        """تكلفة الأقمشة المباعة في الورديات الظاهرة/المحددة للمستخدم."""
+        employee = getattr(request.user, "employee", None)
+        if employee is None or employee.role != Employee.Role.ADMIN:
+            return Response({"detail": "هذه المعلومة متاحة لمدير النظام فقط"}, status=status.HTTP_403_FORBIDDEN)
+        raw_ids = request.query_params.get("session_ids", "")
+        try:
+            session_ids = {int(value) for value in raw_ids.split(",") if value.strip()}
+        except ValueError:
+            return Response({"detail": "معرّفات الورديات غير صحيحة"}, status=status.HTTP_400_BAD_REQUEST)
+        if not session_ids:
+            return Response({"cost": 0})
+
+        sessions = self.filter_queryset(self.get_queryset()).filter(
+            pk__in=session_ids, status=SaleSession.Status.CLOSED
+        )
+        items = SaleSessionItem.objects.filter(
+            session__in=sessions, is_returned=False
+        ).select_related("fabric")
+        costs = fabric_average_costs({item.fabric_id for item in items})
+        total = sum(
+            ((costs.get(item.fabric_id) or Decimal("0")) * item.yards_effective for item in items),
+            Decimal("0"),
+        )
+        return Response({"cost": float(total)})
 
     @action(detail=True, methods=["post"], url_path="items")
     def add_item(self, request, pk=None):

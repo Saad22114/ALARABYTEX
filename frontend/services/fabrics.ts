@@ -24,6 +24,14 @@ export async function updateFabric(id: number, data: Partial<Fabric>): Promise<F
   });
 }
 
+/** Update a single fabric field without replacing the rest of its data. */
+export async function patchFabric(id: number, data: Partial<Fabric>): Promise<Fabric> {
+  return apiRequest<Fabric>(`/fabrics/${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function deleteFabric(id: number): Promise<void> {
   return apiRequest<void>(`/fabrics/${id}/`, { method: 'DELETE' });
 }
