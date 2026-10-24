@@ -15,7 +15,7 @@ import ExpenseForm from '@/components/forms/ExpenseForm';
 import CategoriesPanel from '@/components/expenses/CategoriesPanel';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
-import { Plus, Pencil, Trash2, RefreshCw, Download, Receipt, Tags, Eye, FileText } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, Download, Receipt, Tags, Eye, FileText, ArrowUpDown, TrendingDown, TrendingUp } from 'lucide-react';
 import { Expense, Branch, ExpenseCategory, Paginated } from '@/types';
 import { listExpenses, getExpenseSummary, createExpense, updateExpense, deleteExpense, listExpenseCategories, runRecurringExpenses, getExpenseReceipt, ExpenseSummary } from '@/services/expenses';
 import { listBranches } from '@/services/branches';
@@ -34,6 +34,28 @@ const TABS = [
   { key: 'list' as const, label: 'المصاريف', icon: Receipt },
   { key: 'categories' as const, label: 'التصنيفات', icon: Tags },
 ];
+
+function monthValue(offset = 0) {
+  const current = new Date();
+  const date = new Date(current.getFullYear(), current.getMonth() + offset, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthBounds(value: string) {
+  const [year, month] = value.split('-').map(Number);
+  if (!year || !month) return { date_from: undefined, date_to: undefined };
+  const lastDay = new Date(year, month, 0).getDate();
+  return {
+    date_from: `${year}-${String(month).padStart(2, '0')}-01`,
+    date_to: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+function monthLabel(value: string) {
+  if (!value) return '';
+  const [year, month] = value.split('-').map(Number);
+  return new Intl.DateTimeFormat('ar', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+}
 
 export default function ExpensesPage() {
   const { toast } = useToast();
@@ -59,11 +81,12 @@ export default function ExpensesPage() {
   const [recurringLoading, setRecurringLoading] = useState(false);
   const [receiptPreview, setReceiptPreview] = useState<{ expense: Expense; image: string } | null>(null);
   const [filteredSummary, setFilteredSummary] = useState<ExpenseSummary | null>(null);
-  const [monthlySummary, setMonthlySummary] = useState<ExpenseSummary | null>(null);
-  const [monthlySummaryLoading, setMonthlySummaryLoading] = useState(true);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareMonths, setCompareMonths] = useState(() => ({ first: monthValue(), second: monthValue(-1) }));
+  const [comparison, setComparison] = useState<{ first: ExpenseSummary; second: ExpenseSummary } | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [selectedExpenses, setSelectedExpenses] = useState<Record<number, number>>({});
-  const monthRange = useMemo(() => currentMonthRange(), []);
 
   const handleViewReceipt = async (expense: Expense) => {
     try {
@@ -80,7 +103,6 @@ export default function ExpensesPage() {
       const res = await runRecurringExpenses();
       toast('success', res.count > 0 ? `تم ترحيل ${counted(res.count, 'مصروف متكرر', 'مصروفان متكرران', 'مصروفات متكررة')}` : 'لا توجد مصاريف مستحقة للترحيل');
       fetchData();
-      fetchMonthlySummary();
     } catch (err: any) {
       toast('error', err.message);
     } finally {
@@ -164,31 +186,53 @@ export default function ExpensesPage() {
 
   useEffect(() => fetchData(), [fetchData]);
 
-  const fetchMonthlySummary = useCallback(() => {
+  useEffect(() => {
+    if (!compareOpen) return;
+    if (!compareMonths.first || !compareMonths.second) {
+      setComparison(null);
+      setComparisonLoading(false);
+      return;
+    }
     let cancelled = false;
-    setMonthlySummaryLoading(true);
-    getExpenseSummary({
-      date_from: monthRange.from,
-      date_to: monthRange.to,
-      branch: filterBranch || undefined,
-    })
-      .then((summary) => { if (!cancelled) setMonthlySummary(summary); })
-      .catch(() => { if (!cancelled) setMonthlySummary(null); })
-      .finally(() => { if (!cancelled) setMonthlySummaryLoading(false); });
+    setComparisonLoading(true);
+    const common = { branch: filterBranch || undefined, category: filterCategory || undefined };
+    Promise.all([
+      getExpenseSummary({ ...common, ...monthBounds(compareMonths.first) }),
+      getExpenseSummary({ ...common, ...monthBounds(compareMonths.second) }),
+    ])
+      .then(([first, second]) => { if (!cancelled) setComparison({ first, second }); })
+      .catch(() => { if (!cancelled) setComparison(null); })
+      .finally(() => { if (!cancelled) setComparisonLoading(false); });
     return () => { cancelled = true; };
-  }, [filterBranch, monthRange]);
+  }, [compareOpen, compareMonths, filterBranch, filterCategory]);
 
-  useEffect(() => fetchMonthlySummary(), [fetchMonthlySummary]);
   useAutoRefresh(useCallback(() => {
     fetchData();
-    fetchMonthlySummary();
-  }, [fetchData, fetchMonthlySummary]));
+  }, [fetchData]));
 
   const totalPages = data ? Math.ceil(data.count / pageSize) : 1;
   const selectedExpenseTotal = useMemo(
     () => Object.values(selectedExpenses).reduce((total, amount) => total + amount, 0),
     [selectedExpenses]
   );
+  const comparisonRows = useMemo(() => {
+    if (!comparison) return [];
+    const rows = new Map<string, { name: string; first: number; second: number; firstCount: number; secondCount: number }>();
+    for (const item of comparison.first.categories) {
+      rows.set(item.category == null ? 'uncategorized' : String(item.category), {
+        name: item.category_name, first: item.total, second: 0, firstCount: item.count, secondCount: 0,
+      });
+    }
+    for (const item of comparison.second.categories) {
+      const key = item.category == null ? 'uncategorized' : String(item.category);
+      const row = rows.get(key) ?? { name: item.category_name, first: 0, second: 0, firstCount: 0, secondCount: 0 };
+      row.second = item.total;
+      row.secondCount = item.count;
+      rows.set(key, row);
+    }
+    return Array.from(rows.entries()).map(([key, row]) => ({ key, ...row }))
+      .sort((a, b) => (b.first + b.second) - (a.first + a.second));
+  }, [comparison]);
   const allVisibleSelected = Boolean(data?.results.length && data.results.every((expense) => selectedExpenses[expense.id] !== undefined));
 
   const toggleExpense = (expense: Expense) => {
@@ -217,7 +261,6 @@ export default function ExpensesPage() {
     toast('success', 'تم تسجيل المصروف بنجاح');
     setModalOpen(false);
     fetchData();
-    fetchMonthlySummary();
   };
 
   const handleUpdate = async (d: Partial<Expense>) => {
@@ -227,7 +270,6 @@ export default function ExpensesPage() {
     toast('success', 'تم تحديث المصروف بنجاح');
     setEditing(null);
     fetchData();
-    fetchMonthlySummary();
   };
 
   const handleDelete = async () => {
@@ -239,7 +281,6 @@ export default function ExpensesPage() {
       toast('success', 'تم حذف المصروف بنجاح');
       setDeleting(null);
       fetchData();
-      fetchMonthlySummary();
     } catch (err: any) {
       toast('error', err.message);
     } finally {
@@ -367,26 +408,33 @@ export default function ExpensesPage() {
         </div>
 
         <Card className="!p-4">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="font-semibold text-neutral-800">ملخص الشهر الحالي حسب نوع المصروف</h2>
+              <h2 className="font-semibold text-neutral-800">ملخص الفترة حسب نوع المصروف</h2>
               <p className="mt-1 text-xs text-neutral-500">
-                {formatDate(monthRange.from)} – {formatDate(monthRange.to)} · {filterBranch ? branches.find((branch) => String(branch.id) === filterBranch)?.name || 'الفرع المحدد' : 'كل الفروع'}
+                {dateFrom && dateTo ? `${formatDate(dateFrom)} – ${formatDate(dateTo)}` : 'كل الفترات'}
+                {' · '}{filterBranch ? branches.find((branch) => String(branch.id) === filterBranch)?.name || 'الفرع المحدد' : 'كل الفروع'}
+                {filterCategory ? ` · ${categories.find((category) => String(category.id) === filterCategory)?.name || 'التصنيف المحدد'}` : ''}
               </p>
             </div>
-            <div className="text-left">
-              <div className="text-xs text-neutral-500">الإجمالي الشهري</div>
-              <div className="text-lg font-bold tabular-nums">{monthlySummaryLoading ? 'جارٍ الحساب…' : formatCurrency(monthlySummary?.total || 0)}</div>
+            <div className="flex items-center gap-3">
+              <div className="text-left">
+                <div className="text-xs text-neutral-500">إجمالي الفترة</div>
+                <div className="text-lg font-bold tabular-nums">{summaryLoading ? 'جارٍ الحساب…' : formatCurrency(filteredSummary?.total || 0)}</div>
+              </div>
+              <Button variant={compareOpen ? 'primary' : 'secondary'} size="sm" onClick={() => setCompareOpen((open) => !open)}>
+                <ArrowUpDown size={16} /> مقارنة شهرين
+              </Button>
             </div>
           </div>
-          {monthlySummaryLoading ? (
+          {summaryLoading ? (
             <div className="flex justify-center py-5"><Spinner size={24} /></div>
-          ) : !monthlySummary || monthlySummary.categories.length === 0 ? (
-            <p className="rounded-lg bg-sand-50 p-4 text-center text-sm text-neutral-500">لا توجد مصاريف مسجلة لهذا الشهر.</p>
+          ) : !filteredSummary || filteredSummary.categories.length === 0 ? (
+            <p className="rounded-lg bg-sand-50 p-4 text-center text-sm text-neutral-500">لا توجد مصاريف مسجلة في الفترة المحددة.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {monthlySummary.categories.map((category) => (
-                <div key={category.category ?? 'uncategorized'} className="flex items-center justify-between gap-3 rounded-lg border border-sand-200 p-3">
+              {filteredSummary.categories.map((category) => (
+                <div key={category.category ?? 'uncategorized'} className="flex items-center justify-between gap-3 rounded-lg border border-sand-200 bg-surface p-3">
                   <div>
                     <div className="text-sm font-medium text-neutral-700">{category.category_name}</div>
                     <div className="mt-0.5 text-xs text-neutral-400">{category.count} مصروف</div>
@@ -397,6 +445,71 @@ export default function ExpensesPage() {
             </div>
           )}
         </Card>
+
+        {compareOpen && (
+          <Card className="!p-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-neutral-800">مقارنة المصاريف بين شهرين</h2>
+                <p className="mt-1 text-xs text-neutral-500">قارن الإجمالي وكل نوع مصروف في الفرع والتصنيف المحددين.</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="grid gap-1 text-xs text-neutral-500">الشهر الأول
+                  <input type="month" value={compareMonths.first} onChange={(e) => setCompareMonths((months) => ({ ...months, first: e.target.value }))} className="rounded-lg border border-sand-300 bg-surface px-3 py-2 text-sm text-neutral-800" />
+                </label>
+                <label className="grid gap-1 text-xs text-neutral-500">الشهر الثاني
+                  <input type="month" value={compareMonths.second} onChange={(e) => setCompareMonths((months) => ({ ...months, second: e.target.value }))} className="rounded-lg border border-sand-300 bg-surface px-3 py-2 text-sm text-neutral-800" />
+                </label>
+              </div>
+            </div>
+            {comparisonLoading ? (
+              <div className="flex justify-center py-6"><Spinner size={26} /></div>
+            ) : !comparison ? (
+              <p className="mt-4 rounded-lg bg-red-50 p-3 text-center text-sm text-red-600">تعذر تحميل المقارنة.</p>
+            ) : (
+              <>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl bg-brand-50 p-3">
+                    <div className="text-xs text-neutral-500">{monthLabel(compareMonths.first)}</div>
+                    <div className="mt-1 text-xl font-bold tabular-nums">{formatCurrency(comparison.first.total)}</div>
+                  </div>
+                  <div className="rounded-xl bg-sand-100 p-3">
+                    <div className="text-xs text-neutral-500">{monthLabel(compareMonths.second)}</div>
+                    <div className="mt-1 text-xl font-bold tabular-nums">{formatCurrency(comparison.second.total)}</div>
+                  </div>
+                  <div className={`rounded-xl p-3 ${comparison.first.total > comparison.second.total ? 'bg-red-50' : comparison.first.total < comparison.second.total ? 'bg-emerald-50' : 'bg-sand-50'}`}>
+                    <div className="text-xs text-neutral-500">الفرق بين الشهرين</div>
+                    <div className={`mt-1 inline-flex items-center gap-1 text-xl font-bold tabular-nums ${comparison.first.total > comparison.second.total ? 'text-red-700' : comparison.first.total < comparison.second.total ? 'text-emerald-700' : 'text-neutral-700'}`}>
+                      {comparison.first.total > comparison.second.total ? <TrendingUp size={17} /> : comparison.first.total < comparison.second.total ? <TrendingDown size={17} /> : null}
+                      {formatCurrency(Math.abs(comparison.first.total - comparison.second.total))}
+                    </div>
+                    <div className="text-xs text-neutral-500">{comparison.first.total > comparison.second.total ? 'ارتفاع في الشهر الأول' : comparison.first.total < comparison.second.total ? 'انخفاض في الشهر الأول' : 'المبلغ متساوٍ'}</div>
+                  </div>
+                </div>
+                {comparisonRows.length > 0 ? (
+                  <div className="mt-4 overflow-x-auto rounded-xl border border-sand-200">
+                    <table className="w-full min-w-[620px] text-sm">
+                      <thead><tr className="bg-sand-50 text-right text-xs text-neutral-500"><th className="px-3 py-2">نوع المصروف</th><th className="px-3 py-2">{monthLabel(compareMonths.first)}</th><th className="px-3 py-2">{monthLabel(compareMonths.second)}</th><th className="px-3 py-2">الفرق</th></tr></thead>
+                      <tbody>
+                        {comparisonRows.map((row) => {
+                          const difference = row.first - row.second;
+                          return <tr key={row.key} className="border-t border-sand-100">
+                            <td className="px-3 py-2 font-medium text-neutral-700">{row.name}</td>
+                            <td className="px-3 py-2 tabular-nums">{formatCurrency(row.first)} <span className="text-xs text-neutral-400">({row.firstCount})</span></td>
+                            <td className="px-3 py-2 tabular-nums">{formatCurrency(row.second)} <span className="text-xs text-neutral-400">({row.secondCount})</span></td>
+                            <td className={`px-3 py-2 font-semibold tabular-nums ${difference > 0 ? 'text-red-600' : difference < 0 ? 'text-emerald-600' : 'text-neutral-500'}`}>
+                              <span className="inline-flex items-center gap-1">{difference > 0 ? <TrendingUp size={14} /> : difference < 0 ? <TrendingDown size={14} /> : null}{formatCurrency(Math.abs(difference))}{difference !== 0 ? (difference > 0 ? ' زيادة' : ' انخفاض') : ''}</span>
+                            </td>
+                          </tr>;
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <p className="mt-4 rounded-lg bg-sand-50 p-4 text-center text-sm text-neutral-500">لا توجد مصاريف في الشهرين المحددين.</p>}
+              </>
+            )}
+          </Card>
+        )}
 
         <Card>
           {loading ? (
