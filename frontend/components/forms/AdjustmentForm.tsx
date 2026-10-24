@@ -12,9 +12,14 @@ const TYPE_OPTIONS = [
   { value: 'opening', label: 'رصيد افتتاحي' },
 ];
 
-const DIRECTION_OPTIONS = [
-  { value: 'increase', label: 'زيادة' },
-  { value: 'decrease', label: 'نقصان' },
+const ADJUSTMENT_DIRECTION_OPTIONS = [
+  { value: 'increase', label: 'زيادة الرصيد' },
+  { value: 'decrease', label: 'نقصان الرصيد' },
+];
+
+const OPENING_DIRECTION_OPTIONS = [
+  { value: 'increase', label: 'مبلغ مستحق للمورد (علينا)' },
+  { value: 'decrease', label: 'رصيد لصالحنا لدى المورد' },
 ];
 
 interface AdjustmentFormProps {
@@ -66,10 +71,10 @@ export default function AdjustmentForm({ onSubmit, onCancel, defaultType = 'adju
           options={TYPE_OPTIONS}
         />
         <Select
-          label="الجهة"
+          label={type === 'opening' ? 'طبيعة الرصيد' : 'اتجاه التسوية'}
           value={direction}
           onChange={(e) => setDirection(e.target.value as 'increase' | 'decrease')}
-          options={DIRECTION_OPTIONS}
+          options={type === 'opening' ? OPENING_DIRECTION_OPTIONS : ADJUSTMENT_DIRECTION_OPTIONS}
         />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -96,8 +101,13 @@ export default function AdjustmentForm({ onSubmit, onCancel, defaultType = 'adju
         label="البيان"
         value={form.description}
         onChange={(e) => setForm({ ...form, description: e.target.value })}
-        placeholder="سبب التسوية"
+        placeholder={type === 'opening' ? 'مثال: رصيد المورد عند بدء استخدام النظام' : 'سبب التسوية'}
       />
+      {type === 'opening' && (
+        <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs leading-5 text-brand-800">
+          أدخل رصيد المورد في تاريخ بداية التعامل بالنظام. سيُضاف الرصيد المستحق للمورد إلى حسابه، أما الرصيد لصالحنا فيُخصم منه.
+        </p>
+      )}
       <div className="flex justify-start gap-3 pt-2">
         <Button type="submit" loading={loading}>
           {type === 'opening' ? 'حفظ الرصيد الافتتاحي' : 'حفظ التسوية'}

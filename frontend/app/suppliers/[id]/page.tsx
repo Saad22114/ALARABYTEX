@@ -43,12 +43,13 @@ import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
 
 type Tab = 'ledger' | 'purchases' | 'statement';
-type EntryModalType = '' | 'purchase' | 'payment' | 'return' | 'adjustment';
+type EntryModalType = '' | 'purchase' | 'payment' | 'return' | 'adjustment' | 'opening';
 
 const ENTRY_TYPE_OPTIONS = [
   { value: 'purchase', label: 'شراء' },
   { value: 'payment', label: 'دفعة' },
   { value: 'return', label: 'مرتجع' },
+  { value: 'opening', label: 'رصيد افتتاحي' },
   { value: 'adjustment', label: 'تسوية' },
 ];
 
@@ -267,6 +268,10 @@ export default function SupplierDetailPage() {
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               <Pencil size={16} />
               تعديل
+            </Button>
+            <Button variant="secondary" onClick={() => openEntryModal('opening')}>
+              <Scale size={16} />
+              رصيد افتتاحي
             </Button>
             <Button onClick={() => openEntryModal('')}>
               <Plus size={16} />
@@ -691,7 +696,7 @@ export default function SupplierDetailPage() {
         <SupplierForm initial={supplier} onSubmit={handleUpdateSupplier} onCancel={() => setEditOpen(false)} />
       </Modal>
 
-      <Modal open={entryOpen} onClose={() => { setEntryOpen(false); setEntryModalType(''); }} title="قيد جديد" maxWidth="max-w-3xl">
+      <Modal open={entryOpen} onClose={() => { setEntryOpen(false); setEntryModalType(''); }} title={entryModalType === 'opening' ? 'تسجيل رصيد افتتاحي' : 'قيد جديد'} maxWidth="max-w-3xl">
         <div className="space-y-4">
           {!entryModalType && (
             <Select
@@ -717,9 +722,9 @@ export default function SupplierDetailPage() {
               <ReturnForm onSubmit={handleCreateEntry} onCancel={() => { setEntryOpen(false); setEntryModalType(''); }} />
             </div>
           )}
-          {entryModalType === 'adjustment' && (
+          {(entryModalType === 'adjustment' || entryModalType === 'opening') && (
             <div key={entryKey}>
-              <AdjustmentForm onSubmit={handleCreateEntry} onCancel={() => { setEntryOpen(false); setEntryModalType(''); }} />
+              <AdjustmentForm defaultType={entryModalType === 'opening' ? 'opening' : 'adjustment'} onSubmit={handleCreateEntry} onCancel={() => { setEntryOpen(false); setEntryModalType(''); }} />
             </div>
           )}
         </div>
