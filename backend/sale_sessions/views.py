@@ -12,7 +12,6 @@ from rest_framework.views import APIView
 
 from core.branch_scope import scope_queryset
 from core.phones import find_by_phone
-from reports.cogs import fabric_average_costs
 from .models import Employee, PermissionTemplate, SaleSession, SaleSessionItem
 from .sections import ROLE_PRESETS, SECTIONS
 from .serializers import (
@@ -244,9 +243,8 @@ class SaleSessionViewSet(viewsets.ModelViewSet):
         items = SaleSessionItem.objects.filter(
             session__in=sessions, is_returned=False
         ).select_related("fabric")
-        costs = fabric_average_costs({item.fabric_id for item in items})
         total = sum(
-            ((costs.get(item.fabric_id) or Decimal("0")) * item.yards_effective for item in items),
+            ((item.fabric.purchase_price or Decimal("0")) * item.yards_effective for item in items),
             Decimal("0"),
         )
         return Response({"cost": float(total)})

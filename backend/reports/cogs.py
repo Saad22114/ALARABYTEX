@@ -18,6 +18,20 @@ def sold_by_fabric(date_from, date_to, branch_id=None):
     return dict(sold)
 
 
+def fabric_purchase_prices(fabric_ids=None):
+    """سعر الشراء الحالي للياردة لكل قماش، كما هو مسجل في بطاقة القماش."""
+    fabrics = Fabric.objects.all()
+    if fabric_ids is not None:
+        requested_ids = set(fabric_ids)
+        if not requested_ids:
+            return {}
+        fabrics = fabrics.filter(id__in=requested_ids)
+    return {
+        fabric_id: purchase_price or Decimal("0")
+        for fabric_id, purchase_price in fabrics.values_list("id", "purchase_price")
+    }
+
+
 def fabric_average_costs(fabric_ids=None):
     """متوسط تكلفة الياردة لكل قماش:
     (قيمة الاستلامات المرحّلة + قيمة الأرصدة الافتتاحية) ÷ مجموع الياردات.

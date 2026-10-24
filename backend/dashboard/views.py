@@ -18,7 +18,7 @@ from sales.models import DailySale, DailySaleItem
 from suppliers.models import Fabric, LedgerEntry, Supplier
 from warehouses.models import FabricRoll
 
-from reports.cogs import fabric_average_costs, sold_by_fabric
+from reports.cogs import fabric_purchase_prices, sold_by_fabric
 
 
 def _last_day_of_month(value):
@@ -189,7 +189,7 @@ class DashboardSummaryView(APIView):
         suppliers_count = Supplier.objects.filter(is_active=True).count()
 
         sold = sold_by_fabric(start_date, end_date, branch_pk)
-        costs = fabric_average_costs(sold.keys())
+        costs = fabric_purchase_prices(sold.keys())
         cogs_map = {fid: (costs.get(fid) or Decimal("0")) * yards for fid, yards in sold.items()}
         total_cogs = sum(cogs_map.values(), Decimal("0"))
         gross_profit = Decimal(total_sales) - total_cogs
@@ -254,7 +254,7 @@ class DashboardSummaryView(APIView):
         previous_sales = prev_sales_qs.aggregate(total=Sum("total_sales"))["total"] or 0
         previous_expenses = prev_expense_qs.aggregate(total=Sum("amount"))["total"] or 0
         previous_sold = sold_by_fabric(prev_start, prev_end, branch_pk)
-        previous_costs = fabric_average_costs(previous_sold.keys())
+        previous_costs = fabric_purchase_prices(previous_sold.keys())
         previous_cogs = sum(
             ((previous_costs.get(fid) or Decimal("0")) * yards for fid, yards in previous_sold.items()),
             Decimal("0"),
