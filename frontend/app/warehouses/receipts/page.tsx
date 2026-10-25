@@ -56,14 +56,24 @@ function ReceiptForm({
     setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
 
+  const yardsFor = (item: ReceiptDraft) => {
+    const rolls = Number(item.rolls_count) || 0;
+    if (rolls > 0) {
+      const yardsPerRoll = Number(fabrics.find((f) => f.id === item.fabric)?.yards_per_roll) || 0;
+      return rolls * yardsPerRoll;
+    }
+    return Number(item.yards) || 0;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const payload: ReceiptWrite = {
       supplier: supplier ? Number(supplier) : null,
       date,
       supplier_receipt_no: supplierReceiptNo,
-      items: items.map((it) => ({ fabric: it.fabric, rolls_count: Number(it.rolls_count) || 0, yards: Number(it.yards) || 0, unit_price: Number(it.unit_price) || 0 })),
+      items: items.map((it) => ({ fabric: it.fabric, rolls_count: Number(it.rolls_count) || 1, yards: yardsFor(it), unit_price: Number(it.unit_price) || 0 })),
     };
+    if (items.some((it) => Number(it.rolls_count) > 0 && !(Number(fabrics.find((f) => f.id === it.fabric)?.yards_per_roll) > 0))) return;
     if (destType === 'branch') {
       if (!branch) return;
       payload.branch = branch;
@@ -125,29 +135,39 @@ function ReceiptForm({
         </div>
         <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 text-xs font-semibold text-neutral-500 px-2">
           <span>القماش *</span>
-          <span>الكمية بالياردات *</span>
-          <span>عدد الطاقات *</span>
+          <span>الياردات (أو تُحسب من الطاقات)</span>
+          <span>عدد الطاقات (اختياري)</span>
           <span>سعر الياردة</span>
           <span />
         </div>
+        <p className="px-2 text-xs text-neutral-500">عند ترحيل السند، يحدّث النظام سعر شراء القماش إذا كان سعر الياردة في الاستلام أعلى من السعر المسجل؛ السعر الأقل لا يغيّر البطاقة.</p>
         {items.map((it, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center bg-sand-50 p-2 rounded-xl">
+          <div key={i}>
+          <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center bg-sand-50 p-2 rounded-xl">
             <Select value={it.fabric} onChange={(e) => updateItem(i, { fabric: Number(e.target.value) })} options={fabrics.map((f) => ({ value: f.id, label: `${f.name} (${f.code})` }))} />
-            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: e.target.value })} placeholder="الياردات" required />
+            <Input type="number" min={0} step="0.01" value={it.yards} onChange={(e) => updateItem(i, { yards: e.target.value })} placeholder={Number(it.rolls_count) > 0 ? formatNumber(yardsFor(it)) : 'الياردات'} required={Number(it.rolls_count) <= 0} />
             <Input type="number" min={1} value={it.rolls_count} numeric="int" onChange={(e) => updateItem(i, { rolls_count: e.target.value })} placeholder="الطاقات" />
             <Input type="number" min={0} step="0.001" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: e.target.value })} placeholder="السعر / ياردة" />
             <button type="button" onClick={() => setItems((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r))} className="p-2 rounded-lg text-neutral-400 hover:text-red-500">
               <X size={16} />
             </button>
           </div>
+          {Number(it.rolls_count) > 0 && (
+            <p className={`px-2 text-xs ${Number(fabrics.find((f) => f.id === it.fabric)?.yards_per_roll) > 0 ? 'text-neutral-500' : 'text-red-600'}`}>
+              {Number(fabrics.find((f) => f.id === it.fabric)?.yards_per_roll) > 0
+                ? `${it.rolls_count} طاقات = ${formatNumber(yardsFor(it))} ياردة`
+                : 'لا يمكن التحويل: أدخل عدد الياردات للطاقة في بيانات القماش أولاً.'}
+            </p>
+          )}
+          </div>
         ))}
       </div>
 
       <div className="flex justify-between items-center pt-2">
         <div className="text-sm text-neutral-500">
-          الإجمالي: <b className="tabular-nums">{formatNumber(items.reduce((s, it) => s + (Number(it.yards) || 0) * (Number(it.unit_price) || 0), 0))}</b>
+          الإجمالي: <b className="tabular-nums">{formatNumber(items.reduce((s, it) => s + yardsFor(it) * (Number(it.unit_price) || 0), 0))}</b>
         </div>
-        <Button type="submit" loading={loading}>حفظ سند الاستلام</Button>
+        <Button type="submit" loading={loading} disabled={items.some((it) => Number(it.rolls_count) > 0 && !(Number(fabrics.find((f) => f.id === it.fabric)?.yards_per_roll) > 0))}>حفظ سند الاستلام</Button>
       </div>
     </form>
   );

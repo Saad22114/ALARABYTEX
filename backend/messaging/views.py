@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from sale_sessions.models import Employee
+from sale_sessions.notifications import notify_employee
 
 from .models import Message
 from .serializers import MessageSerializer
@@ -232,6 +233,10 @@ class SendMessageView(APIView):
             reply_to=replied,
             reply_to_body=reply_body,
         )
+        notify_employee(
+            r, "message", f"رسالة جديدة من {sender.name}",
+            str(body).strip()[:280], "/messages",
+        )
         return Response(MessageSerializer(msg).data, status=status.HTTP_201_CREATED)
 
 
@@ -361,6 +366,10 @@ class ForwardMessageView(APIView):
             sender=me,
             receiver=target,
             body=msg.body,
+        )
+        notify_employee(
+            target, "message", f"رسالة معاد توجيهها من {me.name}",
+            msg.body[:280], "/messages",
         )
         return Response(MessageSerializer(new_msg).data, status=status.HTTP_201_CREATED)
 

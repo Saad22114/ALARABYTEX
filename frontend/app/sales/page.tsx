@@ -12,6 +12,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import SessionsPanel from '@/components/sessions/SessionsPanel';
 import FabricPriceGuide from '@/components/sales/FabricPriceGuide';
+import SalesLinksGuide from '@/components/sales/SalesLinksGuide';
 import SessionItemEditModal from '@/components/sessions/SessionItemEditModal';
 import SessionDetailsModal from '@/components/sessions/SessionDetailsModal';
 import SessionEditModal from '@/components/sessions/SessionEditModal';
@@ -23,7 +24,7 @@ import {
   Plus, Pencil, Trash2, Store, Timer,
   IndianRupee, Banknote, Users, ChevronDown, ChevronLeft, Archive, Eye, EyeOff, ChevronsUp, ChevronsDownUp,
   Printer, Share2, CheckCircle,
-  Tags,
+  Tags, QrCode,
 } from 'lucide-react';
 import {
   Branch, Employee, DailySale,
@@ -58,7 +59,7 @@ export default function SalesPage() {
   const { session } = useAuth();
   const me = session?.employee;
   const isManager = Boolean(me && (me.role === 'admin' || me.role === 'supervisor'));
-  const [tab, setTab] = useUrlState<'sales' | 'sessions' | 'fabric-prices'>('tab', 'sales');
+  const [tab, setTab] = useUrlState<'sales' | 'sessions' | 'fabric-prices' | 'links'>('tab', 'sales');
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -410,6 +411,12 @@ export default function SalesPage() {
               <button type="button" onClick={() => setTab('fabric-prices')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'fabric-prices' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
                 <Tags size={16} />
                 دليل أسعار الأقمشة
+              </button>
+            )}
+            {hasWindow(me?.permissions, 'sales', 'sales') && (
+              <button type="button" onClick={() => setTab('links')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'links' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
+                <QrCode size={16} />
+                روابط التواصل والتحويل
               </button>
             )}
           </div>
@@ -934,8 +941,10 @@ export default function SalesPage() {
         </>
         ) : tab === 'sessions' ? (
           <SessionsPanel onChanged={refreshSalesTab} onSaleGenerated={handleSaleGenerated} />
-        ) : hasWindow(me?.permissions, 'sales', 'sales') ? (
+        ) : tab === 'fabric-prices' && hasWindow(me?.permissions, 'sales', 'sales') ? (
           <FabricPriceGuide />
+        ) : tab === 'links' && hasWindow(me?.permissions, 'sales', 'sales') ? (
+          <SalesLinksGuide />
         ) : null}
 
         <ManualSessionModal

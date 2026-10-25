@@ -91,6 +91,42 @@ class GoodsReceiptAPITest(TestCase):
         self.assertEqual(sum(x.remaining_yards for x in rolls), 100)
         self.assertEqual(StockMovement.objects.count(), 2)
 
+    def test_receipt_roll_count_converts_to_yards_and_raises_purchase_price(self):
+        self.fabric.yards_per_roll = Decimal("25")
+        self.fabric.purchase_price = Decimal("3")
+        self.fabric.save(update_fields=["yards_per_roll", "purchase_price"])
+        response = self.c.post("/api/warehouses/receipts/", {
+            "warehouse": self.wh.pk,
+            "date": date.today().isoformat(),
+            "items": [{"fabric": self.fabric.pk, "rolls_count": 10, "unit_price": 4}],
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Decimal(str(response.data["items"][0]["yards"])), Decimal("250"))
+        self.assertEqual(response.data["items"][0]["rolls_count"], 10)
+
+        posted = self.c.post(f"/api/warehouses/receipts/{response.data['id']}/post/")
+        self.assertEqual(posted.status_code, 200, posted.data)
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.purchase_price, Decimal("4"))
+        stock = FabricRoll.objects.filter(warehouse=self.wh, fabric=self.fabric)
+        self.assertEqual(stock.count(), 10)
+        self.assertEqual(sum(roll.remaining_yards for roll in stock), Decimal("250"))
+
+    def test_receipt_with_lower_price_keeps_existing_fabric_purchase_price(self):
+        self.fabric.yards_per_roll = Decimal("25")
+        self.fabric.purchase_price = Decimal("5")
+        self.fabric.save(update_fields=["yards_per_roll", "purchase_price"])
+        response = self.c.post("/api/warehouses/receipts/", {
+            "warehouse": self.wh.pk,
+            "date": date.today().isoformat(),
+            "items": [{"fabric": self.fabric.pk, "rolls_count": 1, "unit_price": 4}],
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        posted = self.c.post(f"/api/warehouses/receipts/{response.data['id']}/post/")
+        self.assertEqual(posted.status_code, 200, posted.data)
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.purchase_price, Decimal("5"))
+
     def test_receipt_post_twice_rejected(self):
         r = self.c.post("/api/warehouses/receipts/", {
             "warehouse": self.wh.pk, "date": date.today().isoformat(),

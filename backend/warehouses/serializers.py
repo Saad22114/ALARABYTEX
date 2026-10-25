@@ -94,29 +94,43 @@ class StockMovementSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-def _item_tuples(items_data, support_mode=False):
+def _item_tuples(items_data, support_mode=False, convert_rolls=False):
     """يحوّل إدخالات العناصر إلى قيم مشتركة مع التحقق."""
     rows = []
     for it in items_data:
         mode = it.get("quantity_mode", "yard") if support_mode else "yard"
         if mode not in ("yard", "roll"):
             raise serializers.ValidationError("طريقة الكمية غير صالحة")
-        if mode == "roll":
-            rolls_count = int(it.get("rolls_count", 0) or 0)
-            if rolls_count < 1:
-                raise serializers.ValidationError("عدد اللفات يجب أن يكون 1 على الأقل")
-            yards = Decimal("0")
-        else:
-            rolls_count = int(it.get("rolls_count", 0) or 0)
-            yards = Decimal(str(it.get("yards", "0")))
-            if yards <= 0:
-                raise serializers.ValidationError("الياردات يجب أن تكون أكبر من صفر")
+        rolls_count = int(it.get("rolls_count", 0) or 0)
         fabric = it.get("fabric")
         if isinstance(fabric, (int, str)):
             try:
                 fabric = Fabric.objects.get(pk=fabric)
             except Fabric.DoesNotExist:
                 raise serializers.ValidationError("قماش غير موجود")
+        if mode == "roll":
+            if rolls_count < 1:
+                raise serializers.ValidationError("عدد اللفات يجب أن يكون 1 على الأقل")
+            yards = Decimal("0")
+        elif convert_rolls and rolls_count > 0:
+            yards_per_roll = fabric.yards_per_roll or Decimal("0")
+            if yards_per_roll <= 0:
+                # Preserve older clients that send an explicit yard total and
+                # use rolls_count only as a physical-roll count. The current
+                # UI blocks roll conversion until yards_per_roll is configured.
+                yards = Decimal(str(it.get("yards", "0") or "0"))
+                if yards <= 0:
+                    raise serializers.ValidationError(
+                        f"لا يمكن تحويل الطاقات للقماش «{fabric.name}»: حدّد ياردات الطاقة في بيانات القماش"
+                    )
+            else:
+                yards = Decimal(rolls_count) * yards_per_roll
+        else:
+            yards = Decimal(str(it.get("yards", "0") or "0"))
+            if yards <= 0:
+                raise serializers.ValidationError("الياردات يجب أن تكون أكبر من صفر")
+            if convert_rolls:
+                rolls_count = 1
         rows.append({
             "fabric": fabric,
             "yards": yards,
@@ -243,7 +257,7 @@ class GoodsReceiptWriteSerializer(serializers.Serializer):
     def validate_items(self, items):
         if not items:
             raise serializers.ValidationError("أضف صنفاً واحداً على الأقل")
-        return _item_tuples(items)
+        return _item_tuples(items, convert_rolls=True)
 
     def create(self, validated_data):
         with transaction.atomic():

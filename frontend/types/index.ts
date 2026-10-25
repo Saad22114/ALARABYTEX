@@ -643,6 +643,12 @@ export interface AppSettings {
   business_address: string;
   tax_number: string;
   business_email: string;
+  instagram_url?: string;
+  snapchat_url?: string;
+  tiktok_url?: string;
+  facebook_url?: string;
+  bank_transfer_url?: string;
+  bank_transfer_phone?: string;
   currency_symbol: string;
   currency_code: string;
   decimal_places: number;

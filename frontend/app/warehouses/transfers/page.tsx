@@ -102,6 +102,14 @@ function TransferForm({
     setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
 
+  const yardsFor = (item: TransferDraft) => {
+    if (item.quantity_mode === 'roll') {
+      const yardsPerRoll = Number(fabrics.find((f) => f.id === item.fabric)?.yards_per_roll) || 0;
+      return (Number(item.rolls_count) || 0) * yardsPerRoll;
+    }
+    return Number(item.yards) || 0;
+  };
+
   const addItem = () =>
     setItems((r) => [...r, { fabric: fabrics[0]?.id ?? 0, yards: '', rolls_count: '', quantity_mode: 'yard' }]);
 
@@ -111,12 +119,9 @@ function TransferForm({
     const payload: TransferWrite = {
       date,
       notes,
-      items: items.map((it) =>
-        it.quantity_mode === 'roll'
-          ? { fabric: it.fabric, rolls_count: Number(it.rolls_count) || 0, quantity_mode: 'roll' }
-          : { fabric: it.fabric, yards: Number(it.yards) || 0, rolls_count: Number(it.rolls_count) || 0, quantity_mode: 'yard' }
-      ),
+      items: items.map((it) => ({ fabric: it.fabric, yards: yardsFor(it), rolls_count: 0, quantity_mode: 'yard' })),
     };
+    if (items.some((it) => it.quantity_mode === 'roll' && !(Number(fabrics.find((f) => f.id === it.fabric)?.yards_per_roll) > 0))) return;
     if (sourceType === 'branch') {
       payload.from_branch = fromBranch;
       const branchWarehouse = warehouses.find((w) => w.is_branch_stock && w.branch === fromBranch);
@@ -225,17 +230,22 @@ function TransferForm({
               ]}
             />
             {it.quantity_mode === 'roll' ? (
-              <Input
-                type="number"
-                numeric="int"
-                min={1}
-                value={it.rolls_count}
-                onChange={(e) => updateItem(i, { rolls_count: e.target.value })}
-                placeholder="عدد الطاقات"
-                required
-              />
+              <div className="space-y-1">
+                <Input
+                  type="number"
+                  numeric="int"
+                  min={1}
+                  value={it.rolls_count}
+                  onChange={(e) => updateItem(i, { rolls_count: e.target.value })}
+                  placeholder="عدد الطاقات"
+                  required
+                />
+                {Number(fabrics.find((f) => f.id === it.fabric)?.yards_per_roll) > 0
+                  ? <p className="px-1 text-xs text-neutral-500">{formatNumber(yardsFor(it))} ياردة ستُنقل للمخزون</p>
+                  : <p className="px-1 text-xs text-red-600">أدخل ياردات الطاقة في بيانات القماش أولاً.</p>}
+              </div>
             ) : (
-              <div className="flex gap-2">
+              <div>
                 <Input
                   type="number"
                   min={0}
@@ -245,15 +255,6 @@ function TransferForm({
                   placeholder="الياردات"
                   required
                 />
-                <Input
-                  type="number"
-                  numeric="int"
-                  min={0}
-                  value={it.rolls_count}
-                  onChange={(e) => updateItem(i, { rolls_count: e.target.value })}
-                  placeholder="طاقات"
-                  className="w-20"
-                />
               </div>
             )}
             <button type="button" onClick={() => setItems((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r))} className="p-2 rounded-lg text-neutral-400 hover:text-red-500">
@@ -261,9 +262,7 @@ function TransferForm({
             </button>
           </div>
         ))}
-        {items.some((it) => it.quantity_mode === 'roll') && (
-          <p className="text-xs text-neutral-500">وضع «بالطاقات» ينقل طاقات كاملة (أقدم طاقة أولاً) بحسب رصيد المخزن.</p>
-        )}
+        {items.some((it) => it.quantity_mode === 'roll') && <p className="text-xs text-neutral-500">عند إدخال الطاقات تُحوَّل إلى ياردات بسعر/طول الطاقة المسجل للقماش، ويُسجَّل التحويل بالياردات.</p>}
       </div>
 
       <div>
@@ -272,7 +271,7 @@ function TransferForm({
       </div>
 
       <div className="flex justify-end pt-2">
-        <Button type="submit" loading={loading}>حفظ التحويل</Button>
+        <Button type="submit" loading={loading} disabled={items.some((it) => it.quantity_mode === 'roll' && !(Number(fabrics.find((f) => f.id === it.fabric)?.yards_per_roll) > 0))}>حفظ التحويل</Button>
       </div>
     </form>
   );

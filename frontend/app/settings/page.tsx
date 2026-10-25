@@ -97,6 +97,12 @@ export default function SettingsPage() {
     trade_name: '',
     commercial_registration: '',
     business_phone: '',
+    instagram_url: '',
+    snapchat_url: '',
+    tiktok_url: '',
+    facebook_url: '',
+    bank_transfer_url: '',
+    bank_transfer_phone: '',
     business_address: '',
     tax_number: '',
     business_email: '',
@@ -152,6 +158,12 @@ export default function SettingsPage() {
         trade_name: settings.trade_name || '',
         commercial_registration: settings.commercial_registration || '',
         business_phone: settings.business_phone || '',
+        instagram_url: settings.instagram_url || '',
+        snapchat_url: settings.snapchat_url || '',
+        tiktok_url: settings.tiktok_url || '',
+        facebook_url: settings.facebook_url || '',
+        bank_transfer_url: settings.bank_transfer_url || '',
+        bank_transfer_phone: settings.bank_transfer_phone || '',
         business_address: settings.business_address || '',
         tax_number: settings.tax_number || '',
         business_email: settings.business_email || '',
@@ -663,6 +675,18 @@ export default function SettingsPage() {
                   onChange={(e) => setBusinessForm({ ...businessForm, business_email: e.target.value })}
                   placeholder="info@example.com"
                 />
+              </div>
+              <div className="border-t border-sand-100 pt-4">
+                <h3 className="text-sm font-semibold text-neutral-700">روابط التواصل والتحويل</h3>
+                <p className="mt-1 text-xs text-neutral-500">أدخل رابط الحساب أو اسم المستخدم؛ ستظهر رموز QR في تبويب الروابط والتحويل بقسم المبيعات.</p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Input label="رابط أو اسم انستجرام" value={businessForm.instagram_url} onChange={(e) => setBusinessForm({ ...businessForm, instagram_url: e.target.value })} placeholder="اسم الحساب أو instagram.com/..." />
+                <Input label="رابط أو اسم سناب شات" value={businessForm.snapchat_url} onChange={(e) => setBusinessForm({ ...businessForm, snapchat_url: e.target.value })} placeholder="اسم الحساب أو snapchat.com/..." />
+                <Input label="رابط أو اسم تيك توك" value={businessForm.tiktok_url} onChange={(e) => setBusinessForm({ ...businessForm, tiktok_url: e.target.value })} placeholder="اسم الحساب أو tiktok.com/@..." />
+                <Input label="رابط أو اسم فيسبوك" value={businessForm.facebook_url} onChange={(e) => setBusinessForm({ ...businessForm, facebook_url: e.target.value })} placeholder="اسم الحساب أو facebook.com/..." />
+                <Input label="رابط التحويل البنكي" value={businessForm.bank_transfer_url} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_url: e.target.value })} placeholder="رابط الدفع أو التحويل" />
+                <Input label="رقم هاتف التحويل" value={businessForm.bank_transfer_phone} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_phone: e.target.value })} placeholder="رقم الهاتف المرتبط بالتحويل" />
               </div>
               <Input
                 label="الرقم الضريبي"

@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from branches.models import Branch
 from core.authentication import PresenceTokenAuthentication
-from sale_sessions.models import Employee
+from sale_sessions.models import Employee, Notification
 
 from .models import Message
 
@@ -54,6 +54,24 @@ class SendMessageTests(MessagingSetup):
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertTrue(Message.objects.filter(sender=self.me, receiver=self.partner).exists())
+        self.assertTrue(Notification.objects.filter(recipient=self.partner, kind="message").exists())
+
+    def test_message_notification_is_listed_and_can_be_marked_read(self):
+        self.client.post(
+            "/api/messaging/send/",
+            {"receiver": self.partner.pk, "body": "رسالة للتنبيه"},
+            format="json",
+        )
+        receiver_client = APIClient()
+        receiver_client.force_authenticate(user=self.partner_user)
+        listed = receiver_client.get("/api/notifications/")
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual(listed.data["unread_count"], 1)
+        notification_id = listed.data["results"][0]["id"]
+        marked = receiver_client.post(f"/api/notifications/{notification_id}/read/")
+        self.assertEqual(marked.status_code, status.HTTP_200_OK)
+        listed_again = receiver_client.get("/api/notifications/")
+        self.assertEqual(listed_again.data["unread_count"], 0)
 
     def test_send_requires_employee_ids(self):
         res = self.client.post(

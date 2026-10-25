@@ -14,6 +14,7 @@ from core.admin_secret import require_admin_password
 from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
 from core.money import unit_price
 from core.permissions import get_request_employee
+from sale_sessions.notifications import notify_transfer_approvers, notify_transfer_requester
 from reports.cogs import fabric_average_costs
 
 from .models import (
@@ -288,6 +289,7 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         actor = get_request_employee(request)
         transfer.requested_by = transfer.requested_by or (actor.name if actor else "")
         transfer.save(update_fields=["status", "requested_at", "requested_by"])
+        notify_transfer_approvers(transfer, actor)
         return Response(self._emit(transfer))
 
     @action(detail=True, methods=["post"])
@@ -301,6 +303,10 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         actor = get_request_employee(request)
         transfer.approved_by = actor.name if actor else (request.data.get("approved_by", "") or transfer.approved_by)
         transfer.save(update_fields=["status", "approved_at", "approved_by"])
+        notify_transfer_requester(
+            transfer, "transfer_approved", "تمت الموافقة على طلب التحويل",
+            f"تم اعتماد التحويل {transfer.number} من {transfer.approved_by}.",
+        )
         return Response(self._emit(transfer))
 
     @action(detail=True, methods=["post"])
@@ -315,6 +321,10 @@ class StockTransferViewSet(viewsets.ModelViewSet):
         transfer.rejected_at = timezone.now()
         transfer.rejection_reason = (request.data.get("reason") or "لم يُذكر سبب الرفض").strip()
         transfer.save(update_fields=["status", "rejected_by", "rejected_at", "rejection_reason"])
+        notify_transfer_requester(
+            transfer, "transfer_rejected", "رُفض طلب التحويل",
+            f"التحويل {transfer.number}: {transfer.rejection_reason}"[:300],
+        )
         return Response(self._emit(transfer))
 
     @action(detail=True, methods=["post"])
@@ -324,6 +334,10 @@ class StockTransferViewSet(viewsets.ModelViewSet):
             return Response({"detail": "التحويل يجب أن يكون موافقاً عليه للتنفيذ"},
                             status=status.HTTP_400_BAD_REQUEST)
         complete_transfer(transfer)
+        notify_transfer_requester(
+            transfer, "transfer_completed", "تم تنفيذ التحويل",
+            f"تم تنفيذ التحويل {transfer.number}.",
+        )
         # إبطال كاش التحميل المسبق كي تُقرأ عناصر محيّثة بعد التنفيذ
         transfer._prefetched_objects_cache = {}
         return Response(self._emit(transfer))

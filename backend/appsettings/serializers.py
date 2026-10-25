@@ -16,6 +16,8 @@ class AppSettingsSerializer(serializers.ModelSerializer):
             "pk", "business_name", "business_phone", "business_address", "tax_number",
             "trade_name", "commercial_registration",
             "business_email",
+            "instagram_url", "snapchat_url", "tiktok_url", "facebook_url",
+            "bank_transfer_url", "bank_transfer_phone",
             "currency_symbol", "currency_code", "decimal_places", "currency_position",
             "default_period", "default_page_size",
             "hidden_sections",

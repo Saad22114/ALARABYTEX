@@ -9,6 +9,15 @@ export function getDefaultPaymentMethod(): Promise<{ default_payment_method: App
   return apiRequest<{ default_payment_method: AppSettings['default_payment_method'] }>('/settings/default-payment-method/');
 }
 
+export type SalesLinks = Pick<AppSettings,
+  'business_name' | 'instagram_url' | 'snapchat_url' | 'tiktok_url' |
+  'facebook_url' | 'bank_transfer_url' | 'bank_transfer_phone'
+>;
+
+export function getSalesLinks(): Promise<SalesLinks> {
+  return apiRequest<SalesLinks>('/settings/sales-links/');
+}
+
 export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   return apiRequest<AppSettings>('/settings/', { method: 'PATCH', body: JSON.stringify(patch) });
 }

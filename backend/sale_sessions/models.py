@@ -300,3 +300,22 @@ class SaleSessionItem(TimeStampedModel):
 
     def __str__(self):
         return f"{self.fabric.name} x {self.quantity}"
+
+
+class Notification(TimeStampedModel):
+    """Durable in-app notification delivered to one employee."""
+
+    recipient = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="notifications",
+        verbose_name="المستلم",
+    )
+    kind = models.CharField(max_length=30, verbose_name="النوع")
+    title = models.CharField(max_length=180, verbose_name="العنوان")
+    body = models.CharField(max_length=300, blank=True, verbose_name="التفاصيل")
+    url = models.CharField(max_length=300, blank=True, verbose_name="الرابط")
+    read_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت القراءة")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "إشعار"
+        verbose_name_plural = "الإشعارات"

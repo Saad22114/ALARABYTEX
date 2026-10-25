@@ -45,6 +45,12 @@ class AppSettings(TimeStampedModel):
     hidden_sections = models.JSONField(default=list, blank=True, verbose_name="الأقسام المخفية")
 
     business_email = models.EmailField(blank=True, verbose_name="البريد الإلكتروني")
+    instagram_url = models.CharField(max_length=300, blank=True, verbose_name="رابط انستجرام")
+    snapchat_url = models.CharField(max_length=300, blank=True, verbose_name="رابط سناب شات")
+    tiktok_url = models.CharField(max_length=300, blank=True, verbose_name="رابط تيك توك")
+    facebook_url = models.CharField(max_length=300, blank=True, verbose_name="رابط فيسبوك")
+    bank_transfer_url = models.CharField(max_length=500, blank=True, verbose_name="رابط التحويل البنكي")
+    bank_transfer_phone = models.CharField(max_length=40, blank=True, verbose_name="هاتف التحويل البنكي")
     low_stock_threshold = models.DecimalField(
         max_digits=12,
         decimal_places=2,

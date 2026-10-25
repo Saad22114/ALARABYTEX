@@ -118,6 +118,23 @@ class DefaultPaymentMethodView(APIView):
         return Response({"default_payment_method": AppSettings.load().default_payment_method})
 
 
+class SalesLinksView(APIView):
+    """Customer-facing contact and bank-transfer links for sales staff."""
+    permission_section = "sales"
+
+    def get(self, request):
+        s = AppSettings.load()
+        return Response({
+            "business_name": s.business_name,
+            "instagram_url": s.instagram_url,
+            "snapchat_url": s.snapchat_url,
+            "tiktok_url": s.tiktok_url,
+            "facebook_url": s.facebook_url,
+            "bank_transfer_url": s.bank_transfer_url,
+            "bank_transfer_phone": s.bank_transfer_phone,
+        })
+
+
 class AutoBackupView(APIView):
     """GET lists previously created auto-backups; POST runs one now."""
     permission_section = "settings"

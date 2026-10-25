@@ -229,11 +229,26 @@ def post_receipt(receipt: GoodsReceipt):
         if not receipt.items.exists():
             raise serializers.ValidationError("سند الاستلام فارغ — أضف أصنافاً أولاً")
         destination = resolve_receipt_destination(receipt)
-        for item in receipt.items.select_related("fabric"):
+        items = list(receipt.items.select_related("fabric"))
+        fabric_ids = {item.fabric_id for item in items}
+        locked_fabrics = {
+            fabric.pk: fabric
+            for fabric in Fabric.objects.select_for_update().filter(pk__in=fabric_ids)
+        }
+        original_purchase_prices = {
+            fabric_id: fabric.purchase_price or Decimal("0")
+            for fabric_id, fabric in locked_fabrics.items()
+        }
+        highest_receipt_prices = dict(original_purchase_prices)
+
+        for item in items:
             if item.yards <= 0:
                 raise serializers.ValidationError(f"ياردات قماش «{item.fabric.name}» يجب أن تكون أكبر من صفر")
             item.total = (item.yards * item.unit_price).quantize(Decimal("0.01"))
             item.save(update_fields=["total"])
+            highest_receipt_prices[item.fabric_id] = max(
+                highest_receipt_prices[item.fabric_id], item.unit_price or Decimal("0")
+            )
             add_rolls(
                 warehouse=destination, fabric=item.fabric, yards=item.yards,
                 unit_cost=item.unit_price, movement_type=StockMovement.Type.RECEIPT,
@@ -241,6 +256,11 @@ def post_receipt(receipt: GoodsReceipt):
                 reference_no=receipt.number, date=receipt.date,
                 rolls_count=item.rolls_count,
             )
+        for fabric_id, purchase_price in highest_receipt_prices.items():
+            if purchase_price > original_purchase_prices[fabric_id]:
+                fabric = locked_fabrics[fabric_id]
+                fabric.purchase_price = purchase_price
+                fabric.save(update_fields=["purchase_price"])
         receipt.status = GoodsReceipt.Status.POSTED
         receipt.save(update_fields=["status"])
     return receipt
