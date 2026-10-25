@@ -12,7 +12,26 @@ export function getDefaultPaymentMethod(): Promise<{ default_payment_method: App
 export type SalesLinks = Pick<AppSettings,
   'business_name' | 'instagram_url' | 'snapchat_url' | 'tiktok_url' |
   'facebook_url' | 'bank_transfer_url' | 'bank_transfer_phone'
->;
+> & {
+  qr_images: Partial<Record<SalesQrKey, string>>;
+};
+
+export type SalesQrKey = 'instagram' | 'snapchat' | 'whatsapp' | 'bank_transfer';
+
+export function salesQrImageUrl(key: SalesQrKey, path?: string): string {
+  const version = path ? `?v=${encodeURIComponent(path)}` : '';
+  return `${API_URL.replace(/\/+$/, '')}/settings/sales-qr/${key}/file/${version}`;
+}
+
+export async function uploadSalesQrImage(key: SalesQrKey, file: File): Promise<{ image: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiRequest<{ image: string }>(`/settings/sales-qr/${key}/`, { method: 'POST', body: form });
+}
+
+export async function removeSalesQrImage(key: SalesQrKey): Promise<void> {
+  await apiRequest<void>(`/settings/sales-qr/${key}/`, { method: 'DELETE' });
+}
 
 export function getSalesLinks(): Promise<SalesLinks> {
   return apiRequest<SalesLinks>('/settings/sales-links/');

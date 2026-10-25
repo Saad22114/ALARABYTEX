@@ -25,6 +25,8 @@ import { getSectionsInfo } from '@/services/sections';
 import { API_URL } from '@/services/api';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
+import { useAuth } from '@/components/providers/AuthProvider';
+import SalesQrImageManager from '@/components/settings/SalesQrImageManager';
 import { useUrlState } from '@/lib/useUrlState';
 import { formatCurrency } from '@/lib/format';
 
@@ -84,6 +86,8 @@ const TABS = [
 export default function SettingsPage() {
   const { toast } = useToast();
   const { settings, loading, error, updateSettings, refreshSettings } = useSettings();
+  const { session } = useAuth();
+  const isManager = session?.employee.role === 'admin' || session?.employee.role === 'supervisor';
 
   const [tab, setTab] = useUrlState('tab', 'business');
 
@@ -688,6 +692,7 @@ export default function SettingsPage() {
                 <Input label="رابط التحويل البنكي" value={businessForm.bank_transfer_url} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_url: e.target.value })} placeholder="رابط الدفع أو التحويل" />
                 <Input label="رقم هاتف التحويل" value={businessForm.bank_transfer_phone} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_phone: e.target.value })} placeholder="رقم الهاتف المرتبط بالتحويل" />
               </div>
+              {isManager && <SalesQrImageManager />}
               <Input
                 label="الرقم الضريبي"
                 value={businessForm.tax_number}

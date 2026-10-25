@@ -12,6 +12,7 @@ import ProfitChart from '@/components/dashboard/ProfitChart';
 import ComparisonChart from '@/components/dashboard/ComparisonChart';
 import MonthCompareChart from '@/components/dashboard/MonthCompareChart';
 import AlertsPanel from '@/components/dashboard/AlertsPanel';
+import SalesLinksGuide from '@/components/sales/SalesLinksGuide';
 import RecentActivity from '@/components/dashboard/RecentActivity';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
@@ -171,6 +172,11 @@ export default function DashboardPage() {
   const periodNet = data
     ? data.total_sales - data.total_cogs - data.total_expenses - data.total_salaries
     : 0;
+  const canSeeSalesLinks = Boolean(
+    me?.permissions?.['sales-links']?.view &&
+    !me?.hidden_sections?.includes('sales-links') &&
+    !settings?.hidden_sections?.includes('sales-links')
+  );
 
   return (
     <AppShell>
@@ -209,6 +215,8 @@ export default function DashboardPage() {
         </div>
 
         {alerts && <AlertsPanel alerts={alerts} />}
+
+        {canSeeSalesLinks && <SalesLinksGuide />}
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

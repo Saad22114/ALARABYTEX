@@ -13,6 +13,8 @@ from .views import (
     ResetView,
     ThemesControlView,
     SalesLinksView,
+    SalesQrImageView,
+    SalesQrImageFileView,
 )
 
 urlpatterns = [
@@ -20,6 +22,8 @@ urlpatterns = [
     path("public/", AppSettingsPublicView.as_view(), name="app-settings-public"),
     path("default-payment-method/", DefaultPaymentMethodView.as_view(), name="app-settings-default-payment-method"),
     path("sales-links/", SalesLinksView.as_view(), name="app-settings-sales-links"),
+    path("sales-qr/<str:key>/", SalesQrImageView.as_view(), name="app-settings-sales-qr"),
+    path("sales-qr/<str:key>/file/", SalesQrImageFileView.as_view(), name="app-settings-sales-qr-file"),
     path("themes-control/", ThemesControlView.as_view(), name="app-settings-themes-control"),
     path("logo/", LogoUploadView.as_view(), name="app-settings-logo"),
     path("logo-file/", LogoFileView.as_view(), name="app-settings-logo-file"),

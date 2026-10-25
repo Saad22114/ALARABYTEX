@@ -224,6 +224,21 @@ def export_backup(settings_obj):
                 "content": base64.b64encode(p.read_bytes()).decode("ascii"),
             }
     data["logo_file"] = logo_meta
+    qr_fields = {
+        "instagram": settings_obj.instagram_qr_image,
+        "snapchat": settings_obj.snapchat_qr_image,
+        "whatsapp": settings_obj.whatsapp_qr_image,
+        "bank_transfer": settings_obj.bank_transfer_qr_image,
+    }
+    qr_files = {}
+    qr_root = (Path(settings.MEDIA_ROOT) / "sales_qr").resolve()
+    for key, rel in qr_fields.items():
+        if not rel:
+            continue
+        p = (Path(settings.MEDIA_ROOT) / rel).resolve()
+        if p.parent == qr_root and p.is_file():
+            qr_files[key] = {"name": p.name, "content": base64.b64encode(p.read_bytes()).decode("ascii")}
+    data["sales_qr_files"] = qr_files
     return data
 
 
@@ -630,6 +645,32 @@ def restore_backup(payload):
             elif logo_meta is None and real.logo:
                 real.logo = ""
                 real.save(update_fields=["logo", "updated_at"])
+
+            # 6b) restore customer-facing QR image files with the saved settings.
+            qr_fields = {
+                "instagram": "instagram_qr_image",
+                "snapchat": "snapchat_qr_image",
+                "whatsapp": "whatsapp_qr_image",
+                "bank_transfer": "bank_transfer_qr_image",
+            }
+            qr_files = payload.get("sales_qr_files") or {}
+            for key, field in qr_fields.items():
+                meta = qr_files.get(key) if isinstance(qr_files, dict) else None
+                if not isinstance(meta, dict) or not meta.get("content"):
+                    setattr(real, field, "")
+                    continue
+                ext = Path(str(meta.get("name", ""))).suffix.lower()
+                if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+                    ext = ".png"
+                rel = f"sales_qr/{key}-restored{ext}"
+                p = Path(settings.MEDIA_ROOT) / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                content = base64.b64decode(meta["content"], validate=True)
+                if len(content) > 5 * 1024 * 1024:
+                    raise ValueError("صورة QR في النسخة الاحتياطية أكبر من الحد المسموح")
+                p.write_bytes(content)
+                setattr(real, field, rel)
+            real.save(update_fields=[*qr_fields.values(), "updated_at"])
 
             # الصفوف المستعادة تحتفظ بمعرّفاتها الأصلية؛ حدّث عدّادات
             # التسلسل كي لا تتصادم الإدخالات الجديدة مع تلك المعرّفات.

@@ -1,6 +1,7 @@
 import json
 import mimetypes
 import os
+import uuid
 from decimal import Decimal
 from pathlib import Path
 
@@ -120,7 +121,7 @@ class DefaultPaymentMethodView(APIView):
 
 class SalesLinksView(APIView):
     """Customer-facing contact and bank-transfer links for sales staff."""
-    permission_section = "sales"
+    permission_section = "sales-links"
 
     def get(self, request):
         s = AppSettings.load()
@@ -132,7 +133,109 @@ class SalesLinksView(APIView):
             "facebook_url": s.facebook_url,
             "bank_transfer_url": s.bank_transfer_url,
             "bank_transfer_phone": s.bank_transfer_phone,
+            "qr_images": {
+                "instagram": s.instagram_qr_image,
+                "snapchat": s.snapchat_qr_image,
+                "whatsapp": s.whatsapp_qr_image,
+                "bank_transfer": s.bank_transfer_qr_image,
+            },
         })
+
+
+SALES_QR_FIELDS = {
+    "instagram": "instagram_qr_image",
+    "snapchat": "snapchat_qr_image",
+    "whatsapp": "whatsapp_qr_image",
+    "bank_transfer": "bank_transfer_qr_image",
+}
+
+
+class SalesQrImageView(APIView):
+    """Upload or remove a customer-facing QR image. Changing it requires settings permission."""
+    permission_section = "settings"
+
+    def _field(self, key):
+        field = SALES_QR_FIELDS.get(key)
+        if not field:
+            from django.http import Http404
+            raise Http404("رمز QR غير معروف")
+        return field
+
+    def post(self, request, key):
+        from pathlib import Path
+
+        field = self._field(key)
+        file = request.FILES.get("file")
+        if not file:
+            return Response({"detail": "يرجى اختيار صورة"}, status=status.HTTP_400_BAD_REQUEST)
+        ext = Path(file.name).suffix.lower()
+        allowed = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+        if ext not in allowed or file.content_type not in (allowed[ext], "application/octet-stream"):
+            return Response({"detail": "الصيغ المدعومة: PNG أو JPG أو WEBP"}, status=status.HTTP_400_BAD_REQUEST)
+        if file.size > 5 * 1024 * 1024:
+            return Response({"detail": "حجم الصورة يجب ألا يتجاوز 5 ميجابايت"}, status=status.HTTP_400_BAD_REQUEST)
+        signature = file.read(12)
+        file.seek(0)
+        valid_signature = (
+            (ext == ".png" and signature.startswith(b"\x89PNG\r\n\x1a\n")) or
+            (ext in {".jpg", ".jpeg"} and signature.startswith(b"\xff\xd8\xff")) or
+            (ext == ".webp" and signature.startswith(b"RIFF") and signature[8:12] == b"WEBP")
+        )
+        if not valid_signature:
+            return Response({"detail": "محتوى الملف لا يطابق صيغة الصورة المحددة"}, status=status.HTTP_400_BAD_REQUEST)
+
+        s = AppSettings.load()
+        rel = f"sales_qr/{key}-{uuid.uuid4().hex}{ext}"
+        path = Path(settings.MEDIA_ROOT) / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as output:
+            for chunk in file.chunks():
+                output.write(chunk)
+        old_rel = getattr(s, field)
+        setattr(s, field, rel)
+        s.save(update_fields=[field, "updated_at"])
+        self._remove_old(old_rel, rel)
+        return Response({"image": rel}, status=status.HTTP_200_OK)
+
+    def delete(self, request, key):
+        field = self._field(key)
+        s = AppSettings.load()
+        old_rel = getattr(s, field)
+        setattr(s, field, "")
+        s.save(update_fields=[field, "updated_at"])
+        self._remove_old(old_rel, "")
+        return Response({"detail": "تمت استعادة رمز QR الافتراضي"}, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _remove_old(rel, keep):
+        from pathlib import Path
+
+        if not rel or rel == keep:
+            return
+        base = (Path(settings.MEDIA_ROOT) / "sales_qr").resolve()
+        candidate = (Path(settings.MEDIA_ROOT) / rel).resolve()
+        if candidate.parent == base and candidate.is_file():
+            candidate.unlink(missing_ok=True)
+
+
+class SalesQrImageFileView(APIView):
+    """Serve customer-facing QR images without requiring a browser auth header."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, key):
+        field = SALES_QR_FIELDS.get(key)
+        if not field:
+            raise Http404("رمز QR غير معروف")
+        s = AppSettings.load()
+        rel = getattr(s, field)
+        if not rel:
+            raise Http404("لا توجد صورة مخصصة لهذا الرمز")
+        base = (Path(settings.MEDIA_ROOT) / "sales_qr").resolve()
+        path = (Path(settings.MEDIA_ROOT) / rel).resolve()
+        if path.parent != base or not path.is_file():
+            raise Http404("الصورة غير موجودة")
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return FileResponse(open(path, "rb"), content_type=content_type)
 
 
 class AutoBackupView(APIView):

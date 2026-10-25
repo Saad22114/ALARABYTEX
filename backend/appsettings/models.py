@@ -51,6 +51,10 @@ class AppSettings(TimeStampedModel):
     facebook_url = models.CharField(max_length=300, blank=True, verbose_name="رابط فيسبوك")
     bank_transfer_url = models.CharField(max_length=500, blank=True, verbose_name="رابط التحويل البنكي")
     bank_transfer_phone = models.CharField(max_length=40, blank=True, verbose_name="هاتف التحويل البنكي")
+    instagram_qr_image = models.CharField(max_length=255, blank=True, default="", verbose_name="صورة رمز انستجرام")
+    snapchat_qr_image = models.CharField(max_length=255, blank=True, default="", verbose_name="صورة رمز سناب شات")
+    whatsapp_qr_image = models.CharField(max_length=255, blank=True, default="", verbose_name="صورة رمز واتساب")
+    bank_transfer_qr_image = models.CharField(max_length=255, blank=True, default="", verbose_name="صورة رمز التحويل البنكي")
     low_stock_threshold = models.DecimalField(
         max_digits=12,
         decimal_places=2,

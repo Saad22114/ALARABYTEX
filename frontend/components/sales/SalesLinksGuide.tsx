@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Image from 'next/image';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   Banknote, Copy, ExternalLink, Facebook, Ghost, Instagram, Link2,
@@ -10,7 +9,7 @@ import {
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
-import { getSalesLinks, SalesLinks } from '@/services/settings';
+import { getSalesLinks, SalesLinks, salesQrImageUrl } from '@/services/settings';
 
 type SocialKey = 'instagram_url' | 'snapchat_url' | 'tiktok_url' | 'facebook_url';
 
@@ -22,9 +21,10 @@ const socialPlatforms: Array<{
   iconClass: string;
   cardClass: string;
   image?: string;
+  qrKey?: 'instagram' | 'snapchat';
 }> = [
-  { key: 'instagram_url', name: 'انستجرام', host: 'instagram.com', icon: Instagram, iconClass: 'text-fuchsia-600', cardClass: 'from-fuchsia-50 to-white', image: '/images/sales-qr/instagram.jpeg' },
-  { key: 'snapchat_url', name: 'سناب شات', host: 'snapchat.com', icon: Ghost, iconClass: 'text-yellow-600', cardClass: 'from-yellow-50 to-white', image: '/images/sales-qr/snapchat.jpeg' },
+  { key: 'instagram_url', name: 'انستجرام', host: 'instagram.com', icon: Instagram, iconClass: 'text-fuchsia-600', cardClass: 'from-fuchsia-50 to-white', image: '/images/sales-qr/instagram.jpeg', qrKey: 'instagram' },
+  { key: 'snapchat_url', name: 'سناب شات', host: 'snapchat.com', icon: Ghost, iconClass: 'text-yellow-600', cardClass: 'from-yellow-50 to-white', image: '/images/sales-qr/snapchat.jpeg', qrKey: 'snapchat' },
   { key: 'tiktok_url', name: 'تيك توك', host: 'tiktok.com', icon: Music2, iconClass: 'text-neutral-800', cardClass: 'from-neutral-100 to-white' },
   { key: 'facebook_url', name: 'فيسبوك', host: 'facebook.com', icon: Facebook, iconClass: 'text-blue-600', cardClass: 'from-blue-50 to-white' },
 ];
@@ -85,6 +85,9 @@ export default function SalesLinksGuide() {
   const socialLinks = useMemo(() => socialPlatforms.map((platform) => ({
     ...platform,
     url: profileUrl(platform, links?.[platform.key] || ''),
+    qrImage: platform.qrKey && links?.qr_images?.[platform.qrKey]
+      ? salesQrImageUrl(platform.qrKey, links.qr_images[platform.qrKey])
+      : platform.image,
   })), [links]);
   const transferUrl = safeWebUrl(links?.bank_transfer_url || '');
   const transferPhone = links?.bank_transfer_phone?.trim() || '';
@@ -134,11 +137,11 @@ export default function SalesLinksGuide() {
                 </div>
               </div>
               <div className="flex min-h-[230px] flex-col items-center justify-center px-4 py-4">
-                {social.image || social.url ? (
+                {social.qrImage || social.url ? (
                   <>
-                    <button type="button" onClick={() => setExpandedQr({ title: social.name, image: social.image, url: social.url })} aria-label={`تكبير رمز ${social.name}`} className="group/qr relative overflow-hidden rounded-2xl border border-sand-100 bg-white p-2 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-400">
-                      {social.image ? (
-                        <Image src={social.image} alt={`رمز QR لحساب ${social.name}`} width={180} height={180} className="h-40 w-40 rounded-xl object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
+                    <button type="button" onClick={() => setExpandedQr({ title: social.name, image: social.qrImage, url: social.url })} aria-label={`تكبير رمز ${social.name}`} className="group/qr relative overflow-hidden rounded-2xl border border-sand-100 bg-white p-2 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-400">
+                      {social.qrImage ? (
+                        <img src={social.qrImage} alt={`رمز QR لحساب ${social.name}`} width={180} height={180} className="h-40 w-40 rounded-xl object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
                       ) : (
                         <QRCodeSVG value={social.url} size={160} level="H" includeMargin fgColor="#123d32" />
                       )}
@@ -174,8 +177,8 @@ export default function SalesLinksGuide() {
             </div>
           </div>
           <div className="flex min-h-[230px] flex-col items-center justify-center px-4 py-4">
-            <button type="button" onClick={() => setExpandedQr({ title: 'واتساب', image: '/images/sales-qr/whatsapp.jpeg' })} aria-label="تكبير رمز واتساب" className="group/qr relative overflow-hidden rounded-2xl border border-sand-100 bg-white p-2 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
-              <Image src="/images/sales-qr/whatsapp.jpeg" alt="رمز QR لواتساب" width={180} height={180} className="h-40 w-40 rounded-xl object-cover object-[center_41%] transition duration-300 group-hover/qr:scale-[1.03]" />
+            <button type="button" onClick={() => setExpandedQr({ title: 'واتساب', image: links?.qr_images?.whatsapp ? salesQrImageUrl('whatsapp', links.qr_images.whatsapp) : '/images/sales-qr/whatsapp.jpeg' })} aria-label="تكبير رمز واتساب" className="group/qr relative overflow-hidden rounded-2xl border border-sand-100 bg-white p-2 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
+              <img src={links?.qr_images?.whatsapp ? salesQrImageUrl('whatsapp', links.qr_images.whatsapp) : '/images/sales-qr/whatsapp.jpeg'} alt="رمز QR لواتساب" width={180} height={180} className="h-40 w-40 rounded-xl object-cover object-[center_41%] transition duration-300 group-hover/qr:scale-[1.03]" />
               <span className="absolute inset-x-2 bottom-2 flex items-center justify-center gap-1 rounded-lg bg-neutral-950/75 py-1.5 text-[10px] font-medium text-white opacity-0 transition group-hover/qr:opacity-100 group-focus/qr:opacity-100"><Maximize2 size={12} /> تكبير الرمز</span>
             </button>
             <p className="mt-3 text-center text-xs text-neutral-500">القماش العربي السعودي صلالة</p>
@@ -206,8 +209,8 @@ export default function SalesLinksGuide() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
-            <button type="button" onClick={() => setExpandedQr({ title: 'التحويل البنكي', image: '/images/sales-qr/bank-transfer.jpeg' })} aria-label="تكبير رمز التحويل البنكي" className="group/qr relative overflow-hidden rounded-xl border border-sand-200 bg-white p-1.5 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
-              <Image src="/images/sales-qr/bank-transfer.jpeg" alt="رمز QR للتحويل إلى بنك مسقط" width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
+            <button type="button" onClick={() => setExpandedQr({ title: 'التحويل البنكي', image: links?.qr_images?.bank_transfer ? salesQrImageUrl('bank_transfer', links.qr_images.bank_transfer) : '/images/sales-qr/bank-transfer.jpeg' })} aria-label="تكبير رمز التحويل البنكي" className="group/qr relative overflow-hidden rounded-xl border border-sand-200 bg-white p-1.5 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
+              <img src={links?.qr_images?.bank_transfer ? salesQrImageUrl('bank_transfer', links.qr_images.bank_transfer) : '/images/sales-qr/bank-transfer.jpeg'} alt="رمز QR للتحويل إلى بنك مسقط" width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
               <span className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-center gap-1 rounded-md bg-neutral-950/75 py-1 text-[9px] font-medium text-white opacity-0 transition group-hover/qr:opacity-100 group-focus/qr:opacity-100"><Maximize2 size={11} /> تكبير</span>
             </button>
             {transferUrl && <Button variant="secondary" onClick={() => copyText(transferUrl, 'رابط التحويل')}><Copy size={16} /> نسخ رابط التحويل</Button>}
@@ -223,7 +226,7 @@ export default function SalesLinksGuide() {
               <button type="button" onClick={() => setExpandedQr(null)} aria-label="إغلاق الرمز المكبر" className="rounded-xl border border-sand-200 p-2 text-neutral-500 transition hover:bg-sand-50 hover:text-neutral-900"><X size={20} /></button>
             </div>
             <div className="flex justify-center rounded-2xl bg-sand-50 p-4 sm:p-6">
-              {expandedQr.image ? <Image src={expandedQr.image} alt={`رمز QR ${expandedQr.title}`} width={680} height={680} priority className="max-h-[72vh] w-auto max-w-full rounded-xl object-contain shadow-sm" /> : expandedQr.url ? <QRCodeSVG value={expandedQr.url} size={640} level="H" includeMargin fgColor="#123d32" className="max-h-[72vh] max-w-full" /> : null}
+              {expandedQr.image ? <img src={expandedQr.image} alt={`رمز QR ${expandedQr.title}`} width={680} height={680} className="max-h-[72vh] w-auto max-w-full rounded-xl object-contain shadow-sm" /> : expandedQr.url ? <QRCodeSVG value={expandedQr.url} size={640} level="H" includeMargin fgColor="#123d32" className="max-h-[72vh] max-w-full" /> : null}
             </div>
             <p className="mt-4 flex items-center justify-center gap-2 text-xs text-neutral-500"><ScanLine size={15} /> قرّب كاميرا الهاتف من الرمز للمسح</p>
           </div>

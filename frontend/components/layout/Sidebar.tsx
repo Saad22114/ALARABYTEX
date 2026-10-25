@@ -24,6 +24,7 @@ import {
   Landmark,
   CircleDollarSign,
   Handshake,
+  QrCode,
 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Fragment } from 'react';
@@ -34,6 +35,7 @@ import { logoUrl } from '@/services/settings';
 const navItems = [
   { key: 'dashboard', href: '/', label: 'الرئيسية', icon: LayoutDashboard },
   { key: 'sales', href: '/sales', label: 'المبيعات', icon: ShoppingCart },
+  { key: 'sales-links', href: '/sales-links', label: 'روابط التواصل والتحويل', icon: QrCode },
   { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Warehouse },
   { key: 'branches', href: '/branches', label: 'الفروع', icon: MapPinned },
   { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText },
@@ -57,6 +59,7 @@ const navItems = [
 const navGroupTitles: Record<string, string> = {
   dashboard: 'نظرة عامة',
   sales: 'التشغيل اليومي',
+  'sales-links': 'دليل الزبائن',
   suppliers: 'دليل المتجر',
   payroll: 'الموظفون والرواتب',
   accounting: 'الإدارة المالية',

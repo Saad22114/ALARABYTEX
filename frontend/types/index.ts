@@ -649,6 +649,10 @@ export interface AppSettings {
   facebook_url?: string;
   bank_transfer_url?: string;
   bank_transfer_phone?: string;
+  instagram_qr_image?: string;
+  snapchat_qr_image?: string;
+  whatsapp_qr_image?: string;
+  bank_transfer_qr_image?: string;
   currency_symbol: string;
   currency_code: string;
   decimal_places: number;
