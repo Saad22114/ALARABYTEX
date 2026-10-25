@@ -16,7 +16,7 @@ import SalesLinksGuide from '@/components/sales/SalesLinksGuide';
 import RecentActivity from '@/components/dashboard/RecentActivity';
 import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
-import { Banknote, ReceiptText, TrendingUp, Percent, Store, Truck, GitCompareArrows, SlidersHorizontal } from 'lucide-react';
+import { Banknote, ReceiptText, TrendingUp, Percent, Store, Truck, GitCompareArrows, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { DashboardActivityItem, DashboardAlertsResult, DashboardSummary } from '@/types';
 import { getDashboardActivity, getDashboardAlerts, getDashboardSummary } from '@/services/dashboard';
 import { listBranches } from '@/services/branches';
@@ -119,6 +119,8 @@ export default function DashboardPage() {
     let cancelled = false;
     listBranches({ page_size: 100 }).then((res) => {
       if (!cancelled) setBranches(res.results);
+    }).catch((err) => {
+      if (!cancelled) toast('error', `تعذر تحميل قائمة الفروع: ${err.message}`);
     });
     getDashboardAlerts().then((res) => {
       if (!cancelled) setAlerts(res);
@@ -127,7 +129,7 @@ export default function DashboardPage() {
       if (!cancelled) setActivities(res.activities);
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [reloadKey, toast]);
 
   useEffect(() => {
     if (isScoped && me?.branch && !branch) {
@@ -147,7 +149,7 @@ export default function DashboardPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [branch, dateFrom, dateTo, reloadKey]);
+  }, [branch, dateFrom, dateTo, reloadKey, toast]);
 
   useEffect(() => {
     if (!monthA || !monthB) return;
@@ -167,7 +169,7 @@ export default function DashboardPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setMonthLoading(false); });
     return () => { cancelled = true; };
-  }, [monthSpans, branch, reloadKey]);
+  }, [monthA, monthB, monthSpans, branch, reloadKey, toast]);
 
   const periodNet = data
     ? data.total_sales - data.total_cogs - data.total_expenses - data.total_salaries
@@ -180,11 +182,43 @@ export default function DashboardPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="dashboard-page space-y-6">
+        <section className="dashboard-hero relative isolate overflow-hidden rounded-[26px] border border-brand-300/20 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-700 px-5 py-6 text-white shadow-2xl shadow-brand-950/15 sm:px-8 sm:py-7">
+          <div aria-hidden="true" className="dashboard-hero-weave absolute inset-0 opacity-60" />
+          <div aria-hidden="true" className="absolute -left-16 -top-24 h-72 w-72 rounded-full bg-brand-300/20 blur-3xl" />
+          <div aria-hidden="true" className="absolute -bottom-32 right-[38%] h-64 w-64 rounded-full bg-brand-500/20 blur-3xl" />
+          <div className="relative z-10 flex flex-wrap items-center justify-between gap-6">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-brand-100 shadow-inner shadow-white/[0.04]">
+                <Sparkles size={14} className="text-amber-200" /> مركز إدارة الأعمال
+              </div>
+              <h1 className="mt-4 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                أهلاً، {me?.name || 'بك'}
+              </h1>
+              <p className="mt-2 max-w-xl text-sm leading-7 text-white/70 sm:text-[15px]">
+                {settings?.business_name || 'Alaraby Tex'} <span className="mx-1 text-brand-200/70">·</span> لوحة واحدة لمتابعة أعمالك اليومية
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                {me?.role_label && <span className="rounded-lg border border-white/10 bg-black/[0.12] px-3 py-1.5 text-xs text-white/75">{me.role_label}</span>}
+                {me?.branch_name && <span className="rounded-lg border border-white/10 bg-black/[0.12] px-3 py-1.5 text-xs text-white/75">فرع {me.branch_name}</span>}
+              </div>
+            </div>
+            <div aria-hidden="true" className="relative mx-auto flex h-32 w-32 shrink-0 items-center justify-center sm:ml-4 sm:mr-0 sm:h-40 sm:w-40">
+              <span className="absolute inset-0 rounded-full border border-white/10" />
+              <span className="absolute inset-3 rounded-full border border-white/[0.12]" />
+              <span className="absolute inset-6 rounded-full bg-gradient-to-br from-white/15 to-white/[0.025] shadow-inner shadow-white/10 backdrop-blur-sm" />
+              <span className="absolute -right-1 top-5 h-2.5 w-2.5 rounded-full bg-amber-200 shadow-[0_0_18px_rgba(253,230,138,0.8)]" />
+              <span className="absolute bottom-5 left-1 h-2 w-2 rounded-full bg-brand-200 shadow-[0_0_14px_rgba(255,255,255,0.7)]" />
+              <Store size={48} strokeWidth={1.35} className="relative z-10 text-brand-100 drop-shadow-lg sm:h-14 sm:w-14" />
+            </div>
+          </div>
+          <div aria-hidden="true" className="absolute bottom-0 left-8 right-8 h-px bg-gradient-to-l from-transparent via-brand-200/45 to-transparent" />
+        </section>
+
         {canSeeSalesLinks && <SalesLinksGuide />}
 
         {/* Period + Branch Filter */}
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="dashboard-toolbar flex flex-wrap items-center gap-4">
           <DateRangeToolbar
             from={dateFrom}
             to={dateTo}

@@ -148,7 +148,10 @@ class DashboardAPITest(TestCase):
     def test_net_includes_cost_of_goods_sold_expenses_and_salaries(self):
         from payroll.models import Payslip, PayrollRun
 
-        sold_fabric = Fabric.objects.create(name="مباع", code="SOLD", unit="yard")
+        # Dashboard COGS uses the purchase price currently stored on the fabric.
+        sold_fabric = Fabric.objects.create(
+            name="مباع", code="SOLD", unit="yard", purchase_price=2,
+        )
         unsold_fabric = Fabric.objects.create(name="غير مباع", code="UNSOLD", unit="yard")
         receipt = GoodsReceipt.objects.create(
             number="DASH-COGS-1", date=self.today, status="posted",

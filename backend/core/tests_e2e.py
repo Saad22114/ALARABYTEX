@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+import json
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -103,7 +104,10 @@ class SectionsAndBasicsE2ETest(E2EBase):
         self.assertEqual(r.status_code, 200, r.data)
         r = self.c.get("/api/settings/backup/")
         self.assertEqual(r.status_code, 200)
-        self.assertTrue(r.json()["encrypted"])
+        self.assertTrue(r.streaming)
+        self.assertIn("attachment;", r["Content-Disposition"])
+        backup_payload = b"".join(r.streaming_content)
+        self.assertTrue(json.loads(backup_payload)["encrypted"])
 
 
 class PurchaseAndSessionE2ETest(E2EBase):
