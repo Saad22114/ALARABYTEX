@@ -8,11 +8,12 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { useToast } from '@/components/ui/Toast';
 import { removeSalesQrImage, SalesQrKey, salesQrImageUrl, uploadSalesQrImage } from '@/services/settings';
 
-const qrItems: Array<{ key: SalesQrKey; title: string; imageField: 'instagram_qr_image' | 'snapchat_qr_image' | 'whatsapp_qr_image' | 'bank_transfer_qr_image'; fallback: string }> = [
+const qrItems: Array<{ key: SalesQrKey; title: string; imageField: 'instagram_qr_image' | 'snapchat_qr_image' | 'whatsapp_qr_image' | 'bank_transfer_qr_image' | 'bank_transfer_qr_image_2'; fallback?: string }> = [
   { key: 'instagram', title: 'انستجرام', imageField: 'instagram_qr_image', fallback: '/images/sales-qr/instagram.jpeg' },
   { key: 'snapchat', title: 'سناب شات', imageField: 'snapchat_qr_image', fallback: '/images/sales-qr/snapchat.jpeg' },
   { key: 'whatsapp', title: 'واتساب', imageField: 'whatsapp_qr_image', fallback: '/images/sales-qr/whatsapp.jpeg' },
   { key: 'bank_transfer', title: 'التحويل البنكي', imageField: 'bank_transfer_qr_image', fallback: '/images/sales-qr/bank-transfer.jpeg' },
+  { key: 'bank_transfer_2', title: 'تحويل بنكي إضافي', imageField: 'bank_transfer_qr_image_2' },
 ];
 
 export default function SalesQrImageManager() {
@@ -65,7 +66,7 @@ export default function SalesQrImageManager() {
           return (
             <div key={item.key} className="overflow-hidden rounded-2xl border border-sand-200 bg-white">
               <div className="flex h-44 items-center justify-center bg-sand-50 p-3">
-                <img src={imageSrc} alt={`رمز QR ${item.title}`} width={180} height={180} className={`h-36 w-36 rounded-xl ${item.key === 'whatsapp' ? 'object-cover object-[center_41%]' : 'object-contain'} shadow-sm`} />
+                {imageSrc ? <img src={imageSrc} alt={`رمز QR ${item.title}`} width={180} height={180} className={`h-36 w-36 rounded-xl ${item.key === 'whatsapp' ? 'object-cover object-[center_41%]' : 'object-contain'} shadow-sm`} /> : <div className="flex h-36 w-36 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sand-300 text-neutral-400"><Upload size={23} /><span className="text-[11px]">لم تُضف صورة بعد</span></div>}
               </div>
               <div className="space-y-3 p-3">
                 <p className="text-center text-sm font-semibold text-neutral-800">{item.title}</p>
@@ -73,7 +74,7 @@ export default function SalesQrImageManager() {
                   <Upload size={14} /> {busy ? 'جارٍ الحفظ…' : 'اختيار صورة جديدة'}
                   <input type="file" accept="image/png,image/jpeg,image/webp" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" disabled={busy} onChange={(event) => { void upload(item.key, event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
                 </label>
-                {storedPath && <Button variant="secondary" className="w-full justify-center" disabled={busy} onClick={() => void restore(item.key)}><RotateCcw size={14} /> استعادة الصورة الأصلية</Button>}
+                {storedPath && <Button variant="secondary" className="w-full justify-center" disabled={busy} onClick={() => void restore(item.key)}><RotateCcw size={14} /> {item.key === 'bank_transfer_2' ? 'إزالة الصورة' : 'استعادة الصورة الأصلية'}</Button>}
               </div>
             </div>
           );

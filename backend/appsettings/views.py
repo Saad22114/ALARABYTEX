@@ -138,6 +138,7 @@ class SalesLinksView(APIView):
                 "snapchat": s.snapchat_qr_image,
                 "whatsapp": s.whatsapp_qr_image,
                 "bank_transfer": s.bank_transfer_qr_image,
+                "bank_transfer_2": s.bank_transfer_qr_image_2,
             },
         })
 
@@ -147,6 +148,7 @@ SALES_QR_FIELDS = {
     "snapchat": "snapchat_qr_image",
     "whatsapp": "whatsapp_qr_image",
     "bank_transfer": "bank_transfer_qr_image",
+    "bank_transfer_2": "bank_transfer_qr_image_2",
 }
 
 

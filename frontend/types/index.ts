@@ -653,6 +653,7 @@ export interface AppSettings {
   snapchat_qr_image?: string;
   whatsapp_qr_image?: string;
   bank_transfer_qr_image?: string;
+  bank_transfer_qr_image_2?: string;
   currency_symbol: string;
   currency_code: string;
   decimal_places: number;

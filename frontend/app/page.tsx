@@ -181,6 +181,8 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="space-y-6">
+        {canSeeSalesLinks && <SalesLinksGuide />}
+
         {/* Period + Branch Filter */}
         <div className="flex flex-wrap items-center gap-4">
           <DateRangeToolbar
@@ -215,8 +217,6 @@ export default function DashboardPage() {
         </div>
 
         {alerts && <AlertsPanel alerts={alerts} />}
-
-        {canSeeSalesLinks && <SalesLinksGuide />}
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

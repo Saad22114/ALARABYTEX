@@ -124,16 +124,16 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       )}
       <aside
         className={`
-          fixed right-0 top-0 bottom-0 w-72 bg-[#091d19] text-[#f3f1ec] flex flex-col
+          fixed right-0 top-0 bottom-0 w-72 bg-gradient-to-b from-brand-900 via-brand-950 to-brand-950 text-[#f3f1ec] flex flex-col
           z-50 lg:z-40 no-print
           transition-transform duration-300 ease-in-out
           ${open ? 'translate-x-0' : 'translate-x-full'}
           lg:translate-x-0
         `}
       >
-        <div className="relative overflow-hidden border-b border-white/[0.08] px-5 pb-5 pt-6 bg-gradient-to-br from-[#16382f] via-[#0d2a23] to-[#091d19]">
-          <div aria-hidden="true" className="absolute -left-10 -top-16 h-40 w-40 rounded-full bg-gold-300/[0.08] blur-3xl" />
-          <div aria-hidden="true" className="absolute bottom-0 right-0 h-px w-2/3 bg-gradient-to-l from-gold-300/35 to-transparent" />
+        <div className="relative overflow-hidden border-b border-white/[0.09] px-5 pb-5 pt-6 bg-gradient-to-br from-brand-800 via-brand-900 to-brand-950">
+          <div aria-hidden="true" className="absolute -left-10 -top-16 h-40 w-40 rounded-full bg-brand-300/[0.12] blur-3xl" />
+          <div aria-hidden="true" className="absolute bottom-0 right-0 h-px w-2/3 bg-gradient-to-l from-brand-300/45 to-transparent" />
           <div className="flex items-center justify-between">
               <div className="relative flex min-w-0 items-center gap-3">
                 {logoUrl(settings?.logo) ? (
@@ -141,7 +141,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                     type="button"
                     onClick={() => setLogoPreviewOpen(true)}
                     aria-label="عرض الشعار بحجم كبير"
-                    className="h-[54px] w-[54px] shrink-0 rounded-[18px] border border-white/25 bg-white p-1 shadow-xl shadow-black/20 cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-gold-400"
+                    className="h-[54px] w-[54px] shrink-0 rounded-[18px] border border-white/25 bg-white p-1 shadow-xl shadow-black/20 cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-brand-300"
                   >
                     <img
                       src={logoUrl(settings?.logo)}
@@ -150,14 +150,14 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                     />
                   </button>
                 ) : (
-                  <div className="flex h-[54px] w-[54px] shrink-0 items-center justify-center rounded-[18px] border border-gold-300/20 bg-gradient-to-br from-gold-300/20 to-gold-500/[0.04] shadow-inner">
-                    <Layers size={24} className="text-gold-300" strokeWidth={1.7} />
+                  <div className="flex h-[54px] w-[54px] shrink-0 items-center justify-center rounded-[18px] border border-brand-300/25 bg-gradient-to-br from-brand-300/20 via-brand-400/10 to-white/[0.03] shadow-inner">
+                    <Layers size={24} className="text-brand-200" strokeWidth={1.7} />
                   </div>
                 )}
                 <div className="min-w-0">
                   <div className="mb-1 flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-gold-300" />
-                    <span className="text-[9px] font-semibold tracking-[0.2em] text-gold-200/75">Alaraby Tex</span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-brand-300" />
+                    <span className="text-[9px] font-semibold tracking-[0.2em] text-brand-100/80">Alaraby Tex</span>
                   </div>
                   <h1 className="truncate text-[15px] font-bold leading-5 text-white">{settings?.business_name || 'القماش العربي'}</h1>
                   <p className="mt-1 text-[10px] text-white/45">نظام إدارة الأعمال</p>
@@ -165,7 +165,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               </div>
             <button
               onClick={onClose}
-              className="lg:hidden rounded-xl border border-white/10 bg-white/5 p-2 text-[#e8e4db] transition-colors hover:bg-white/10"
+                    className="lg:hidden rounded-xl border border-white/10 bg-white/5 p-2 text-[#e8e4db] transition-colors hover:border-brand-300/30 hover:bg-brand-300/10"
               aria-label="إغلاق القائمة"
             >
               <X size={20} />
@@ -197,18 +197,18 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                   aria-current={active ? 'page' : undefined}
                   className={`
                     group relative mb-1 flex items-center gap-3 rounded-[13px] border px-3 py-2 text-[13px] font-medium
-                    transition-all duration-200 hover:translate-x-[-2px] hover:border-white/[0.08] hover:bg-white/[0.045]
+                    transition-all duration-200 hover:translate-x-[-2px] hover:border-brand-300/20 hover:bg-brand-300/[0.07]
                     ${active
-                      ? 'border-emerald-300/[0.16] bg-gradient-to-l from-emerald-300/[0.13] via-white/[0.055] to-white/[0.025] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_5px_14px_rgba(0,0,0,0.12)]'
+                      ? 'border-brand-300/25 bg-gradient-to-l from-brand-300/[0.18] via-brand-400/[0.09] to-white/[0.025] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_5px_14px_rgba(0,0,0,0.16)]'
                       : 'border-transparent text-[#e8e4db]/60 hover:text-white/95'}
                   `}
                 >
-                  {active && <span aria-hidden="true" className="absolute right-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-l-full bg-gradient-to-b from-gold-200 to-gold-500 shadow-[0_0_12px_rgba(251,191,36,0.4)]" />}
-                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border transition-all duration-200 ${active ? 'border-gold-200/20 bg-gradient-to-br from-gold-200/15 to-emerald-200/[0.06] text-gold-100 shadow-[0_2px_10px_rgba(0,0,0,0.16)]' : 'border-white/[0.045] bg-white/[0.025] text-[#aabbb4] group-hover:border-white/[0.1] group-hover:bg-white/[0.07] group-hover:text-white'}`}>
+                  {active && <span aria-hidden="true" className="absolute right-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-l-full bg-gradient-to-b from-brand-200 via-brand-300 to-brand-500 shadow-lg shadow-brand-500/30" />}
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border transition-all duration-200 ${active ? 'border-brand-200/25 bg-gradient-to-br from-brand-300/25 via-brand-400/15 to-white/[0.04] text-brand-100 shadow-[0_2px_10px_rgba(0,0,0,0.18)]' : 'border-white/[0.045] bg-white/[0.025] text-[#aabbb4] group-hover:border-brand-200/20 group-hover:bg-brand-300/[0.09] group-hover:text-white'}`}>
                     <Icon size={19} strokeWidth={active ? 2.05 : 1.8} />
                   </span>
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  {active && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-gold-300 shadow-[0_0_8px_rgba(252,211,77,0.6)]" />}
+                  {active && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-200 shadow-[0_0_8px_rgba(255,255,255,0.45)]" />}
                 </Link>
               </Fragment>
             );
@@ -216,9 +216,9 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         </nav>
 
         <div className="border-t border-white/10 px-4 py-4">
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-gradient-to-l from-white/[0.055] to-white/[0.025] px-3 py-2.5 shadow-inner shadow-white/[0.02]">
+          <div className="flex items-center justify-between rounded-xl border border-brand-300/15 bg-gradient-to-l from-brand-300/[0.09] via-white/[0.035] to-white/[0.015] px-3 py-2.5 shadow-inner shadow-white/[0.02]">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.55)]" />
+              <span className="h-2 w-2 rounded-full bg-brand-300 shadow-[0_0_8px_rgba(255,255,255,0.35)]" />
               <span className="text-[11px] font-medium text-white/55">نظام إدارة الأعمال</span>
             </div>
             <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 font-mono text-[9px] text-white/35">1.0.0</span>

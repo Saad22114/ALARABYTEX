@@ -229,6 +229,7 @@ def export_backup(settings_obj):
         "snapchat": settings_obj.snapchat_qr_image,
         "whatsapp": settings_obj.whatsapp_qr_image,
         "bank_transfer": settings_obj.bank_transfer_qr_image,
+        "bank_transfer_2": settings_obj.bank_transfer_qr_image_2,
     }
     qr_files = {}
     qr_root = (Path(settings.MEDIA_ROOT) / "sales_qr").resolve()
@@ -652,6 +653,7 @@ def restore_backup(payload):
                 "snapchat": "snapchat_qr_image",
                 "whatsapp": "whatsapp_qr_image",
                 "bank_transfer": "bank_transfer_qr_image",
+                "bank_transfer_2": "bank_transfer_qr_image_2",
             }
             qr_files = payload.get("sales_qr_files") or {}
             for key, field in qr_fields.items():

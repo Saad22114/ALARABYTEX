@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   Banknote, Copy, ExternalLink, Facebook, Ghost, Instagram, Link2,
@@ -78,8 +79,13 @@ export default function SalesLinksGuide() {
   useEffect(() => {
     if (!expandedQr) return;
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setExpandedQr(null); };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [expandedQr]);
 
   const socialLinks = useMemo(() => socialPlatforms.map((platform) => ({
@@ -91,6 +97,7 @@ export default function SalesLinksGuide() {
   })), [links]);
   const transferUrl = safeWebUrl(links?.bank_transfer_url || '');
   const transferPhone = links?.bank_transfer_phone?.trim() || '';
+  const secondBankQr = links?.qr_images?.bank_transfer_2 || '';
 
   const copyText = async (value: string, label: string) => {
     try {
@@ -209,16 +216,28 @@ export default function SalesLinksGuide() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
-            <button type="button" onClick={() => setExpandedQr({ title: 'التحويل البنكي', image: links?.qr_images?.bank_transfer ? salesQrImageUrl('bank_transfer', links.qr_images.bank_transfer) : '/images/sales-qr/bank-transfer.jpeg' })} aria-label="تكبير رمز التحويل البنكي" className="group/qr relative overflow-hidden rounded-xl border border-sand-200 bg-white p-1.5 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
-              <img src={links?.qr_images?.bank_transfer ? salesQrImageUrl('bank_transfer', links.qr_images.bank_transfer) : '/images/sales-qr/bank-transfer.jpeg'} alt="رمز QR للتحويل إلى بنك مسقط" width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
-              <span className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-center gap-1 rounded-md bg-neutral-950/75 py-1 text-[9px] font-medium text-white opacity-0 transition group-hover/qr:opacity-100 group-focus/qr:opacity-100"><Maximize2 size={11} /> تكبير</span>
-            </button>
+            <div className="flex flex-wrap items-start gap-4">
+              <div className="flex flex-col items-center gap-1.5">
+                <button type="button" onClick={() => setExpandedQr({ title: 'التحويل البنكي - بنك مسقط', image: links?.qr_images?.bank_transfer ? salesQrImageUrl('bank_transfer', links.qr_images.bank_transfer) : '/images/sales-qr/bank-transfer.jpeg' })} aria-label="تكبير رمز بنك مسقط" className="group/qr relative overflow-hidden rounded-xl border border-sand-200 bg-white p-1.5 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                  <img src={links?.qr_images?.bank_transfer ? salesQrImageUrl('bank_transfer', links.qr_images.bank_transfer) : '/images/sales-qr/bank-transfer.jpeg'} alt="رمز QR للتحويل إلى بنك مسقط" width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
+                  <span className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-center gap-1 rounded-md bg-neutral-950/75 py-1 text-[9px] font-medium text-white opacity-0 transition group-hover/qr:opacity-100 group-focus/qr:opacity-100"><Maximize2 size={11} /> تكبير</span>
+                </button>
+                <span className="text-[10px] font-medium text-neutral-500">بنك مسقط</span>
+              </div>
+              {secondBankQr && <div className="flex flex-col items-center gap-1.5">
+                <button type="button" onClick={() => setExpandedQr({ title: 'التحويل البنكي الثاني', image: salesQrImageUrl('bank_transfer_2', secondBankQr) })} aria-label="تكبير رمز البنك الثاني" className="group/qr relative overflow-hidden rounded-xl border border-sand-200 bg-white p-1.5 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                  <img src={salesQrImageUrl('bank_transfer_2', secondBankQr)} alt="رمز QR للتحويل البنكي الثاني" width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
+                  <span className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-center gap-1 rounded-md bg-neutral-950/75 py-1 text-[9px] font-medium text-white opacity-0 transition group-hover/qr:opacity-100 group-focus/qr:opacity-100"><Maximize2 size={11} /> تكبير</span>
+                </button>
+                <span className="text-[10px] font-medium text-neutral-500">بنك إضافي</span>
+              </div>}
+            </div>
             {transferUrl && <Button variant="secondary" onClick={() => copyText(transferUrl, 'رابط التحويل')}><Copy size={16} /> نسخ رابط التحويل</Button>}
           </div>
         </div>
       </Card>
 
-      {expandedQr && (
+      {expandedQr && typeof document !== 'undefined' && createPortal(
         <div role="dialog" aria-modal="true" aria-label={`رمز ${expandedQr.title}`} className="fixed inset-0 z-[100] flex items-center justify-center bg-neutral-950/75 p-4 backdrop-blur-sm" onClick={() => setExpandedQr(null)}>
           <div className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-white/20 bg-white p-5 shadow-2xl sm:p-7" onClick={(event) => event.stopPropagation()}>
             <div className="mb-5 flex items-center justify-between">
@@ -230,7 +249,8 @@ export default function SalesLinksGuide() {
             </div>
             <p className="mt-4 flex items-center justify-center gap-2 text-xs text-neutral-500"><ScanLine size={15} /> قرّب كاميرا الهاتف من الرمز للمسح</p>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

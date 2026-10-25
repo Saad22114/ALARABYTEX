@@ -16,7 +16,7 @@ export type SalesLinks = Pick<AppSettings,
   qr_images: Partial<Record<SalesQrKey, string>>;
 };
 
-export type SalesQrKey = 'instagram' | 'snapchat' | 'whatsapp' | 'bank_transfer';
+export type SalesQrKey = 'instagram' | 'snapchat' | 'whatsapp' | 'bank_transfer' | 'bank_transfer_2';
 
 export function salesQrImageUrl(key: SalesQrKey, path?: string): string {
   const version = path ? `?v=${encodeURIComponent(path)}` : '';
