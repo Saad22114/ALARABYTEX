@@ -106,7 +106,10 @@ export default function SettingsPage() {
     tiktok_url: '',
     facebook_url: '',
     bank_transfer_url: '',
+    bank_transfer_name: 'بنك مسقط',
     bank_transfer_phone: '',
+    bank_transfer_name_2: '',
+    bank_transfer_phone_2: '',
     business_address: '',
     tax_number: '',
     business_email: '',
@@ -167,7 +170,10 @@ export default function SettingsPage() {
         tiktok_url: settings.tiktok_url || '',
         facebook_url: settings.facebook_url || '',
         bank_transfer_url: settings.bank_transfer_url || '',
+        bank_transfer_name: settings.bank_transfer_name || 'بنك مسقط',
         bank_transfer_phone: settings.bank_transfer_phone || '',
+        bank_transfer_name_2: settings.bank_transfer_name_2 || '',
+        bank_transfer_phone_2: settings.bank_transfer_phone_2 || '',
         business_address: settings.business_address || '',
         tax_number: settings.tax_number || '',
         business_email: settings.business_email || '',
@@ -690,7 +696,10 @@ export default function SettingsPage() {
                 <Input label="رابط أو اسم تيك توك" value={businessForm.tiktok_url} onChange={(e) => setBusinessForm({ ...businessForm, tiktok_url: e.target.value })} placeholder="اسم الحساب أو tiktok.com/@..." />
                 <Input label="رابط أو اسم فيسبوك" value={businessForm.facebook_url} onChange={(e) => setBusinessForm({ ...businessForm, facebook_url: e.target.value })} placeholder="اسم الحساب أو facebook.com/..." />
                 <Input label="رابط التحويل البنكي" value={businessForm.bank_transfer_url} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_url: e.target.value })} placeholder="رابط الدفع أو التحويل" />
-                <Input label="رقم هاتف التحويل" value={businessForm.bank_transfer_phone} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_phone: e.target.value })} placeholder="رقم الهاتف المرتبط بالتحويل" />
+                <Input label="اسم البنك الأول" value={businessForm.bank_transfer_name} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_name: e.target.value })} placeholder="مثال: بنك مسقط" />
+                <Input label="رقم الهاتف المرتبط بالبنك الأول" value={businessForm.bank_transfer_phone} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_phone: e.target.value })} placeholder="رقم الهاتف" />
+                <Input label="اسم البنك الثاني" value={businessForm.bank_transfer_name_2} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_name_2: e.target.value })} placeholder="اسم البنك الإضافي" />
+                <Input label="رقم الهاتف المرتبط بالبنك الثاني" value={businessForm.bank_transfer_phone_2} onChange={(e) => setBusinessForm({ ...businessForm, bank_transfer_phone_2: e.target.value })} placeholder="رقم الهاتف" />
               </div>
               {isManager && <SalesQrImageManager />}
               <Input

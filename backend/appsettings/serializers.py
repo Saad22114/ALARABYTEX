@@ -17,7 +17,7 @@ class AppSettingsSerializer(serializers.ModelSerializer):
             "trade_name", "commercial_registration",
             "business_email",
             "instagram_url", "snapchat_url", "tiktok_url", "facebook_url",
-            "bank_transfer_url", "bank_transfer_phone",
+            "bank_transfer_url", "bank_transfer_name", "bank_transfer_phone", "bank_transfer_name_2", "bank_transfer_phone_2",
             "instagram_qr_image", "snapchat_qr_image", "whatsapp_qr_image", "bank_transfer_qr_image", "bank_transfer_qr_image_2",
             "currency_symbol", "currency_code", "decimal_places", "currency_position",
             "default_period", "default_page_size",

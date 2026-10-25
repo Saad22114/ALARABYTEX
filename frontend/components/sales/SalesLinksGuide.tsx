@@ -96,7 +96,10 @@ export default function SalesLinksGuide() {
       : platform.image,
   })), [links]);
   const transferUrl = safeWebUrl(links?.bank_transfer_url || '');
-  const transferPhone = links?.bank_transfer_phone?.trim() || '';
+  const firstBankName = links?.bank_transfer_name?.trim() || 'بنك مسقط';
+  const firstBankPhone = links?.bank_transfer_phone?.trim() || '';
+  const secondBankName = links?.bank_transfer_name_2?.trim() || 'بنك إضافي';
+  const secondBankPhone = links?.bank_transfer_phone_2?.trim() || '';
   const secondBankQr = links?.qr_images?.bank_transfer_2 || '';
 
   const copyText = async (value: string, label: string) => {
@@ -199,20 +202,8 @@ export default function SalesLinksGuide() {
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Banknote size={21} /></span>
             <div>
               <h3 className="font-bold text-neutral-800">التحويل البنكي</h3>
-              <p className="mt-1 text-sm text-neutral-500">اعرض رمز التحويل أو شارك الرابط ورقم الهاتف مع الزبون.</p>
-              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
-                {transferPhone && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone size={15} className="text-brand-600" />
-                    <span className="font-mono font-semibold text-neutral-800" dir="ltr">{transferPhone}</span>
-                    <button type="button" onClick={() => copyText(transferPhone, 'رقم الهاتف')} aria-label="نسخ رقم هاتف التحويل" className="rounded-md p-1 text-neutral-400 hover:bg-sand-100 hover:text-neutral-700"><Copy size={14} /></button>
-                  </div>
-                )}
-                {transferUrl && (
-                  <a href={transferUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:text-brand-900"><Link2 size={15} /> رابط التحويل <ExternalLink size={13} /></a>
-                )}
-              </div>
-              {!transferPhone && !transferUrl && <p className="mt-3 text-xs text-neutral-400">أضف بيانات التحويل من إعدادات النشاط.</p>}
+              <p className="mt-1 text-sm text-neutral-500">امسح رمز البنك المطلوب أو شارك رابط التحويل مع الزبون.</p>
+              {transferUrl && <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2"><a href={transferUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:text-brand-900"><Link2 size={15} /> رابط التحويل <ExternalLink size={13} /></a></div>}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -222,14 +213,16 @@ export default function SalesLinksGuide() {
                   <img src={links?.qr_images?.bank_transfer ? salesQrImageUrl('bank_transfer', links.qr_images.bank_transfer) : '/images/sales-qr/bank-transfer.jpeg'} alt="رمز QR للتحويل إلى بنك مسقط" width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
                   <span className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-center gap-1 rounded-md bg-neutral-950/75 py-1 text-[9px] font-medium text-white opacity-0 transition group-hover/qr:opacity-100 group-focus/qr:opacity-100"><Maximize2 size={11} /> تكبير</span>
                 </button>
-                <span className="text-[10px] font-medium text-neutral-500">بنك مسقط</span>
+                <span className="text-xs font-semibold text-neutral-700">{firstBankName}</span>
+                {firstBankPhone && <div className="flex items-center gap-1 text-[11px] text-neutral-500"><Phone size={12} /><span dir="ltr" className="font-mono">{firstBankPhone}</span><button type="button" onClick={() => copyText(firstBankPhone, `رقم ${firstBankName}`)} aria-label={`نسخ رقم ${firstBankName}`} className="rounded p-1 hover:bg-sand-100"><Copy size={12} /></button></div>}
               </div>
-              {secondBankQr && <div className="flex flex-col items-center gap-1.5">
-                <button type="button" onClick={() => setExpandedQr({ title: 'التحويل البنكي الثاني', image: salesQrImageUrl('bank_transfer_2', secondBankQr) })} aria-label="تكبير رمز البنك الثاني" className="group/qr relative overflow-hidden rounded-xl border border-sand-200 bg-white p-1.5 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                  <img src={salesQrImageUrl('bank_transfer_2', secondBankQr)} alt="رمز QR للتحويل البنكي الثاني" width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
+              {(secondBankQr || secondBankName !== 'بنك إضافي' || secondBankPhone) && <div className="flex flex-col items-center gap-1.5">
+                {secondBankQr ? <button type="button" onClick={() => setExpandedQr({ title: secondBankName, image: salesQrImageUrl('bank_transfer_2', secondBankQr) })} aria-label={`تكبير رمز ${secondBankName}`} className="group/qr relative overflow-hidden rounded-xl border border-sand-200 bg-white p-1.5 shadow-sm transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                  <img src={salesQrImageUrl('bank_transfer_2', secondBankQr)} alt={`رمز QR للتحويل إلى ${secondBankName}`} width={120} height={120} className="h-24 w-24 rounded-lg object-contain transition duration-300 group-hover/qr:scale-[1.03]" />
                   <span className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-center gap-1 rounded-md bg-neutral-950/75 py-1 text-[9px] font-medium text-white opacity-0 transition group-hover/qr:opacity-100 group-focus/qr:opacity-100"><Maximize2 size={11} /> تكبير</span>
-                </button>
-                <span className="text-[10px] font-medium text-neutral-500">بنك إضافي</span>
+                </button> : <div className="flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-sand-300 text-xs text-neutral-400">لا يوجد QR</div>}
+                <span className="text-xs font-semibold text-neutral-700">{secondBankName}</span>
+                {secondBankPhone && <div className="flex items-center gap-1 text-[11px] text-neutral-500"><Phone size={12} /><span dir="ltr" className="font-mono">{secondBankPhone}</span><button type="button" onClick={() => copyText(secondBankPhone, `رقم ${secondBankName}`)} aria-label={`نسخ رقم ${secondBankName}`} className="rounded p-1 hover:bg-sand-100"><Copy size={12} /></button></div>}
               </div>}
             </div>
             {transferUrl && <Button variant="secondary" onClick={() => copyText(transferUrl, 'رابط التحويل')}><Copy size={16} /> نسخ رابط التحويل</Button>}

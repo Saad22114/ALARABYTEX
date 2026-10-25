@@ -11,7 +11,7 @@ export function getDefaultPaymentMethod(): Promise<{ default_payment_method: App
 
 export type SalesLinks = Pick<AppSettings,
   'business_name' | 'instagram_url' | 'snapchat_url' | 'tiktok_url' |
-  'facebook_url' | 'bank_transfer_url' | 'bank_transfer_phone'
+  'facebook_url' | 'bank_transfer_url' | 'bank_transfer_name' | 'bank_transfer_phone' | 'bank_transfer_name_2' | 'bank_transfer_phone_2'
 > & {
   qr_images: Partial<Record<SalesQrKey, string>>;
 };

@@ -648,7 +648,10 @@ export interface AppSettings {
   tiktok_url?: string;
   facebook_url?: string;
   bank_transfer_url?: string;
+  bank_transfer_name?: string;
   bank_transfer_phone?: string;
+  bank_transfer_name_2?: string;
+  bank_transfer_phone_2?: string;
   instagram_qr_image?: string;
   snapchat_qr_image?: string;
   whatsapp_qr_image?: string;

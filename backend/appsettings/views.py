@@ -132,7 +132,10 @@ class SalesLinksView(APIView):
             "tiktok_url": s.tiktok_url,
             "facebook_url": s.facebook_url,
             "bank_transfer_url": s.bank_transfer_url,
+            "bank_transfer_name": s.bank_transfer_name,
             "bank_transfer_phone": s.bank_transfer_phone,
+            "bank_transfer_name_2": s.bank_transfer_name_2,
+            "bank_transfer_phone_2": s.bank_transfer_phone_2,
             "qr_images": {
                 "instagram": s.instagram_qr_image,
                 "snapchat": s.snapchat_qr_image,
