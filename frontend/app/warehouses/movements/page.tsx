@@ -74,8 +74,8 @@ export default function MovementsPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div>
+      <div className="warehouse-theme space-y-6">
+        <div className="warehouse-page-heading">
           <h1 className="text-xl font-bold text-neutral-800">حركات المخزون</h1>
           <p className="text-sm text-neutral-500">السجل الزمني الكامل لجميع الحركات الموثقة في المخازن</p>
         </div>

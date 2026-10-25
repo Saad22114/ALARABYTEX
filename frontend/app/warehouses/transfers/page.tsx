@@ -391,8 +391,8 @@ export default function TransfersPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="warehouse-theme space-y-6">
+        <div className="warehouse-page-heading flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-neutral-800">التحويلات بين المخازن</h1>
             <p className="text-sm text-neutral-500">دورة عمل: طلب ← موافقة ← تنفيذ، مع سند تحويل قابل للطباعة</p>

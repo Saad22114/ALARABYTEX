@@ -33,26 +33,26 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { logoUrl } from '@/services/settings';
 
 const navItems = [
-  { key: 'dashboard', href: '/', label: 'الرئيسية', icon: LayoutDashboard },
-  { key: 'sales', href: '/sales', label: 'المبيعات', icon: ShoppingCart },
-  { key: 'sales-links', href: '/sales-links', label: 'روابط التواصل والتحويل', icon: QrCode },
-  { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Warehouse },
-  { key: 'branches', href: '/branches', label: 'الفروع', icon: MapPinned },
-  { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText },
-  { key: 'reports', href: '/reports', label: 'التقارير', icon: ChartNoAxesCombined },
-  { key: 'suppliers', href: '/suppliers', label: 'الموردون', icon: Truck },
-  { key: 'customers', href: '/customers', label: 'الزبائن', icon: ContactRound },
-  { key: 'fabrics', href: '/fabrics', label: 'الأقمشة', icon: Scissors },
-  { key: 'employees', href: '/employees', label: 'الموظفون', icon: UserCog },
-  { key: 'attendance', href: '/attendance', label: 'الحضور', icon: CalendarClock },
-  { key: 'payroll', href: '/payroll', label: 'الرواتب', icon: WalletCards },
-  { key: 'my-salary', href: '/my-salary', label: 'راتبي', icon: CircleDollarSign },
-  { key: 'accounting', href: '/accounting', label: 'المحاسبة', icon: Calculator },
-  { key: 'machine_account', href: '/machine-account', label: 'التسويات المالية', icon: Landmark },
-  { key: 'messages', href: '/messages', label: 'التواصل', icon: MessagesSquare },
-  { key: 'themes', href: '/themes', label: 'الثيمات والتحكم', icon: Palette },
-  { key: 'settings', href: '/settings', label: 'الإعدادات', icon: Settings2 },
-  { key: 'partners', href: '/partners', label: 'الشركاء', icon: Handshake },
+  { key: 'dashboard', href: '/', label: 'الرئيسية', icon: LayoutDashboard, iconColor: 'text-sky-300' },
+  { key: 'sales', href: '/sales', label: 'المبيعات', icon: ShoppingCart, iconColor: 'text-emerald-300' },
+  { key: 'sales-links', href: '/sales-links', label: 'روابط التواصل والتحويل', icon: QrCode, iconColor: 'text-pink-300' },
+  { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Warehouse, iconColor: 'text-amber-300' },
+  { key: 'branches', href: '/branches', label: 'الفروع', icon: MapPinned, iconColor: 'text-violet-300' },
+  { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText, iconColor: 'text-rose-300' },
+  { key: 'reports', href: '/reports', label: 'التقارير', icon: ChartNoAxesCombined, iconColor: 'text-cyan-300' },
+  { key: 'suppliers', href: '/suppliers', label: 'الموردون', icon: Truck, iconColor: 'text-orange-300' },
+  { key: 'customers', href: '/customers', label: 'الزبائن', icon: ContactRound, iconColor: 'text-blue-300' },
+  { key: 'fabrics', href: '/fabrics', label: 'الأقمشة', icon: Scissors, iconColor: 'text-lime-300' },
+  { key: 'employees', href: '/employees', label: 'الموظفون', icon: UserCog, iconColor: 'text-indigo-300' },
+  { key: 'attendance', href: '/attendance', label: 'الحضور', icon: CalendarClock, iconColor: 'text-teal-300' },
+  { key: 'payroll', href: '/payroll', label: 'الرواتب', icon: WalletCards, iconColor: 'text-yellow-200' },
+  { key: 'my-salary', href: '/my-salary', label: 'راتبي', icon: CircleDollarSign, iconColor: 'text-green-300' },
+  { key: 'accounting', href: '/accounting', label: 'المحاسبة', icon: Calculator, iconColor: 'text-purple-300' },
+  { key: 'machine_account', href: '/machine-account', label: 'التسويات المالية', icon: Landmark, iconColor: 'text-fuchsia-300' },
+  { key: 'messages', href: '/messages', label: 'التواصل', icon: MessagesSquare, iconColor: 'text-cyan-200' },
+  { key: 'themes', href: '/themes', label: 'الثيمات والتحكم', icon: Palette, iconColor: 'text-fuchsia-200' },
+  { key: 'settings', href: '/settings', label: 'الإعدادات', icon: Settings2, iconColor: 'text-slate-200' },
+  { key: 'partners', href: '/partners', label: 'الشركاء', icon: Handshake, iconColor: 'text-orange-200' },
 ];
 
 // عناوين عرضية لتنظيم القائمة بصرياً؛ لا تغيّر الروابط أو الصلاحيات أو ترتيبها.
@@ -204,7 +204,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                   `}
                 >
                   {active && <span aria-hidden="true" className="absolute right-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-l-full bg-gradient-to-b from-brand-200 via-brand-300 to-brand-500 shadow-lg shadow-brand-500/30" />}
-                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border transition-all duration-200 ${active ? 'border-brand-200/25 bg-gradient-to-br from-brand-300/25 via-brand-400/15 to-white/[0.04] text-brand-100 shadow-[0_2px_10px_rgba(0,0,0,0.18)]' : 'border-white/[0.045] bg-white/[0.025] text-[#aabbb4] group-hover:border-brand-200/20 group-hover:bg-brand-300/[0.09] group-hover:text-white'}`}>
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border transition-all duration-200 ${active ? `border-brand-200/25 bg-gradient-to-br from-brand-300/25 via-brand-400/15 to-white/[0.04] ${item.iconColor} shadow-[0_2px_10px_rgba(0,0,0,0.18)]` : `border-white/[0.045] bg-white/[0.025] ${item.iconColor} group-hover:border-brand-200/20 group-hover:bg-brand-300/[0.09] group-hover:text-white`}`}>
                     <Icon size={19} strokeWidth={active ? 2.05 : 1.8} />
                   </span>
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>

@@ -346,6 +346,47 @@
 }
 
 @layer components {
+  .app-main h1 {
+    font-weight: 750;
+    letter-spacing: -0.018em;
+  }
+
+  .app-main .card-hover {
+    border-color: rgb(var(--sand-200) / 0.9);
+    box-shadow: 0 4px 16px rgb(15 23 42 / 0.035);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+
+  .app-main .card-hover:hover {
+    transform: translateY(-1px);
+    border-color: rgb(var(--brand-200) / 0.85);
+    box-shadow: 0 10px 24px rgb(var(--brand-950) / 0.075);
+  }
+
+  .app-main table thead {
+    background: linear-gradient(90deg, rgb(var(--brand-50) / 0.72), rgb(var(--surface)), rgb(var(--brand-50) / 0.42));
+  }
+
+  .app-main table tbody tr {
+    transition: background-color 150ms ease;
+  }
+
+  .app-main table tbody tr:hover {
+    background-color: rgb(var(--brand-50) / 0.48);
+  }
+
+  .app-main button,
+  .app-main a {
+    transition-property: color, background-color, border-color, box-shadow, transform;
+    transition-duration: 160ms;
+  }
+
+  .app-main button:focus-visible,
+  .app-main a:focus-visible {
+    outline: 2px solid rgb(var(--brand-400) / 0.78);
+    outline-offset: 2px;
+  }
+
   .card-hover {
     transition: box-shadow 0.2s ease;
   }
@@ -363,6 +404,314 @@
 
   .animate-slide-up {
     animation: slideUp 0.3s ease forwards;
+  }
+
+  .warehouse-theme {
+    --warehouse-surface-tint: rgb(var(--brand-50) / 0.72);
+  }
+
+  .warehouse-page-heading {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    min-height: 88px;
+    padding: 1.1rem 1.25rem;
+    border: 1px solid rgb(var(--brand-200) / 0.68);
+    border-radius: 1.15rem;
+    background: linear-gradient(112deg, rgb(var(--surface)) 8%, var(--warehouse-surface-tint) 72%, rgb(var(--surface)) 100%);
+    box-shadow: 0 8px 24px rgb(var(--brand-950) / 0.055), inset 0 1px 0 rgb(255 255 255 / 0.68);
+  }
+
+  .warehouse-page-heading::before {
+    position: absolute;
+    z-index: 0;
+    top: -4.5rem;
+    left: 8%;
+    width: 12rem;
+    height: 10rem;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(var(--brand-300) / 0.2), transparent 70%);
+    content: '';
+    pointer-events: none;
+  }
+
+  .warehouse-page-heading::after {
+    position: absolute;
+    top: 16px;
+    right: 0;
+    bottom: 16px;
+    width: 3px;
+    border-radius: 9999px 0 0 9999px;
+    background: linear-gradient(180deg, rgb(var(--brand-300)), rgb(var(--brand-600)));
+    content: '';
+  }
+
+  .warehouse-page-heading > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .warehouse-page-heading h1 {
+    font-size: 1.2rem;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+  }
+
+  .warehouse-page-heading p {
+    margin-top: 0.3rem;
+    line-height: 1.65;
+  }
+
+  .warehouse-quick-actions > a,
+  .warehouse-quick-actions > button {
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+
+  .warehouse-quick-actions > a:hover,
+  .warehouse-quick-actions > button:hover {
+    transform: translateY(-1px);
+    filter: saturate(1.08);
+  }
+
+  .warehouse-theme .card-hover {
+    border-color: rgb(var(--sand-200) / 0.9);
+    box-shadow: 0 4px 14px rgb(var(--neutral-950) / 0.035);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+
+  .warehouse-theme .card-hover:hover {
+    transform: translateY(-2px);
+    border-color: rgb(var(--brand-200) / 0.85);
+    box-shadow: 0 12px 28px rgb(var(--brand-950) / 0.09);
+  }
+
+  .warehouse-theme table thead {
+    background: linear-gradient(90deg, rgb(var(--brand-50) / 0.82), rgb(var(--surface)), rgb(var(--brand-50) / 0.5));
+  }
+
+  .warehouse-theme table thead tr {
+    border-bottom: 1px solid rgb(var(--brand-200) / 0.45);
+  }
+
+  .warehouse-theme table tbody tr {
+    transition: background-color 150ms ease;
+  }
+
+  .warehouse-theme table tbody tr:hover {
+    background-color: rgb(var(--brand-50) / 0.56);
+  }
+
+  .warehouse-theme button:focus-visible,
+  .warehouse-theme a:focus-visible {
+    outline: 2px solid rgb(var(--brand-400) / 0.8);
+    outline-offset: 2px;
+  }
+}
+
+/* أيقونات ملونة حسب نوع الإجراء — دون تغيير مكونات الأزرار أو وظائفها. */
+svg.lucide-plus,
+svg.lucide-package-plus,
+svg.lucide-circle-plus,
+svg.lucide-banknote,
+svg.lucide-wallet,
+svg.lucide-wallet-cards,
+svg.lucide-circle-dollar-sign,
+svg.lucide-badge-dollar-sign,
+svg.lucide-check,
+svg.lucide-check-check,
+svg.lucide-circle-check,
+svg.lucide-check-circle-2,
+svg.lucide-badge-check {
+  color: #0f9f74;
+}
+
+svg.lucide-pencil,
+svg.lucide-pencil-line,
+svg.lucide-file-pen-line,
+svg.lucide-edit,
+svg.lucide-edit-2,
+svg.lucide-edit-3,
+svg.lucide-sliders-horizontal,
+svg.lucide-settings,
+svg.lucide-settings-2 {
+  color: #d88a18;
+}
+
+svg.lucide-trash,
+svg.lucide-trash-2,
+svg.lucide-circle-x,
+svg.lucide-circle-x-out,
+svg.lucide-ban,
+svg.lucide-octagon-x,
+svg.lucide-x-circle {
+  color: #e34f5f;
+}
+
+svg.lucide-search,
+svg.lucide-eye,
+svg.lucide-eye-off,
+svg.lucide-external-link,
+svg.lucide-link,
+svg.lucide-link-2,
+svg.lucide-info,
+svg.lucide-circle-help,
+svg.lucide-help-circle {
+  color: #3987dc;
+}
+
+svg.lucide-download,
+svg.lucide-file-down,
+svg.lucide-upload,
+svg.lucide-cloud-download,
+svg.lucide-cloud-upload,
+svg.lucide-printer,
+svg.lucide-copy,
+svg.lucide-clipboard,
+svg.lucide-clipboard-check {
+  color: #7658d5;
+}
+
+svg.lucide-alert-triangle,
+svg.lucide-triangle-alert,
+svg.lucide-alert-circle,
+svg.lucide-circle-alert,
+svg.lucide-shield-alert {
+  color: #e68a26;
+}
+
+svg.lucide-warehouse,
+svg.lucide-package,
+svg.lucide-package-check,
+svg.lucide-box,
+svg.lucide-boxes,
+svg.lucide-scan-line,
+svg.lucide-qr-code,
+svg.lucide-barcode {
+  color: #bf811c;
+}
+
+svg.lucide-chart-no-axes-combined,
+svg.lucide-chart-column,
+svg.lucide-chart-pie,
+svg.lucide-trending-up,
+svg.lucide-chart-line,
+svg.lucide-activity,
+svg.lucide-presentation {
+  color: #2584bd;
+}
+
+svg.lucide-calendar,
+svg.lucide-calendar-days,
+svg.lucide-calendar-clock,
+svg.lucide-clock,
+svg.lucide-clock-3,
+svg.lucide-timer,
+svg.lucide-history {
+  color: #1b9b9b;
+}
+
+svg.lucide-arrow-left-right,
+svg.lucide-repeat,
+svg.lucide-refresh-cw,
+svg.lucide-rotate-ccw,
+svg.lucide-move-right,
+svg.lucide-arrow-right-left,
+svg.lucide-git-compare-arrows {
+  color: #7658d5;
+}
+
+svg.lucide-users,
+svg.lucide-user-round,
+svg.lucide-user-cog,
+svg.lucide-contact-round,
+svg.lucide-handshake,
+svg.lucide-message-square-text,
+svg.lucide-messages-square {
+  color: #d25c98;
+}
+
+.app-main {
+  min-height: calc(100vh - 72px);
+  background-color: rgb(var(--sand-50));
+  background-image:
+    radial-gradient(ellipse 38rem 26rem at 100% 0%, rgb(var(--brand-100) / 0.3), transparent 72%),
+    radial-gradient(ellipse 32rem 22rem at 0% 72%, rgb(var(--brand-50) / 0.72), transparent 75%);
+  background-attachment: fixed;
+}
+
+.app-header {
+  position: sticky;
+  background-color: rgb(var(--surface) / 0.9);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow: 0 5px 22px rgb(var(--brand-950) / 0.045);
+}
+
+.app-header::after {
+  position: absolute;
+  right: 1.5rem;
+  bottom: -1px;
+  left: 1.5rem;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(var(--brand-300) / 0.7), rgb(var(--brand-500) / 0.35), transparent);
+  content: '';
+  pointer-events: none;
+}
+
+.app-header-inner h2 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.app-main .card-hover {
+  background-image: linear-gradient(145deg, rgb(var(--surface)), rgb(var(--surface)) 72%, rgb(var(--brand-50) / 0.34));
+}
+
+.app-main input:not([type='checkbox']):not([type='radio']),
+.app-main select,
+.app-main textarea {
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.app-main input:not([type='checkbox']):not([type='radio']):focus,
+.app-main select:focus,
+.app-main textarea:focus {
+  border-color: rgb(var(--brand-400) / 0.72);
+  box-shadow: 0 0 0 3px rgb(var(--brand-400) / 0.13);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-main *,
+  .app-main *::before,
+  .app-main *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-main {
+    background-attachment: scroll;
+  }
+}
+
+@media print {
+  .app-main {
+    min-height: 0;
+    background: #fff !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .warehouse-page-heading {
+    min-height: 76px;
+    padding: 0.9rem 1rem;
+    border-radius: 1rem;
+  }
+
+  .warehouse-page-heading h1 {
+    font-size: 1.05rem;
   }
 }
 

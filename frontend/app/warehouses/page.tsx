@@ -228,8 +228,8 @@ export default function WarehousesPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="warehouse-theme space-y-6">
+        <div className="warehouse-page-heading flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-bold text-neutral-800">المخازن</h1>
             <p className="text-sm text-neutral-500">إدارة المخازن وأرصدة المخزون والحركات الموثقة</p>
@@ -254,7 +254,7 @@ export default function WarehousesPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="warehouse-quick-actions flex flex-wrap items-center gap-2">
           <Link href="/warehouses/receipts">
             <Button variant="secondary" size="sm">
               <PackagePlus size={16} />

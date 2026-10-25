@@ -447,8 +447,8 @@ export default function CountsPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="warehouse-theme space-y-6">
+        <div className="warehouse-page-heading flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-neutral-800">جرد المخزون</h1>
             <p className="text-sm text-neutral-500">
