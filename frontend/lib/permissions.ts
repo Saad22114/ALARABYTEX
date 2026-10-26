@@ -68,6 +68,9 @@ export function normalizePermissions(
       edit: Boolean(cur?.edit),
       delete: Boolean(cur?.delete),
       windows: Array.isArray(cur?.windows) ? cur.windows : allWindows,
+      ...(s.key === 'dashboard' ? {
+        numbers_scope: cur?.numbers_scope ?? fallback[s.key]?.numbers_scope ?? 'none',
+      } : {}),
     };
   }
   return out;

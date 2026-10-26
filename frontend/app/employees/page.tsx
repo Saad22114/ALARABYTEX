@@ -35,6 +35,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { useUrlState } from '@/lib/useUrlState';
 import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
+import { useAuth } from '@/components/providers/AuthProvider';
 
 interface EmployeeForm {
   name: string;
@@ -106,6 +107,7 @@ const emptyForm = (): EmployeeForm => ({
 
 export default function EmployeesPage() {
   const { toast } = useToast();
+  const { session, updateEmployee: updateCurrentEmployee } = useAuth();
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [branches, setBranches] = useState<Array<{ id: number; name: string }>>([]);
@@ -337,12 +339,25 @@ export default function EmployeesPage() {
     if (!permsTarget) return;
     setPermsSaving(true);
     try {
-      await updateEmployee(permsTarget.id, {
+      const savedEmployee = await updateEmployee(permsTarget.id, {
         role: data.role,
         permissions: data.permissions,
         hidden_sections: data.hidden_sections,
         allowed_branches: data.allowed_branches,
       });
+      setEmployees((current) => current.map((employee) =>
+        employee.id === savedEmployee.id ? savedEmployee : employee,
+      ));
+      if (session?.employee.id === permsTarget.id) {
+        updateCurrentEmployee({
+          role: savedEmployee.role,
+          role_label: savedEmployee.role_label,
+          permissions: savedEmployee.permissions,
+          hidden_sections: savedEmployee.hidden_sections,
+          allowed_branches: savedEmployee.allowed_branches,
+          allowed_branches_names: savedEmployee.allowed_branches_names,
+        });
+      }
       toast('success', 'تم حفظ صلاحيات الموظف');
       setPermsTarget(null);
       fetchData();

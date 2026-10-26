@@ -194,7 +194,7 @@ export default function SuppliersPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="space-y-6 suppliers-page">
         <div className="flex flex-wrap items-center gap-3">
           <DateRangeToolbar
             from={dateFrom}

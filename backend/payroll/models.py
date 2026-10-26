@@ -186,6 +186,61 @@ class AdvanceInstallment(TimeStampedModel):
         return f"{self.advance.employee.name} — {self.amount}"
 
 
+class EmployeeInstallmentPlan(TimeStampedModel, ActiveModel):
+    """موظف يسدد قيمة مشتريات/التزام على أقساط شهرية من الراتب، غير السلفة."""
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.PROTECT, related_name="installment_plans",
+        verbose_name="الموظف",
+    )
+    branch = models.ForeignKey(
+        "branches.Branch", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="employee_installment_plans", verbose_name="الفرع",
+    )
+    description = models.CharField(max_length=255, verbose_name="البيان")
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="إجمالي المبلغ")
+    monthly_amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="القسط الشهري")
+    start_month = models.DateField(default=date.today, verbose_name="بدء الخصم من شهر")
+    notes = models.TextField(blank=True, verbose_name="ملاحظات")
+
+    class Meta:
+        verbose_name = "قسط موظف"
+        verbose_name_plural = "أقساط الموظفين"
+        ordering = ["-start_month", "-id"]
+
+    @property
+    def paid_amount(self):
+        return sum((p.amount for p in self.payments.all()), ZERO).quantize(Decimal("0.01"))
+
+    @property
+    def remaining_amount(self):
+        return max(ZERO, (self.total_amount or ZERO) - self.paid_amount)
+
+    @property
+    def next_installment(self):
+        return min(self.monthly_amount or ZERO, self.remaining_amount)
+
+
+class EmployeeInstallmentPayment(TimeStampedModel):
+    """قيد خصم قسط من قسيمة راتب؛ يحفظ أثر كل شهر ويمنع تكراره."""
+
+    plan = models.ForeignKey(
+        EmployeeInstallmentPlan, on_delete=models.PROTECT, related_name="payments",
+        verbose_name="خطة الأقساط",
+    )
+    payslip = models.ForeignKey(
+        "payroll.Payslip", on_delete=models.CASCADE, related_name="installment_payments",
+        verbose_name="قسيمة الراتب",
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="المبلغ المخصوم")
+    date = models.DateField(default=date.today, verbose_name="تاريخ الخصم")
+
+    class Meta:
+        verbose_name = "خصم قسط راتب"
+        verbose_name_plural = "خصومات أقساط الرواتب"
+        constraints = [models.UniqueConstraint(fields=["plan", "payslip"], name="uniq_employee_installment_payslip")]
+
+
 class PayrollRun(TimeStampedModel):
     """مسيّر رواتب لشهر وفرع (فراغي = كل الفروع)."""
 
@@ -242,6 +297,7 @@ class PayrollRun(TimeStampedModel):
             "deductions": sum((p.total_deductions for p in payslips), ZERO),
             "net": sum((p.net_pay for p in payslips), ZERO),
             "advances": sum((p.advance_deduction for p in payslips), ZERO),
+            "installments": sum((p.installment_deduction for p in payslips), ZERO),
             "paid": sum((p.net_pay for p in payslips if p.is_paid), ZERO),
         }
 
@@ -313,6 +369,10 @@ class Payslip(TimeStampedModel):
         max_digits=12, decimal_places=2, default=ZERO,
         verbose_name="خصم سلفة", help_text="يُسجَّل سداداً للسلفة تلقائياً عند الاعتماد",
     )
+    installment_deduction = models.DecimalField(
+        max_digits=12, decimal_places=2, default=ZERO,
+        verbose_name="خصم أقساط الموظف",
+    )
     is_paid = models.BooleanField(default=False, verbose_name="مصروف")
     paid_at = models.DateTimeField(null=True, blank=True, verbose_name="تاريخ الصرف")
     payment_method = models.CharField(
@@ -374,6 +434,7 @@ class Payslip(TimeStampedModel):
             + (self.late_deduction or ZERO)
             + (self.other_deduction or ZERO)
             + (self.advance_deduction or ZERO)
+            + (self.installment_deduction or ZERO)
         )
 
     @property
@@ -400,4 +461,5 @@ class Payslip(TimeStampedModel):
             - F("late_deduction")
             - F("other_deduction")
             - F("advance_deduction")
+            - F("installment_deduction")
         )

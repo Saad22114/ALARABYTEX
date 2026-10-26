@@ -296,6 +296,12 @@ class EffectivePermissionsTest(TestCase):
         dashboard = next(section for section in self.sections if section["key"] == "dashboard")
         self.assertFalse(dashboard["fixed"])
         self.assertEqual(dashboard["actions"], ["view"])
+        self.assertEqual(effective_permissions("admin", {})["dashboard"]["numbers_scope"], "all_branches")
+        self.assertEqual(effective_permissions("sales", {})["dashboard"]["numbers_scope"], "none")
+        self.assertEqual(
+            effective_permissions("custom", {"dashboard": {"view": True, "numbers_scope": "own_branch"}})["dashboard"]["numbers_scope"],
+            "own_branch",
+        )
 
     def test_self_service_salary_and_monthly_accounting_report_are_configurable(self):
         salary = next(section for section in self.sections if section["key"] == "my-salary")
@@ -1352,6 +1358,30 @@ class ClosedSessionEditDeleteTest(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.customer_name, "أحمد سالم")
         self.assertEqual(item.customer_phone, "99123456")
+
+    def test_customer_added_while_editing_sale_is_kept_after_sale_delete(self):
+        from customers.models import Customer
+
+        response = self.c.post("/api/sale-sessions/", {"employee": self.emp.id}, format="json")
+        session_id = response.data["id"]
+        self.c.post(
+            f"/api/sale-sessions/{session_id}/items/",
+            {"fabric": self.fabric.id, "sale_type": "yard", "quantity": 5, "payment_method": "cash"},
+            format="json",
+        )
+        self.c.post(f"/api/sale-sessions/{session_id}/close/")
+        item = SaleSessionItem.objects.get(session_id=session_id)
+        response = self.c.patch(
+            f"/api/sale-sessions/{session_id}/items/{item.id}/",
+            {"customer_name": "زبون بعد البيع", "customer_phone": "99887766"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        customer = Customer.objects.get(phone="99887766")
+        self.assertEqual(customer.name, "زبون بعد البيع")
+
+        self.c.delete(f"/api/sale-sessions/{session_id}/items/{item.id}/")
+        self.assertTrue(Customer.objects.filter(pk=customer.pk).exists())
 
     def test_edit_closed_item_changes_payment_method(self):
         sid = self._closed_session()

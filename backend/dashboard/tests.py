@@ -68,6 +68,42 @@ class DashboardAPITest(TestCase):
         self.assertEqual(r.data["total_expenses"], 200)
         self.assertEqual(r.data["net"], 800)
 
+    def _scoped_sales_client(self, scope):
+        User = get_user_model()
+        user = User.objects.create_user(username=f"dashboard_{scope}", password="x")
+        emp = Employee(name="موظف اختبار", branch=self.branch, user=user, is_active=True)
+        emp.apply_role_preset(Employee.Role.SALES)
+        emp.permissions["dashboard"]["numbers_scope"] = scope
+        emp.save()
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    def test_dashboard_numbers_can_be_disabled_by_permission(self):
+        client = self._scoped_sales_client("none")
+        response = client.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_own_branch_dashboard_permission_cannot_read_another_branch(self):
+        other = Branch.objects.create(name="فرع آخر", code="B2")
+        DailySale.objects.create(branch=other, date=self.today, total_sales=9000)
+        client = self._scoped_sales_client("own_branch")
+        response = client.get("/api/dashboard/summary/", {"period": "today", "branch": other.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total_sales"], 1000)
+        branches = client.get("/api/dashboard/branches/").json()
+        self.assertEqual(branches, [{"id": self.branch.id, "name": self.branch.name}])
+
+    def test_all_branches_dashboard_permission_reads_all_branches(self):
+        other = Branch.objects.create(name="فرع آخر", code="B2")
+        DailySale.objects.create(branch=other, date=self.today, total_sales=9000)
+        client = self._scoped_sales_client("all_branches")
+        response = client.get("/api/dashboard/summary/", {"period": "today"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total_sales"], 10000)
+        branches = client.get("/api/dashboard/branches/").json()
+        self.assertEqual({item["id"] for item in branches}, {self.branch.id, other.id})
+
     def test_summary_week(self):
         from core.daterange import resolve_range
 
@@ -117,6 +153,7 @@ class DashboardAPITest(TestCase):
         user = User.objects.create_user(username="sales_scope", password="x")
         emp = Employee(name="مندوب", branch=self.branch, user=user, is_active=True)
         emp.apply_role_preset(Employee.Role.SALES)
+        emp.permissions["dashboard"]["numbers_scope"] = "own_branch"
         emp.save()
         client = APIClient()
         client.force_authenticate(user=user)
@@ -129,6 +166,7 @@ class DashboardAPITest(TestCase):
         user = User.objects.create_user(username="sales_nobranch", password="x")
         emp = Employee(name="مندوب بلا فرع", user=user, is_active=True)
         emp.apply_role_preset(Employee.Role.SALES)
+        emp.permissions["dashboard"]["numbers_scope"] = "own_branch"
         emp.save()
         client = APIClient()
         client.force_authenticate(user=user)

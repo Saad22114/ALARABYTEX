@@ -16,7 +16,7 @@ import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import { Branch, SalaryAdvance } from '@/types';
-import { ADVANCE_METHODS, SALARY_ADVANCE_STATUSES } from '@/lib/constants';
+import { ADVANCE_METHODS, ADVANCE_REPAY_METHODS_LIST, SALARY_ADVANCE_STATUSES } from '@/lib/constants';
 import {
   approveAdvance,
   createAdvance,
@@ -59,7 +59,7 @@ export default function AdvancesTab({ branches, employees, defaultDate }: Advanc
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<SalaryAdvance | null>(null);
   const [repayOpen, setRepayOpen] = useState<SalaryAdvance | null>(null);
-  const [repayForm, setRepayForm] = useState({ amount: '', method: 'CASH', date: defaultDate, notes: '' });
+  const [repayForm, setRepayForm] = useState({ amount: '', method: 'cash', date: defaultDate, notes: '' });
   const [detail, setDetail] = useState<SalaryAdvance | null>(null);
   const [confirm, setConfirm] = useState<{ advance: SalaryAdvance; action: 'reject' | 'delete' } | null>(
     null,
@@ -393,7 +393,7 @@ export default function AdvancesTab({ branches, employees, defaultDate }: Advanc
               label="طريقة السداد"
               value={repayForm.method}
               onChange={(e) => setRepayForm((f) => ({ ...f, method: e.target.value }))}
-              options={Object.entries(ADVANCE_METHODS).map(([value, label]) => ({ value, label }))}
+              options={ADVANCE_REPAY_METHODS_LIST.map((method) => ({ value: method.value, label: method.label }))}
             />
             <Input
               label="ملاحظات"

@@ -127,6 +127,7 @@ ROLE_PRESETS = {
         "permissions": {
             s["key"]: {
                 **{a: True for a in s["actions"]},
+                **({"numbers_scope": "all_branches"} if s["key"] == "dashboard" else {}),
                 **({"windows": section_windows(s)} if s.get("windows") else {}),
             }
             for s in SECTIONS
@@ -139,6 +140,7 @@ ROLE_PRESETS = {
         "permissions": {
             s["key"]: {
                 **{a: (a != "delete") for a in s["actions"]},
+                **({"numbers_scope": "all_branches"} if s["key"] == "dashboard" else {}),
                 **({"windows": section_windows(s)} if s.get("windows") else {}),
             }
             for s in SECTIONS
@@ -149,7 +151,7 @@ ROLE_PRESETS = {
         "label": "مندوب مبيعات",
         "description": "المبيعات والمخزون فقط — يُنشئ ويعيدل",
         "permissions": {
-            "dashboard": {"view": True},
+            "dashboard": {"view": True, "numbers_scope": "none"},
             "my-salary": {"view": True},
             "branches": {"view": True},
             "suppliers": {"view": False, "create": False, "edit": False, "delete": False},
@@ -176,7 +178,7 @@ ROLE_PRESETS = {
         "label": "محاسب",
         "description": "يدير المحاسبة ويطّلع على كل شيء",
         "permissions": {
-            "dashboard": {"view": True},
+            "dashboard": {"view": True, "numbers_scope": "none"},
             "my-salary": {"view": True},
             "branches": {"view": True, "create": False, "edit": False, "delete": False},
             "suppliers": {"view": True, "create": True, "edit": True, "delete": False},
@@ -206,6 +208,7 @@ ROLE_PRESETS = {
         "permissions": {
             s["key"]: {
                 **{a: (a == "view") for a in s["actions"]},
+                **({"numbers_scope": "none"} if s["key"] == "dashboard" else {}),
                 **({"windows": section_windows(s)} if s.get("windows") else {}),
             }
             for s in SECTIONS
@@ -216,7 +219,7 @@ ROLE_PRESETS = {
         "label": "مخصص",
         "description": "صلاحيات يدوية حسب القسم",
         "permissions": {
-            "dashboard": {"view": True},
+            "dashboard": {"view": True, "numbers_scope": "none"},
             "my-salary": {"view": False},
             "branches": {"view": False, "create": False, "edit": False, "delete": False},
             "suppliers": {"view": False, "create": False, "edit": False, "delete": False},
@@ -305,6 +308,11 @@ def effective_permissions(role, stored=None):
             out[key] = {a: False for a in actions}
             continue
         entry = {a: bool(cur.get(a)) for a in actions}
+        if key == "dashboard":
+            scope = cur.get("numbers_scope")
+            if scope not in {"none", "own_branch", "all_branches"}:
+                scope = "all_branches" if role in {"admin", "supervisor"} else "none"
+            entry["numbers_scope"] = scope
         windows = cur.get("windows")
         if declared:
             entry["windows"] = (

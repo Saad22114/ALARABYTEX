@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AdvanceExportView,
     AdvanceInstallmentViewSet,
+    EmployeeInstallmentPlanViewSet,
     EmployeeStatementView,
     MyPayrollView,
     PayrollDatesView,
@@ -22,6 +23,7 @@ router = DefaultRouter()
 router.register("salary-structures", SalaryStructureViewSet, basename="salary-structure")
 router.register("advances", SalaryAdvanceViewSet, basename="salary-advance")
 router.register("advance-installments", AdvanceInstallmentViewSet, basename="advance-installment")
+router.register("employee-installments", EmployeeInstallmentPlanViewSet, basename="employee-installment")
 router.register("runs", PayrollRunViewSet, basename="payroll-run")
 router.register("payslips", PayslipViewSet, basename="payslip")
 

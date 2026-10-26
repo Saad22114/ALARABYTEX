@@ -64,6 +64,11 @@ class SystemPermission(BasePermission):
         if section.startswith("@"):
             return True
         action = METHOD_TO_ACTION.get(request.method.upper(), "view")
+        if section == "dashboard" and action == "view":
+            from sale_sessions.sections import effective_permissions
+            scope = effective_permissions(employee.role, employee.permissions).get("dashboard", {}).get("numbers_scope", "none")
+            if scope == "none":
+                return False
         if action == "view":
             return section_view_allowed(request, section)
         action_name = getattr(view, "action", None)

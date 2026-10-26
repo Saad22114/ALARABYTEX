@@ -9,6 +9,8 @@ from branches.models import Branch
 from core.testsupport import authenticate_admin
 from payroll.models import (
     AdvanceInstallment,
+    EmployeeInstallmentPlan,
+    EmployeeInstallmentPayment,
     Payslip,
     PayrollRun,
     SalaryAdvance,
@@ -97,6 +99,12 @@ class SalaryStructureTests(PayrollTestBase):
 
 
 class AdvanceTests(PayrollTestBase):
+    def test_advance_payment_method_normalizes_uppercase_and_bank_alias(self):
+        for method, expected in (("CASH", "cash"), ("BANK", "transfer"), ("TRANSFER", "transfer")):
+            response = self._advance(amount="25", method=method)
+            self.assertEqual(response.status_code, 201, response.data)
+            self.assertEqual(response.data["method"], expected)
+
     def test_create_and_approve_posts_journal(self):
         r = self._advance()
         self.assertEqual(r.status_code, 201, r.data)
@@ -236,6 +244,72 @@ class PayrollRunTests(PayrollTestBase):
         row = self._row(r.data)
         self.assertEqual(row["advances_total"], 3000.0)
         self.assertEqual(row["net_estimate"], 0.0)
+
+    def test_employee_installment_is_separate_and_deducted_until_paid(self):
+        self._structure()
+        response = self.c.post("/api/payroll/employee-installments/", {
+            "employee": self.emp.id,
+            "description": "شراء جهاز",
+            "total_amount": "750",
+            "monthly_amount": "300",
+            "start_month": "2026-03-01",
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        plan_id = response.data["id"]
+
+        preview = self.c.get("/api/payroll/preview/", {"month": self.month_str})
+        self.assertEqual(self._row(preview.data)["installment_deduction"], 300.0)
+        run_id = self.c.post("/api/payroll/runs/", {"month": self.month_str}, format="json").data["id"]
+        payslip = self._payslip(run_id)
+        self.assertEqual(payslip.installment_deduction, Decimal("300.00"))
+        self.assertEqual(payslip.advance_deduction, Decimal("0.00"))
+
+        self.c.post(f"/api/payroll/runs/{run_id}/approve/", {}, format="json")
+        plan = EmployeeInstallmentPlan.objects.get(pk=plan_id)
+        self.assertEqual(plan.paid_amount, Decimal("300.00"))
+        self.assertEqual(plan.remaining_amount, Decimal("450.00"))
+        self.assertEqual(EmployeeInstallmentPayment.objects.filter(plan=plan).count(), 1)
+
+        self.c.post(f"/api/payroll/runs/{run_id}/cancel/", {}, format="json")
+        self.assertEqual(plan.remaining_amount, Decimal("750.00"))
+
+    def test_employee_installment_monthly_deduction_stops_at_zero_balance(self):
+        self._structure()
+        created = self.c.post("/api/payroll/employee-installments/", {
+            "employee": self.emp.id, "description": "مشتريات موظف",
+            "total_amount": "750", "monthly_amount": "300", "start_month": "2026-03-01",
+        }, format="json")
+        self.assertEqual(created.status_code, 201, created.data)
+        plan = EmployeeInstallmentPlan.objects.get(pk=created.data["id"])
+
+        for month, expected in (("2026-03", "300.00"), ("2026-04", "300.00"), ("2026-05", "150.00")):
+            run_response = self.c.post("/api/payroll/runs/", {"month": f"{month}-01"}, format="json")
+            self.assertEqual(run_response.status_code, 201, run_response.data)
+            run_id = run_response.data["id"]
+            payslip = Payslip.objects.get(run_id=run_id, employee=self.emp)
+            self.assertEqual(payslip.installment_deduction, Decimal(expected))
+            self.c.post(f"/api/payroll/runs/{run_id}/approve/", {}, format="json")
+
+        plan.refresh_from_db()
+        self.assertEqual(plan.remaining_amount, Decimal("0.00"))
+        next_preview = self.c.get("/api/payroll/preview/", {"month": "2026-06"})
+        self.assertEqual(self._row(next_preview.data)["installment_deduction"], 0.0)
+
+    def test_employee_installment_payroll_journal_uses_separate_account(self):
+        self._structure()
+        created = self.c.post("/api/payroll/employee-installments/", {
+            "employee": self.emp.id, "description": "قسط محاسبي",
+            "total_amount": "500", "monthly_amount": "100", "start_month": "2026-03-01",
+        }, format="json")
+        self.assertEqual(created.status_code, 201, created.data)
+        run_id = self.c.post("/api/payroll/runs/", {"month": self.month_str}, format="json").data["id"]
+        response = self.c.post(f"/api/payroll/runs/{run_id}/pay/", {}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        entry = JournalEntry.objects.get(source=JournalEntry.Source.PAYROLL, source_id=run_id)
+        lines = list(JournalLine.objects.filter(entry=entry).select_related("account"))
+        self.assertEqual(sum(line.debit for line in lines), sum(line.credit for line in lines))
+        installment_line = next(line for line in lines if line.account.source_key == "EMPLOYEE_INSTALLMENT_RECEIVABLE")
+        self.assertEqual(installment_line.credit, Decimal("100.00"))
 
     def test_generate_run_creates_payslips(self):
         self._structure()
@@ -415,6 +489,38 @@ class PayrollRunTests(PayrollTestBase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(Decimal(str(r.data["totals"]["net_paid"])), Decimal("2500.00"))
         self.assertEqual(Decimal(str(r.data["totals"]["advances"])), Decimal("300.00"))
+        self.assertEqual(Decimal(str(r.data["totals"]["salary_net"])), Decimal("2500.00"))
+        self.assertEqual(Decimal(str(r.data["totals"]["salary_remaining"])), Decimal("0.00"))
+
+    def test_statement_shows_salary_due_and_outstanding_installment_balance(self):
+        self._structure()
+        advance = self._advance("500")
+        self.c.post(f"/api/payroll/advances/{advance.data['id']}/approve/", {}, format="json")
+        plan = self.c.post("/api/payroll/employee-installments/", {
+            "employee": self.emp.id,
+            "description": "جهاز بالتقسيط",
+            "total_amount": "750",
+            "monthly_amount": "300",
+            "start_month": "2026-03-01",
+        }, format="json")
+        self.assertEqual(plan.status_code, 201, plan.data)
+        run_id = self.c.post("/api/payroll/runs/", {"month": self.month_str}, format="json").data["id"]
+        self.c.post(f"/api/payroll/runs/{run_id}/approve/", {}, format="json")
+
+        response = self.c.get(
+            f"/api/payroll/employees/{self.emp.id}/statement/",
+            {"date_from": "2026-03-01", "date_to": "2026-03-31"},
+        )
+        self.assertEqual(response.status_code, 200)
+        totals = response.data["totals"]
+        self.assertEqual(Decimal(str(totals["gross_salary"])), Decimal("2500.00"))
+        self.assertEqual(Decimal(str(totals["advance_deduction"])), Decimal("500.00"))
+        self.assertEqual(Decimal(str(totals["installment_deduction"])), Decimal("300.00"))
+        self.assertEqual(Decimal(str(totals["salary_net"])), Decimal("1700.00"))
+        self.assertEqual(Decimal(str(totals["salary_remaining"])), Decimal("1700.00"))
+        self.assertEqual(Decimal(str(totals["outstanding_advances"])), Decimal("0.00"))
+        self.assertEqual(Decimal(str(totals["outstanding_installments"])), Decimal("450.00"))
+        self.assertEqual(response.data["installments"][0]["id"], plan.data["id"])
 
 
 class PayrollPermissionTests(PayrollTestBase):

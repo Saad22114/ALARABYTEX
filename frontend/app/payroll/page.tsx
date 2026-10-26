@@ -13,12 +13,14 @@ import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import RunsTab from '@/components/payroll/RunsTab';
 import AdvancesTab from '@/components/payroll/AdvancesTab';
 import StructuresTab from '@/components/payroll/StructuresTab';
+import EmployeeInstallmentsTab from '@/components/payroll/EmployeeInstallmentsTab';
 import StatementModal from '@/components/payroll/StatementModal';
 import type { StructureEmployeeOption } from '@/components/payroll/SalaryStructureForm';
 
 const TABS = [
   { key: 'runs', label: 'مسيّرات الرواتب' },
   { key: 'advances', label: 'سلف الرواتب' },
+  { key: 'installments', label: 'أقساط الموظفين' },
   { key: 'structures', label: 'هياكل الرواتب' },
   { key: 'statement', label: 'كشف حساب موظف' },
 ];
@@ -120,6 +122,8 @@ export default function PayrollPage() {
             month={activeMonth}
             onSaved={() => setReloadKey((k) => k + 1)}
           />
+        ) : tab === 'installments' ? (
+          <EmployeeInstallmentsTab employees={employees} defaultMonth={activeMonth} />
         ) : (
           <Card>
             <StatementModal

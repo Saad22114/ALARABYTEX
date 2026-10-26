@@ -212,7 +212,7 @@ export default function RunsTab({
       </Card>
 
       {summary && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 text-sm">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 text-sm">
           <div className="rounded-xl bg-surface border border-sand-200 px-4 py-3">
             <span className="block text-xs text-neutral-500">موظفون</span>
             <span className="tabular-nums text-lg font-semibold">{summary.employees}</span>
@@ -232,6 +232,10 @@ export default function RunsTab({
             <span className="tabular-nums text-lg font-semibold text-amber-600">
               {formatCurrency(summary.advances)}
             </span>
+          </div>
+          <div className="rounded-xl bg-violet-50 border border-violet-100 px-4 py-3">
+            <span className="block text-xs text-violet-700">أقساط مخصومة</span>
+            <span className="tabular-nums text-lg font-semibold text-violet-800">{formatCurrency(summary.installments || 0)}</span>
           </div>
           <div className="rounded-xl bg-red-50 border border-red-100 dark:bg-red-500/10 dark:border-red-500/25 px-4 py-3">
             <span className="block text-xs text-red-600">سلف مستحقة</span>
@@ -516,6 +520,7 @@ export default function RunsTab({
                   <Th>الموظف</Th>
                   <Th>الإجمالي</Th>
                   <Th>خصم سلفة</Th>
+                  <Th>قسط موظف</Th>
                   <Th>خصومات أخرى</Th>
                   <Th>الصافي</Th>
                   <Th>مصروف</Th>
@@ -533,8 +538,9 @@ export default function RunsTab({
                     <Td className="tabular-nums text-amber-600">
                       {formatCurrency(p.advance_deduction)}
                     </Td>
+                    <Td className="tabular-nums text-violet-700">{formatCurrency(p.installment_deduction || 0)}</Td>
                     <Td className="tabular-nums text-red-600">
-                      {formatCurrency(p.total_deductions - p.advance_deduction)}
+                      {formatCurrency(p.total_deductions - p.advance_deduction - (p.installment_deduction || 0))}
                     </Td>
                     <Td className="tabular-nums font-semibold">{formatCurrency(p.net_pay)}</Td>
                     <Td>{p.is_paid ? 'نعم' : 'لا'}</Td>

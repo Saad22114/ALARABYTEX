@@ -18,9 +18,8 @@ import Spinner from '@/components/ui/Spinner';
 import Badge from '@/components/ui/Badge';
 import { Banknote, ReceiptText, TrendingUp, Percent, Store, Truck, GitCompareArrows, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { DashboardActivityItem, DashboardAlertsResult, DashboardSummary } from '@/types';
-import { getDashboardActivity, getDashboardAlerts, getDashboardSummary } from '@/services/dashboard';
+import { getDashboardActivity, getDashboardAlerts, getDashboardBranches, getDashboardSummary } from '@/services/dashboard';
 import { listBranches } from '@/services/branches';
-import { Branch } from '@/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import {
   comparableMonthSpans,
@@ -35,6 +34,7 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useUrlState } from '@/lib/useUrlState';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
+import { refreshSession } from '@/services/auth';
 
 const dashboardMetrics = [
   ['sales', 'إجمالي المبيعات'],
@@ -52,15 +52,21 @@ const defaultDashboardMetrics = dashboardMetrics.map(([key]) => key);
 export default function DashboardPage() {
   const { toast } = useToast();
   const { settings } = useSettings();
-  const { session } = useAuth();
+  const { session, updateEmployee } = useAuth();
   const me = session?.employee;
-  const isScoped = Boolean(me && me.role !== 'admin' && me.role !== 'supervisor');
+  const dashboardNumbersScope = me?.permissions?.dashboard?.numbers_scope
+    ?? (me && (me.role === 'admin' || me.role === 'supervisor') ? 'all_branches' : 'none');
+  const canSeeManagementDashboard = Boolean(
+    me?.permissions?.dashboard?.view &&
+    dashboardNumbersScope !== 'none' &&
+    (dashboardNumbersScope !== 'own_branch' || me?.branch),
+  );
   const [branch, setBranch] = useUrlState('branch', '');
   const [dateFrom, setDateFrom] = useUrlState('from', getRangeForKey('today').from);
   const [dateTo, setDateTo] = useUrlState('to', getRangeForKey('today').to);
   const appliedDefaultPeriod = useRef<string | null>(null);
   const [data, setData] = useState<DashboardSummary | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branches, setBranches] = useState<Array<{ id: number; name: string }>>([]);
   const [alerts, setAlerts] = useState<DashboardAlertsResult | null>(null);
   const [activities, setActivities] = useState<DashboardActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +75,32 @@ export default function DashboardPage() {
   const [metricsLoadedFor, setMetricsLoadedFor] = useState<number | null>(null);
   const refreshDashboard = useCallback(() => setReloadKey((key) => key + 1), []);
   useAutoRefresh(refreshDashboard);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
+    const refreshPermissions = async () => {
+      if (document.visibilityState === 'hidden') return;
+      try {
+        const fresh = await refreshSession();
+        if (!cancelled && fresh.employee.id === me.id) updateEmployee(fresh.employee);
+      } catch {
+        // Keep the current screen usable during a temporary network failure.
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refreshPermissions();
+    };
+    const interval = window.setInterval(() => void refreshPermissions(), 60_000);
+    window.addEventListener('focus', refreshPermissions);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshPermissions);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [me?.id, updateEmployee]);
 
   useEffect(() => {
     if (!me?.id) return;
@@ -104,6 +136,7 @@ export default function DashboardPage() {
   const [monthDataA, setMonthDataA] = useState<DashboardSummary | null>(null);
   const [monthDataB, setMonthDataB] = useState<DashboardSummary | null>(null);
   const [monthLoading, setMonthLoading] = useState(false);
+  const branchDefaultedFor = useRef<number | null>(null);
 
   useEffect(() => {
     if (!settings) return;
@@ -116,10 +149,28 @@ export default function DashboardPage() {
   }, [settings, settings?.default_period, setDateFrom, setDateTo]);
 
   useEffect(() => {
+    if (!canSeeManagementDashboard) {
+      setBranches([]);
+      setAlerts(null);
+      setActivities([]);
+      return;
+    }
     let cancelled = false;
-    listBranches({ page_size: 100 }).then((res) => {
-      if (!cancelled) setBranches(res.results);
+    getDashboardBranches().then((res) => {
+      if (!cancelled) setBranches(res);
     }).catch((err) => {
+      if (err.message?.includes('404')) {
+        listBranches({ page_size: 100 }).then((res) => {
+          if (cancelled) return;
+          const available = dashboardNumbersScope === 'own_branch' && me?.branch
+            ? res.results.filter((item) => item.id === me.branch)
+            : res.results;
+          setBranches(available.map(({ id, name }) => ({ id, name })));
+        }).catch((fallbackError) => {
+          if (!cancelled) toast('error', `تعذر تحميل قائمة الفروع: ${fallbackError.message}`);
+        });
+        return;
+      }
       if (!cancelled) toast('error', `تعذر تحميل قائمة الفروع: ${err.message}`);
     });
     getDashboardAlerts().then((res) => {
@@ -129,16 +180,34 @@ export default function DashboardPage() {
       if (!cancelled) setActivities(res.activities);
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [reloadKey, toast]);
+  }, [canSeeManagementDashboard, dashboardNumbersScope, me?.branch, reloadKey, toast]);
 
   useEffect(() => {
-    if (isScoped && me?.branch && !branch) {
-      setBranch(String(me.branch));
+    if (!me?.id || dashboardNumbersScope === 'none') return;
+    const primaryBranch = me.branch ? String(me.branch) : '';
+    if (dashboardNumbersScope === 'own_branch') {
+      if (branch !== primaryBranch) setBranch(primaryBranch);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isScoped, me?.branch, branches]);
+    if (!branch && primaryBranch && branchDefaultedFor.current !== me.id) {
+      branchDefaultedFor.current = me.id;
+      setBranch(primaryBranch);
+    } else if (branch) {
+      branchDefaultedFor.current = me.id;
+    }
+  }, [dashboardNumbersScope, me?.id, me?.branch, branch, setBranch]);
+
+  const waitingForDefaultBranch = Boolean(
+    me?.branch && dashboardNumbersScope !== 'none' && !branch && branchDefaultedFor.current !== me.id,
+  );
 
   useEffect(() => {
+    if (!canSeeManagementDashboard) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+    if (waitingForDefaultBranch) return;
     let cancelled = false;
     const params: Record<string, string | number | undefined> = {};
     if (branch) params.branch = branch;
@@ -149,9 +218,16 @@ export default function DashboardPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [branch, dateFrom, dateTo, reloadKey, toast]);
+  }, [canSeeManagementDashboard, waitingForDefaultBranch, branch, dateFrom, dateTo, reloadKey, toast]);
 
   useEffect(() => {
+    if (!canSeeManagementDashboard) {
+      setMonthDataA(null);
+      setMonthDataB(null);
+      setMonthLoading(false);
+      return;
+    }
+    if (waitingForDefaultBranch) return;
     if (!monthA || !monthB) return;
     let cancelled = false;
     setMonthLoading(true);
@@ -169,7 +245,7 @@ export default function DashboardPage() {
       .catch((err) => { if (!cancelled) toast('error', err.message); })
       .finally(() => { if (!cancelled) setMonthLoading(false); });
     return () => { cancelled = true; };
-  }, [monthA, monthB, monthSpans, branch, reloadKey, toast]);
+  }, [canSeeManagementDashboard, waitingForDefaultBranch, monthA, monthB, monthSpans, branch, reloadKey, toast]);
 
   const periodNet = data
     ? data.total_sales - data.total_cogs - data.total_expenses - data.total_salaries
@@ -217,6 +293,7 @@ export default function DashboardPage() {
 
         {canSeeSalesLinks && <SalesLinksGuide />}
 
+        {canSeeManagementDashboard && <>
         {/* Period + Branch Filter */}
         <div className="dashboard-toolbar flex flex-wrap items-center gap-4">
           <DateRangeToolbar
@@ -227,7 +304,7 @@ export default function DashboardPage() {
           <Select
             value={branch}
             onChange={(e) => setBranch(e.target.value)}
-            options={branches.length > 1
+            options={dashboardNumbersScope === 'all_branches' || branches.length > 1
               ? [{ value: '', label: 'كل الفروع' }, ...branches.map((b) => ({ value: b.id, label: b.name }))]
               : branches.map((b) => ({ value: b.id, label: b.name }))}
             className="w-full sm:w-48"
@@ -251,8 +328,9 @@ export default function DashboardPage() {
         </div>
 
         {alerts && <AlertsPanel alerts={alerts} />}
+        </>}
 
-        {loading ? (
+        {!canSeeManagementDashboard ? null : loading ? (
           <div className="flex items-center justify-center py-20">
             <Spinner size={40} />
           </div>

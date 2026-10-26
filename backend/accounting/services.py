@@ -94,6 +94,11 @@ def advance_receivable_account():
     return account_by_key("ADVANCE_RECEIVABLE")
 
 
+def employee_installment_receivable_account():
+    ensure_seeded()
+    return account_by_key("EMPLOYEE_INSTALLMENT_RECEIVABLE")
+
+
 def payment_account(payment_method):
     """نقد -> حساب الخزنة، أي طريقة أخرى -> البنك."""
     if payment_method == "cash":
@@ -466,9 +471,10 @@ def post_payroll_run(run):
         return
     net_total = _round2(sum((p.net_pay for p in payslips), Decimal("0")))
     advance_total = _round2(sum((p.advance_deduction for p in payslips), Decimal("0")))
+    installment_total = _round2(sum((p.installment_deduction for p in payslips), Decimal("0")))
     # الإجمالي = الصافي + خصم السلفة، فالمدين يغطي كامل الاستحقاق.
-    gross_total = _round2(net_total + advance_total)
-    if gross_total <= 0 and advance_total <= 0:
+    gross_total = _round2(net_total + advance_total + installment_total)
+    if gross_total <= 0 and advance_total <= 0 and installment_total <= 0:
         return
     expense = salary_expense_account()
     receivable = advance_receivable_account()
@@ -479,6 +485,8 @@ def post_payroll_run(run):
         lines.append((payment_account(run.payment_method or "cash"), Decimal("0"), net_total, "صافي مصروف"))
     if advance_total > 0:
         lines.append((receivable, Decimal("0"), advance_total, "تسديد سلف من الرواتب"))
+    if installment_total > 0:
+        lines.append((employee_installment_receivable_account(), Decimal("0"), installment_total, "تحصيل أقساط الموظفين من الرواتب"))
     branch_name = run.branch.name if run.branch_id else "كل الفروع"
     create_entry(
         run.paid_at.date() if run.paid_at else run.month,

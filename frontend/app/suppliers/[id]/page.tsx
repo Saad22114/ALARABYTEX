@@ -250,7 +250,7 @@ export default function SupplierDetailPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="space-y-6 supplier-detail-page">
         <div className="flex items-center justify-between no-print">
           <Button variant="ghost" onClick={() => router.push('/suppliers')}>
             <ArrowRight size={18} />

@@ -1309,6 +1309,7 @@ export interface EmployeePermissions {
     edit: boolean;
     delete: boolean;
     windows?: string[];
+    numbers_scope?: 'none' | 'own_branch' | 'all_branches';
   };
 }
 
@@ -1849,6 +1850,25 @@ export interface SalaryAdvance {
   updated_at: string;
 }
 
+export interface EmployeeInstallmentPlan {
+  id: number;
+  employee: number;
+  employee_name: string;
+  branch: number | null;
+  branch_name: string;
+  description: string;
+  total_amount: number;
+  monthly_amount: number;
+  start_month: string;
+  paid_amount: number;
+  remaining_amount: number;
+  next_installment: number;
+  notes: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Payslip {
   id: number;
   run: number;
@@ -1874,6 +1894,7 @@ export interface Payslip {
   late_deduction: number;
   other_deduction: number;
   advance_deduction: number;
+  installment_deduction: number;
   total_allowances: number;
   gross: number;
   total_deductions: number;
@@ -1892,6 +1913,7 @@ export interface PayrollRunTotals {
   deductions: number;
   net: number;
   advances: number;
+  installments: number;
   overtime: number;
   bonus: number;
   commission: number;
@@ -2038,6 +2060,7 @@ export interface PayrollPreviewRow {
   commission_amount: number;
   advances_total: number;
   advances_count: number;
+  installment_deduction: number;
   gross: number;
 }
 
@@ -2051,6 +2074,7 @@ export interface PayrollPreview {
     allowances: number;
     commission: number;
     advances: number;
+    installments: number;
     gross: number;
   };
 }
@@ -2062,6 +2086,7 @@ export interface PayrollSummary {
   deductions: number;
   net: number;
   advances: number;
+  installments: number;
   recovered: number;
   outstanding_advances: number;
   runs: number;
@@ -2101,11 +2126,41 @@ export interface PayrollStatementRow {
   date: string;
   type: 'payslip' | 'advance';
   type_label: string;
+  gross_salary: number;
+  total_deductions: number;
+  salary_net: number;
+  paid_amount: number;
+  salary_remaining: number;
+  advance_deduction: number;
+  installment_deduction: number;
+  other_deductions: number;
   debit: number;
   credit: number;
   net: number;
   ref: string;
   notes: string;
+}
+
+export interface PayrollStatementAdvance {
+  id: number;
+  date: string;
+  amount: number;
+  recovered_amount: number;
+  remaining_amount: number;
+  method: string;
+  status: string;
+  reason: string;
+}
+
+export interface PayrollStatementInstallment {
+  id: number;
+  description: string;
+  start_month: string;
+  total_amount: number;
+  monthly_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+  is_active: boolean;
 }
 
 export interface PayrollStatement {
@@ -2114,12 +2169,21 @@ export interface PayrollStatement {
   date_from: string;
   date_to: string;
   rows: PayrollStatementRow[];
+  advances: PayrollStatementAdvance[];
+  installments: PayrollStatementInstallment[];
   totals: {
-    payslips: number;
+    gross_salary: number;
+    total_deductions: number;
+    salary_net: number;
+    advance_deduction: number;
+    installment_deduction: number;
+    other_deductions: number;
     advances: number;
     recovered: number;
-    outstanding: number;
+    outstanding_advances: number;
+    outstanding_installments: number;
     net_paid: number;
+    salary_remaining: number;
   };
 }
 

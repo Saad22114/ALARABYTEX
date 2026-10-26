@@ -23,6 +23,7 @@ from sale_sessions.models import Employee
 
 from .models import (
     AdvanceInstallment,
+    EmployeeInstallmentPlan,
     Payslip,
     PayrollRun,
     SalaryAdvance,
@@ -30,6 +31,7 @@ from .models import (
 )
 from .serializers import (
     AdvanceInstallmentSerializer,
+    EmployeeInstallmentPlanSerializer,
     PayslipSerializer,
     PayrollRunListSerializer,
     PayrollRunSerializer,
@@ -242,6 +244,35 @@ class AdvanceInstallmentViewSet(viewsets.ReadOnlyModelViewSet):
         if self.request.query_params.get("employee"):
             qs = qs.filter(advance__employee_id=self.request.query_params["employee"])
         return qs.order_by("-date", "-id")
+
+
+class EmployeeInstallmentPlanViewSet(viewsets.ModelViewSet):
+    """أقساط مشتريات/التزامات الموظفين، منفصلة عن السلف."""
+    permission_section = "payroll"
+    serializer_class = EmployeeInstallmentPlanSerializer
+    search_fields = ["employee__name", "description", "notes"]
+    ordering_fields = ["start_month", "total_amount", "monthly_amount", "created_at"]
+
+    def get_queryset(self):
+        qs = EmployeeInstallmentPlan.objects.select_related("employee", "branch").prefetch_related("payments")
+        qs = scope_queryset(self.request, qs, "employee__branch")
+        employee = self.request.query_params.get("employee")
+        if employee:
+            qs = qs.filter(employee_id=employee)
+        active = self.request.query_params.get("active")
+        if active in ("1", "true", "True"):
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def perform_create(self, serializer):
+        plan = serializer.save(branch=serializer.validated_data.get("employee").branch)
+        log_activity("payroll", "تسجيل قسط موظف", plan)
+
+    def destroy(self, request, *args, **kwargs):
+        plan = self.get_object()
+        if plan.payments.exists():
+            return Response({"detail": "لا يمكن حذف قسط بدأ خصمه؛ أوقفه بدلاً من ذلك"}, status=status.HTTP_400_BAD_REQUEST)
+        return super().destroy(request, *args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +524,7 @@ class PayrollSummaryView(APIView):
             "deductions": float(money(sum((p.total_deductions for p in payslips), ZERO))),
             "net": float(money(sum((p.net_pay for p in payslips), ZERO))),
             "advances": float(money(sum((a.amount for a in approved), ZERO))),
+            "installments": float(money(sum((p.installment_deduction for p in payslips), ZERO))),
             "recovered": float(money(sum((a.recovered_amount for a in approved), ZERO))),
             "outstanding_advances": float(money(sum((a.remaining_amount for a in outstanding), ZERO))),
             "runs": len(active_runs),
@@ -642,18 +674,39 @@ class StatementExportView(APIView):
         employee = _scoped_employee(request, employee_id)
         if employee is None:
             return Response({"detail": "الموظف غير موجود أو خارج نطاقك"}, status=status.HTTP_404_NOT_FOUND)
-        data = statement_rows(employee)
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+        data = statement_rows(
+            employee,
+            date.fromisoformat(date_from) if date_from else None,
+            date.fromisoformat(date_to) if date_to else None,
+        )
         rows = [
-            [str(r["date"]), r["type_label"], r["ref"], float(r["debit"]), float(r["credit"]), r["notes"]]
+            [
+                str(r["date"]), r["type_label"], r["ref"],
+                float(r["gross_salary"]), float(r["total_deductions"]),
+                float(r["salary_net"]), float(r["paid_amount"]),
+                float(r["salary_remaining"]), r["notes"],
+            ]
             for r in data["rows"]
         ]
+        rows.extend([
+            [],
+            ["إجمالي الراتب", "", "", float(data["totals"]["gross_salary"])],
+            ["إجمالي الخصومات", "", "", "", float(data["totals"]["total_deductions"])],
+            ["صافي الراتب", "", "", "", "", float(data["totals"]["salary_net"])],
+            ["صافي المصروف", "", "", "", "", "", float(data["totals"]["net_paid"])],
+            ["رواتب غير مصروفة", "", "", "", "", "", "", float(data["totals"]["salary_remaining"])],
+            ["رصيد السلف المتبقي", "", "", "", "", "", "", float(data["totals"]["outstanding_advances"])],
+            ["رصيد الأقساط المتبقي", "", "", "", "", "", "", float(data["totals"]["outstanding_installments"])],
+        ])
         return _workbook_or_error(
             f"كشف {employee.name}",
-            ["التاريخ", "النوع", "المرجع", "مدين", "دائن", "ملاحظات"],
+            ["التاريخ", "النوع", "المرجع", "الراتب الإجمالي/المبلغ", "إجمالي الخصومات", "صافي الراتب", "المصروف", "المتبقي", "التفاصيل"],
             rows,
             f"كشف_حساب_{employee.name}",
-            types=["date", "text", "text", "money", "money", "text"],
-            subtitle=f"الموظف: {employee.name}  |  عدد الحركات: {len(rows)}",
+            types=["date", "text", "text", "money", "money", "money", "money", "money", "text"],
+            subtitle=f"الموظف: {employee.name}  |  الفترة: {data['date_from']} إلى {data['date_to']}",
         )
 
 

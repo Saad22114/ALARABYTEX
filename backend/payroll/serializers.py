@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from .models import (
     AdvanceInstallment,
+    EmployeeInstallmentPlan,
     Payslip,
     PayrollRun,
     SalaryAdvance,
@@ -55,6 +56,9 @@ class AdvanceInstallmentSerializer(serializers.ModelSerializer):
 
 
 class SalaryAdvanceSerializer(serializers.ModelSerializer):
+    # تقبّل القيمة القديمة القادمة من الواجهة بأحرف كبيرة، ثم تحفظها بصيغة
+    # النموذج الصغيرة حتى لا تختلف البيانات بين المستخدمين.
+    method = serializers.CharField(required=False)
     employee_name = serializers.CharField(source="employee.name", read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True, default="")
     recovered_amount = serializers.FloatField(read_only=True)
@@ -78,6 +82,15 @@ class SalaryAdvanceSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("مبلغ السلفة يجب أن يكون أكبر من صفر")
         return value
 
+    def validate_method(self, value):
+        normalized = str(value).strip().lower()
+        if normalized == "bank":
+            normalized = SalaryAdvance.Method.TRANSFER
+        allowed = {choice for choice, _label in SalaryAdvance.Method.choices}
+        if normalized not in allowed:
+            raise serializers.ValidationError("اختر النقدي أو التحويل البنكي")
+        return normalized
+
     def validate(self, attrs):
         if self.instance and "status" in attrs and attrs["status"] != self.instance.status:
             raise serializers.ValidationError(
@@ -87,6 +100,38 @@ class SalaryAdvanceSerializer(serializers.ModelSerializer):
         if status == SalaryAdvance.Status.APPROVED and self.instance:
             if self.instance.recovered_amount > 0:
                 raise serializers.ValidationError("لا يمكن اعتماد سلفة لها سدادات مسجلة")
+        return attrs
+
+
+class EmployeeInstallmentPlanSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source="employee.name", read_only=True)
+    branch_name = serializers.CharField(source="branch.name", read_only=True, default="")
+    paid_amount = serializers.FloatField(read_only=True)
+    remaining_amount = serializers.FloatField(read_only=True)
+    next_installment = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = EmployeeInstallmentPlan
+        fields = [
+            "id", "employee", "employee_name", "branch", "branch_name",
+            "description", "total_amount", "monthly_amount", "start_month",
+            "paid_amount", "remaining_amount", "next_installment", "notes",
+            "is_active", "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def validate(self, attrs):
+        for field in ("total_amount", "monthly_amount"):
+            value = attrs.get(field, getattr(self.instance, field, None) if self.instance else None)
+            if value is not None and value <= 0:
+                raise serializers.ValidationError({field: "يجب أن يكون المبلغ أكبر من صفر"})
+        employee = attrs.get("employee", getattr(self.instance, "employee", None))
+        if employee and not employee.is_active:
+            raise serializers.ValidationError({"employee": "لا يمكن تسجيل قسط لموظف غير نشط"})
+        if self.instance:
+            total = attrs.get("total_amount", self.instance.total_amount)
+            if total < self.instance.paid_amount:
+                raise serializers.ValidationError({"total_amount": "لا يمكن أن يقل الإجمالي عن المبلغ الذي خُصم بالفعل"})
         return attrs
 
 
@@ -110,10 +155,11 @@ class PayslipSerializer(serializers.ModelSerializer):
             "overtime_hours", "overtime_amount", "bonus", "commission_amount",
             "absence_days", "absence_deduction", "late_deduction", "other_deduction",
             "advance_deduction", "total_allowances", "gross", "total_deductions", "net_pay",
+            "installment_deduction",
             "is_paid", "paid_at", "payment_method", "notes", "created_at", "updated_at",
         ]
         read_only_fields = [
-            "is_paid", "paid_at", "created_at", "updated_at",
+            "installment_deduction", "is_paid", "paid_at", "created_at", "updated_at",
         ]
 
     def validate(self, attrs):
@@ -201,6 +247,7 @@ def payslip_row_to_dict(payslip):
         "late_deduction": float(money(payslip.late_deduction)),
         "other_deduction": float(money(payslip.other_deduction)),
         "advance_deduction": float(money(payslip.advance_deduction)),
+        "installment_deduction": float(money(payslip.installment_deduction)),
         "total_deductions": float(money(payslip.total_deductions)),
         "net_pay": float(money(payslip.net_pay)),
         "is_paid": payslip.is_paid,

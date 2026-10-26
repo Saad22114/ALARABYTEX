@@ -46,15 +46,20 @@ export const PAYROLL_METHODS_LIST = [
 ] as const;
 
 export const ADVANCE_METHODS: Record<string, string> = {
-  CASH: 'نقدي',
-  DEDUCTION: 'خصم من الراتب',
-  BANK: 'تحويل بنكي',
+  cash: 'نقدي',
+  transfer: 'تحويل بنكي',
+  deduction: 'خصم من الراتب',
 };
 
 export const ADVANCE_METHODS_LIST = [
-  { value: 'CASH', label: 'نقدي' },
-  { value: 'DEDUCTION', label: 'خصم من الراتب' },
-  { value: 'BANK', label: 'تحويل بنكي' },
+  { value: 'cash', label: 'نقدي' },
+  { value: 'transfer', label: 'تحويل بنكي' },
+] as const;
+
+export const ADVANCE_REPAY_METHODS_LIST = [
+  { value: 'cash', label: 'نقدي' },
+  { value: 'transfer', label: 'تحويل بنكي' },
+  { value: 'deduction', label: 'خصم من الراتب' },
 ] as const;
 
 export const REPORT_GROUPS: { key: string; label: string }[] = [  { key: 'overview', label: 'نظرة عامة' },

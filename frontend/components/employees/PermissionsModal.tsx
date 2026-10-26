@@ -155,7 +155,13 @@ export default function PermissionsModal({
   };
 
   const handleSet = (sectionKey: string, action: string, value: boolean) => {
-    setPerms((prev) => setPermission(prev, sectionKey, action, value));
+    setPerms((prev) => {
+      const next = setPermission(prev, sectionKey, action, value);
+      if (sectionKey === 'dashboard' && action === 'view' && !value) {
+        next.dashboard = { ...next.dashboard, numbers_scope: 'none' };
+      }
+      return next;
+    });
   };
 
   const handleToggleHidden = (sectionKey: string) => {
@@ -175,6 +181,9 @@ export default function PermissionsModal({
         edit: all,
         delete: all,
         windows: (s.windows || []).map((w) => w.key),
+        ...(s.key === 'dashboard' ? {
+          numbers_scope: all ? (perms.dashboard?.numbers_scope ?? 'none') : 'none',
+        } : {}),
       };
     }
     setPerms(next);
@@ -380,6 +389,30 @@ export default function PermissionsModal({
                     )}
                     {sec.fixed && <td className="p-2.5" />}
                   </tr>
+                  {sec.key === 'dashboard' && (
+                    <tr className="border-t border-sand-100/50 bg-brand-50/40 dark:border-neutral-800 dark:bg-brand-950/20">
+                      <td className="px-2.5 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300">نطاق أرقام الرئيسية</td>
+                      <td colSpan={5} className="px-2.5 py-2">
+                        <select
+                          value={perms.dashboard?.numbers_scope || 'none'}
+                          onChange={(event) => setPerms((current) => ({
+                            ...current,
+                            dashboard: {
+                              ...(current.dashboard || { view: false, create: false, edit: false, delete: false }),
+                              view: event.target.value !== 'none' || Boolean(current.dashboard?.view),
+                              numbers_scope: event.target.value as 'none' | 'own_branch' | 'all_branches',
+                            },
+                          }))}
+                          className="w-full max-w-sm rounded-lg border border-sand-200 bg-white px-3 py-2 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+                        >
+                          <option value="none">إخفاء الأرقام</option>
+                          <option value="own_branch">فرعه فقط</option>
+                          <option value="all_branches">كل الفروع</option>
+                        </select>
+                        <p className="mt-1 text-xs text-neutral-400">يحدد هذا الخيار الأرقام والملخصات التي يمكنه رؤيتها في الصفحة الرئيسية.</p>
+                      </td>
+                    </tr>
+                  )}
                   {sec.windows && sec.windows.length > 0 && (
                     <tr className="border-t border-sand-100/50 dark:border-neutral-800 bg-sand-50/40 dark:bg-neutral-800/40">
                       <td className="px-2.5 py-2 text-xs font-medium text-neutral-400 whitespace-nowrap">النوافذ</td>
@@ -415,7 +448,7 @@ export default function PermissionsModal({
         </div>
 
         <p className="text-xs text-neutral-400">
-          ملاحظة: الصلاحيات محفوظة في النظام وقابلة للتعديل في أي وقت — تُستخدم حالياً كبيانات إدارية لكل موظف.
+          ملاحظة: نطاق أرقام الصفحة الرئيسية يحدد بيانات الفروع التي يستطيع الموظف رؤيتها، ويُطبّق على الخادم أيضاً.
         </p>
 
         <div className="flex items-center justify-end gap-3 pt-2">

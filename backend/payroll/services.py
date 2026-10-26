@@ -22,6 +22,8 @@ from .models import (
     AdvanceInstallment,
     Payslip,
     PayrollRun,
+    EmployeeInstallmentPlan,
+    EmployeeInstallmentPayment,
     SalaryAdvance,
     SalaryStructure,
 )
@@ -168,12 +170,12 @@ def payroll_employees(branch=None, include_inactive=False, employee_ids=None):
     return qs.order_by("name")
 
 
-def build_preview(month, branch=None, employee_ids=None, include_inactive=False):
+def build_preview(month, branch=None, employee_ids=None, include_inactive=False, include_commission=True):
     """معاينة قسائم رواتب لشهر وفرع — بلا كتابة في قاعدة البيانات."""
     start, end = month_bounds(month)
     branch = branch_id_of(branch)
     employees = list(payroll_employees(branch, include_inactive, employee_ids))
-    commissions = commissions_by_employee(start, end, branch)
+    commissions = commissions_by_employee(start, end, branch) if include_commission else {}
     snapshots = {employee.id: salary_snapshot(employee, start) for employee in employees}
     attendance = attendance_for(
         employees,
@@ -202,6 +204,15 @@ def build_preview(month, branch=None, employee_ids=None, include_inactive=False)
         # تستخدم المعاينة الحد نفسه حتى لا تعرض صافي راتب سالباً على خلاف
         # القسيمة التي سينشئها generate_run.
         advance_deduction = money(min(advances_total, money(gross)))
+        plans = EmployeeInstallmentPlan.objects.filter(
+            employee=employee, is_active=True, start_month__lte=end,
+        ).prefetch_related("payments")
+        installment_requested = money(sum((p.next_installment for p in plans), ZERO))
+        installment_capacity = max(
+            ZERO,
+            money(gross + commission + overtime_amount - absence_deduction - advance_deduction),
+        )
+        installment_deduction = money(min(installment_requested, installment_capacity))
         total_base += snap["base_salary"]
         total_gross += gross
         total_commission += commission
@@ -226,6 +237,7 @@ def build_preview(month, branch=None, employee_ids=None, include_inactive=False)
             "commission_amount": float(commission),
             "advances_total": float(advances_total),
             "advances_count": len(advances),
+            "installment_deduction": float(installment_deduction),
             "gross": float(money(gross)),
             "attendance": mark.as_dict() if mark else untracked(employee.id, snap["working_days"], snap["daily_work_hours"]).as_dict(),
             "overtime_hours": float(overtime_hours),
@@ -235,6 +247,7 @@ def build_preview(month, branch=None, employee_ids=None, include_inactive=False)
             "net_estimate": float(money(
                 gross + commission + overtime_amount
                 - advance_deduction - absence_deduction
+                - installment_deduction
             )),
         })
     return {
@@ -249,6 +262,7 @@ def build_preview(month, branch=None, employee_ids=None, include_inactive=False)
             "advances": money(total_advances),
             "overtime": money(total_overtime),
             "absence_deduction": money(total_absence),
+            "installments": money(sum((Decimal(str(r["installment_deduction"])) for r in rows), ZERO)),
         },
     }
 
@@ -264,7 +278,7 @@ def generate_run(month, branch=None, created_by=None, employee_ids=None, include
     from sale_sessions.models import Employee
 
     run = PayrollRun.objects.create(month=start, branch_id=branch, created_by=created_by)
-    preview = build_preview(start, branch, employee_ids)
+    preview = build_preview(start, branch, employee_ids, include_commission=include_commission)
     commissions = commissions_by_employee(start, end, branch) if include_commission else {}
 
     for row in preview["rows"]:
@@ -292,6 +306,7 @@ def generate_run(month, branch=None, created_by=None, employee_ids=None, include
             absence_deduction=Decimal(str(row["absence_deduction"])),
             commission_amount=commissions.get(emp.id, Decimal(str(row["commission_amount"]))),
             advance_deduction=advance_deduction,
+            installment_deduction=Decimal(str(row["installment_deduction"])),
             payment_method=run.payment_method or Payslip.PaymentMethod.CASH,
         )
     return run
@@ -340,6 +355,7 @@ def approve_run(run):
         raise ValueError("لا يمكن اعتماد مسيّر ليس في حالة مسودة")
     for payslip in run.payslips.select_related("employee"):
         apply_advance_settlement(payslip)
+        apply_employee_installments(payslip)
     run.status = PayrollRun.Status.APPROVED
     run.approved_at = timezone.now()
     run.save(update_fields=["status", "approved_at", "updated_at"])
@@ -352,6 +368,7 @@ def pay_run(run, payment_method=None, paid_at=None):
         raise ValueError("لا يمكن صرف مسيّر بهذه الحالة")
     for payslip in run.payslips.select_related("employee"):
         apply_advance_settlement(payslip)
+        apply_employee_installments(payslip)
         payslip.is_paid = True
         payslip.paid_at = paid_at or timezone.now()
         if payment_method:
@@ -371,6 +388,40 @@ def pay_run(run, payment_method=None, paid_at=None):
 
         logging.getLogger("accounting").exception("فشل ترحيل قيد الرواتب (mسيّر=%s)", run.pk)
     return run
+
+
+@transaction.atomic
+def apply_employee_installments(payslip):
+    """يسجل خصم القسيمة على خطط الموظف مرة واحدة، موزعاً على الأقدم أولاً."""
+    remaining = money(payslip.installment_deduction or ZERO)
+    if remaining <= 0:
+        payslip.installment_payments.all().delete()
+        return ZERO
+    # عند تعديل مسودة القسيمة نعيد بناء التوزيع؛ في المسيّر المعتمد أو المصروف
+    # تبقى الدفعات مثبتة ولا يعاد تطبيقها.
+    if payslip.run.status != PayrollRun.Status.DRAFT and payslip.installment_payments.exists():
+        return sum((p.amount for p in payslip.installment_payments.all()), ZERO)
+    payslip.installment_payments.all().delete()
+    month_end = month_bounds(payslip.run.month)[1]
+    plans = EmployeeInstallmentPlan.objects.filter(
+        employee=payslip.employee, is_active=True, start_month__lte=month_end,
+    ).order_by("start_month", "id")
+    applied = ZERO
+    for plan in plans:
+        take = money(min(plan.next_installment, remaining))
+        if take <= 0:
+            continue
+        EmployeeInstallmentPayment.objects.create(
+            plan=plan, payslip=payslip, amount=take, date=payslip.run.month,
+        )
+        remaining = money(remaining - take)
+        applied = money(applied + take)
+        if remaining <= 0:
+            break
+    if applied != money(payslip.installment_deduction):
+        payslip.installment_deduction = applied
+        payslip.save(update_fields=["installment_deduction", "updated_at"])
+    return applied
 
 
 @transaction.atomic
@@ -441,11 +492,14 @@ def repay_advance(advance, amount, method=None, paid_on=None):
     amount = money(min(money(amount), remaining))
     if amount <= 0:
         raise ValueError("لا يوجد مبلغ مستحق سداد على السلفة")
+    method = str(method or AdvanceInstallment.Method.CASH).strip().lower()
+    if method == "bank":
+        method = AdvanceInstallment.Method.TRANSFER
     installment = AdvanceInstallment.objects.create(
         advance=advance,
         date=paid_on or timezone.localdate(),
         amount=amount,
-        method=method or AdvanceInstallment.Method.CASH,
+        method=method,
     )
     advance.refresh_from_db()
     if advance.is_settled and advance.status != SalaryAdvance.Status.SETTLED:
@@ -465,53 +519,131 @@ def repay_advance(advance, amount, method=None, paid_on=None):
 
 
 def statement_rows(employee, date_from=None, date_to=None):
-    """كشف حساب موظف: الرواتب المصروفة والسلف الممنوحة والمسددة."""
+    """كشف موحد لرواتب الموظف وصافي المستحق والسلف والأقساط المتبقية."""
     to = date_to or timezone.localdate()
     start = date_from or to.replace(day=1)
     rows = []
 
     payslips = Payslip.objects.filter(
-        employee=employee, run__month__gte=start, run__month__lte=to, run__status=PayrollRun.Status.PAID
+        employee=employee,
+        run__month__gte=start,
+        run__month__lte=to,
+        run__status__in=(PayrollRun.Status.APPROVED, PayrollRun.Status.PAID),
     ).select_related("run")
     for p in payslips:
+        paid_amount = p.net_pay if p.is_paid else ZERO
+        salary_remaining = ZERO if p.is_paid else p.net_pay
+        deduction_details = [
+            f"غياب {money(p.absence_deduction):.2f}",
+            f"تأخير {money(p.late_deduction):.2f}",
+            f"خصومات أخرى {money(p.other_deduction):.2f}",
+            f"سلفة {money(p.advance_deduction):.2f}",
+            f"قسط {money(p.installment_deduction):.2f}",
+        ]
         rows.append({
-            "date": p.paid_at.date() if p.paid_at else p.run.month,
+            # مرجع الكشف هو شهر الاستحقاق؛ تاريخ صرفه الفعلي يبقى موضحاً في الحالة.
+            "date": p.run.month,
             "type": "payslip",
-            "type_label": "راتب مصروف",
+            "type_label": "راتب مصروف" if p.is_paid else "راتب معتمد غير مصروف",
+            "gross_salary": float(money(p.gross)),
+            "total_deductions": float(money(p.total_deductions)),
+            "salary_net": float(money(p.net_pay)),
+            "paid_amount": float(money(paid_amount)),
+            "salary_remaining": float(money(salary_remaining)),
+            "advance_deduction": float(money(p.advance_deduction)),
+            "installment_deduction": float(money(p.installment_deduction)),
+            "other_deductions": float(money(
+                (p.absence_deduction or ZERO) + (p.late_deduction or ZERO) + (p.other_deduction or ZERO)
+            )),
             "debit": float(p.gross),
-            "credit": float(p.net_pay),
-            "net": float(p.net_pay),
+            "credit": float(paid_amount),
+            "net": float(salary_remaining),
             "ref": f"مسيّر {p.run.month:%Y-%m}",
-            "notes": p.notes or "",
+            "notes": "الإجمالي " + f"{money(p.gross):.2f}" + " | " + "، ".join(deduction_details)
+                + (" | تم الصرف" if p.is_paid else " | بانتظار الصرف")
+                + (f" | {p.notes}" if p.notes else ""),
         })
 
-    advances = SalaryAdvance.objects.filter(
-        employee=employee, date__gte=start, date__lte=to
-    ).prefetch_related("installments")
-    for a in advances:
+    advances = list(SalaryAdvance.objects.filter(employee=employee).prefetch_related("installments"))
+    period_advances = [a for a in advances if start <= a.date <= to]
+    for a in period_advances:
+        recovered_in_period = sum(
+            (i.amount for i in a.installments.all() if start <= i.date <= to), ZERO
+        )
         rows.append({
             "date": a.date,
             "type": "advance",
             "type_label": "سلفة ممنوحة",
+            "gross_salary": float(money(a.amount)),
+            "total_deductions": 0.0,
+            "salary_net": float(money(a.amount)),
+            "paid_amount": float(money(recovered_in_period)),
+            "salary_remaining": float(money(a.remaining_amount)),
+            "advance_deduction": 0.0,
+            "installment_deduction": 0.0,
+            "other_deductions": 0.0,
             "debit": float(a.amount),
-            "credit": float(a.recovered_amount),
+            "credit": float(recovered_in_period),
             "net": float(a.remaining_amount),
             "ref": f"سلفة #{a.id}",
-            "notes": a.reason or "",
+            "notes": f"{a.get_status_display()} | {a.reason or a.notes or ''}".strip(" |"),
         })
 
     rows.sort(key=lambda r: (r["date"], r["type"]))
-    advances_total = sum((a.amount for a in advances), ZERO)
-    recovered = sum((a.recovered_amount for a in advances), ZERO)
-    net_paid = sum((p.net_pay for p in payslips), ZERO)
+    plans = list(EmployeeInstallmentPlan.objects.filter(employee=employee).prefetch_related("payments"))
+    installment_rows = [{
+        "id": plan.id,
+        "description": plan.description,
+        "start_month": plan.start_month,
+        "total_amount": float(money(plan.total_amount)),
+        "monthly_amount": float(money(plan.monthly_amount)),
+        "paid_amount": float(money(plan.paid_amount)),
+        "remaining_amount": float(money(plan.remaining_amount)),
+        "is_active": plan.is_active,
+    } for plan in plans]
+    salary_gross = money(sum((p.gross for p in payslips), ZERO))
+    deductions = money(sum((p.total_deductions for p in payslips), ZERO))
+    salary_net = money(sum((p.net_pay for p in payslips), ZERO))
+    salary_paid = money(sum((p.net_pay for p in payslips if p.is_paid), ZERO))
+    salary_remaining = money(sum((p.net_pay for p in payslips if not p.is_paid), ZERO))
+    period_advance_total = sum((a.amount for a in period_advances), ZERO)
+    period_recovered = sum((
+        i.amount for a in period_advances for i in a.installments.all() if start <= i.date <= to
+    ), ZERO)
+    outstanding_advances = sum((
+        a.remaining_amount for a in advances
+        if a.status in (SalaryAdvance.Status.APPROVED, SalaryAdvance.Status.SETTLED)
+    ), ZERO)
+    outstanding_installments = sum((plan.remaining_amount for plan in plans), ZERO)
     return {
         "employee": employee.id,
         "employee_name": employee.name,
+        "date_from": start.isoformat(),
+        "date_to": to.isoformat(),
         "rows": rows,
+        "advances": [{
+            "id": a.id,
+            "date": a.date,
+            "amount": float(money(a.amount)),
+            "recovered_amount": float(money(a.recovered_amount)),
+            "remaining_amount": float(money(a.remaining_amount)),
+            "method": a.get_method_display(),
+            "status": a.get_status_display(),
+            "reason": a.reason or a.notes or "",
+        } for a in advances if a.status != SalaryAdvance.Status.REJECTED],
+        "installments": installment_rows,
         "totals": {
-            "net_paid": money(net_paid),
-            "advances": money(advances_total),
-            "recovered": money(recovered),
-            "outstanding": money(sum((a.remaining_amount for a in advances), ZERO)),
+            "gross_salary": salary_gross,
+            "total_deductions": deductions,
+            "salary_net": salary_net,
+            "net_paid": salary_paid,
+            "salary_remaining": salary_remaining,
+            "advance_deduction": money(sum((p.advance_deduction for p in payslips), ZERO)),
+            "installment_deduction": money(sum((p.installment_deduction for p in payslips), ZERO)),
+            "other_deductions": money(sum((p.total_deductions - p.advance_deduction - p.installment_deduction for p in payslips), ZERO)),
+            "advances": money(period_advance_total),
+            "recovered": money(period_recovered),
+            "outstanding_advances": money(outstanding_advances),
+            "outstanding_installments": money(outstanding_installments),
         },
     }

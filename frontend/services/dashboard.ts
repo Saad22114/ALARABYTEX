@@ -8,6 +8,10 @@ export async function getDashboardSummary(
   return apiRequest<DashboardSummary>(`/dashboard/summary/${q}`);
 }
 
+export async function getDashboardBranches(): Promise<Array<{ id: number; name: string }>> {
+  return apiRequest<Array<{ id: number; name: string }>>('/dashboard/branches/');
+}
+
 export async function getDashboardAlerts(): Promise<DashboardAlertsResult> {
   return apiRequest<DashboardAlertsResult>('/dashboard/alerts/');
 }

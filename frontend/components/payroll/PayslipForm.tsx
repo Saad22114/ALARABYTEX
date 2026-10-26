@@ -37,8 +37,8 @@ export default function PayslipForm({ payslip, onSubmit, onCancel }: PayslipForm
     const overtime = payslip.overtime_amount || overtimeAmount;
     const absence = payslip.absence_deduction || absenceDeduction;
     const deductions =
-      absence + num(form.late_deduction) + num(form.other_deduction) + num(form.advance_deduction);
-    const gross = payslip.total_allowances + overtime + num(form.bonus) + num(form.commission_amount);
+      absence + num(form.late_deduction) + num(form.other_deduction) + num(form.advance_deduction) + (payslip.installment_deduction || 0);
+    const gross = payslip.base_salary + payslip.total_allowances + overtime + num(form.bonus) + num(form.commission_amount);
     return {
       overtime,
       absence,
@@ -46,7 +46,7 @@ export default function PayslipForm({ payslip, onSubmit, onCancel }: PayslipForm
       deductions: Math.round(deductions * 100) / 100,
       net: Math.round((gross - deductions) * 100) / 100,
     };
-  }, [form, payslip.overtime_amount, payslip.absence_deduction, payslip.total_allowances, payslip.overtime_hour_rate, payslip.daily_rate]);
+  }, [form, payslip.base_salary, payslip.overtime_amount, payslip.absence_deduction, payslip.installment_deduction, payslip.total_allowances, payslip.overtime_hour_rate, payslip.daily_rate]);
 
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -93,6 +93,10 @@ export default function PayslipForm({ payslip, onSubmit, onCancel }: PayslipForm
         <div>
           <span className="block text-xs text-neutral-500">خصم السلفة المحدّد</span>
           <span className="tabular-nums font-medium">{formatCurrency(payslip.advance_deduction)}</span>
+        </div>
+        <div>
+          <span className="block text-xs text-neutral-500">قسط الموظف لهذا الشهر</span>
+          <span className="tabular-nums font-medium">{formatCurrency(payslip.installment_deduction || 0)}</span>
         </div>
         <div>
           <span className="block text-xs text-neutral-500">العمولة المحسوبة</span>

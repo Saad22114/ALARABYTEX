@@ -10,9 +10,26 @@ import {
   Payslip,
   SalaryAdvance,
   SalaryStructure,
+  EmployeeInstallmentPlan,
 } from '@/types';
 
 type Params = Record<string, string | number | boolean | undefined | null>;
+
+export function listEmployeeInstallments(params?: Params): Promise<Paginated<EmployeeInstallmentPlan>> {
+  return apiRequest<Paginated<EmployeeInstallmentPlan>>(`/payroll/employee-installments/${buildQuery(params || {})}`);
+}
+
+export function createEmployeeInstallment(data: Record<string, unknown>): Promise<EmployeeInstallmentPlan> {
+  return apiRequest<EmployeeInstallmentPlan>('/payroll/employee-installments/', {
+    method: 'POST', body: JSON.stringify(data),
+  });
+}
+
+export function updateEmployeeInstallment(id: number, data: Record<string, unknown>): Promise<EmployeeInstallmentPlan> {
+  return apiRequest<EmployeeInstallmentPlan>(`/payroll/employee-installments/${id}/`, {
+    method: 'PATCH', body: JSON.stringify(data),
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* هياكل الرواتب                                                       */
@@ -191,8 +208,8 @@ export function getMyPayroll(): Promise<import('@/types').MyPayrollResult> {
   return apiRequest<import('@/types').MyPayrollResult>('/payroll/my/');
 }
 
-export async function exportStatement(employeeId: number, filename: string): Promise<void> {
-  await downloadBlob(`${API_URL}/payroll/export/statement/${employeeId}/`, filename);
+export async function exportStatement(employeeId: number, filename: string, params?: Params): Promise<void> {
+  await downloadBlob(`${API_URL}/payroll/export/statement/${employeeId}/${buildQuery(params || {})}`, filename);
 }
 
 export function getPayrollDates(): Promise<PayrollDates> {

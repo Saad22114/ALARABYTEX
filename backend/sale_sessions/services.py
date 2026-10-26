@@ -592,6 +592,32 @@ def update_session_item(session, item, attrs):
             setattr(item, field, attrs[field])
     item.total = attrs.get("total", item.total)
     item.save()
+    # بيانات العميل تُحفظ في سجل العملاء مستقلةً عن بند البيع؛ حذف البيع
+    # لاحقاً لا يحذف سجل العميل ولا يربطه بعمر البند.
+    if item.customer_name.strip() and item.customer_phone.strip():
+        from core.phones import find_by_phone
+        from customers.models import Customer
+
+        customer = find_by_phone(
+            Customer.objects.all(), item.customer_phone.strip(),
+            field="phone", min_digits=1,
+        ).order_by("id").first()
+        if customer:
+            changed = []
+            if customer.name != item.customer_name.strip():
+                customer.name = item.customer_name.strip()
+                changed.append("name")
+            if not customer.branch_id and session.branch_id:
+                customer.branch_id = session.branch_id
+                changed.append("branch")
+            if changed:
+                customer.save(update_fields=[*changed, "updated_at"])
+        else:
+            Customer.objects.create(
+                name=item.customer_name.strip(),
+                phone=item.customer_phone.strip(),
+                branch_id=session.branch_id,
+            )
     if closed:
         target_sale = DailySale.objects.filter(branch=session.branch, date=item.sale_date).first()
         if target_sale is None:

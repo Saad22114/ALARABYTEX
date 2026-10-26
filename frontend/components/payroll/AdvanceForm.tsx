@@ -30,7 +30,7 @@ export default function AdvanceForm({
     employee: initial?.employee ? String(initial.employee) : '',
     date: initial?.date || defaultDate || todayISO(),
     amount: initial?.amount != null ? String(initial.amount) : '',
-    method: initial?.method || 'CASH',
+    method: initial?.method || 'cash',
     reason: initial?.reason || '',
     notes: initial?.notes || '',
     approve: !initial?.id,
