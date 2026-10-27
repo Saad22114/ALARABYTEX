@@ -1,4 +1,5 @@
 import json
+import base64
 import mimetypes
 import os
 import uuid
@@ -29,6 +30,9 @@ from .crypto import (
 )
 from .models import AppSettings
 from .serializers import AppSettingsSerializer
+
+MAX_SALES_QR_BYTES = 5 * 1024 * 1024
+MAX_SECOND_BANK_QR_BYTES = 5 * 1024 * 1024
 
 
 class LogoUploadView(APIView):
@@ -177,8 +181,10 @@ class SalesQrImageView(APIView):
         allowed = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
         if ext not in allowed or file.content_type not in (allowed[ext], "application/octet-stream"):
             return Response({"detail": "الصيغ المدعومة: PNG أو JPG أو WEBP"}, status=status.HTTP_400_BAD_REQUEST)
-        if file.size > 5 * 1024 * 1024:
-            return Response({"detail": "حجم الصورة يجب ألا يتجاوز 5 ميجابايت"}, status=status.HTTP_400_BAD_REQUEST)
+        max_size = MAX_SECOND_BANK_QR_BYTES if key == "bank_transfer_2" else MAX_SALES_QR_BYTES
+        if file.size > max_size:
+            limit_mb = max_size // (1024 * 1024)
+            return Response({"detail": f"حجم الصورة يجب ألا يتجاوز {limit_mb} ميجابايت"}, status=status.HTTP_400_BAD_REQUEST)
         signature = file.read(12)
         file.seek(0)
         valid_signature = (
@@ -190,6 +196,18 @@ class SalesQrImageView(APIView):
             return Response({"detail": "محتوى الملف لا يطابق صيغة الصورة المحددة"}, status=status.HTTP_400_BAD_REQUEST)
 
         s = AppSettings.load()
+        if key == "bank_transfer_2":
+            content = file.read()
+            old_rel = getattr(s, field)
+            s.bank_transfer_qr_image_2_data = (
+                f"data:{allowed[ext]};base64,{base64.b64encode(content).decode('ascii')}"
+            )
+            rel = f"db:{uuid.uuid4().hex}"
+            setattr(s, field, rel)
+            s.save(update_fields=[field, "bank_transfer_qr_image_2_data", "updated_at"])
+            self._remove_old(old_rel, "")
+            return Response({"image": rel}, status=status.HTTP_200_OK)
+
         rel = f"sales_qr/{key}-{uuid.uuid4().hex}{ext}"
         path = Path(settings.MEDIA_ROOT) / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -207,7 +225,11 @@ class SalesQrImageView(APIView):
         s = AppSettings.load()
         old_rel = getattr(s, field)
         setattr(s, field, "")
-        s.save(update_fields=[field, "updated_at"])
+        update_fields = [field, "updated_at"]
+        if key == "bank_transfer_2":
+            s.bank_transfer_qr_image_2_data = ""
+            update_fields.append("bank_transfer_qr_image_2_data")
+        s.save(update_fields=update_fields)
         self._remove_old(old_rel, "")
         return Response({"detail": "تمت استعادة رمز QR الافتراضي"}, status=status.HTTP_200_OK)
 
@@ -233,6 +255,19 @@ class SalesQrImageFileView(APIView):
             raise Http404("رمز QR غير معروف")
         s = AppSettings.load()
         rel = getattr(s, field)
+        if key == "bank_transfer_2" and s.bank_transfer_qr_image_2_data:
+            try:
+                header, encoded = s.bank_transfer_qr_image_2_data.split(",", 1)
+                content_type = header.removeprefix("data:").split(";", 1)[0]
+                max_encoded_size = ((MAX_SECOND_BANK_QR_BYTES + 2) // 3) * 4
+                if content_type not in {"image/png", "image/jpeg", "image/webp"} or len(encoded) > max_encoded_size:
+                    raise ValueError("بيانات الصورة غير صالحة")
+                content = base64.b64decode(encoded, validate=True)
+                if len(content) > MAX_SECOND_BANK_QR_BYTES:
+                    raise ValueError("حجم الصورة غير صالح")
+            except (ValueError, TypeError):
+                raise Http404("صورة رمز البنك الثاني غير صالحة")
+            return HttpResponse(content, content_type=content_type)
         if not rel:
             raise Http404("لا توجد صورة مخصصة لهذا الرمز")
         base = (Path(settings.MEDIA_ROOT) / "sales_qr").resolve()

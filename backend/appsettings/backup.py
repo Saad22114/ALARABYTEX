@@ -612,6 +612,8 @@ def restore_backup(payload):
             settings_rows = tables.get("appsettings.AppSettings", [])
             if settings_rows:
                 ser_data = settings_rows[0]
+                if "bank_transfer_qr_image_2_data" not in ser_data:
+                    real.bank_transfer_qr_image_2_data = ""
                 for f in list(ser_data.keys()):
                     if f in ("id", "created_at", "updated_at"):
                         continue
@@ -659,20 +661,38 @@ def restore_backup(payload):
             for key, field in qr_fields.items():
                 meta = qr_files.get(key) if isinstance(qr_files, dict) else None
                 if not isinstance(meta, dict) or not meta.get("content"):
+                    if key == "bank_transfer_2" and real.bank_transfer_qr_image_2_data:
+                        if not real.bank_transfer_qr_image_2.startswith("db:"):
+                            real.bank_transfer_qr_image_2 = f"db:{uuid.uuid4().hex}"
+                        continue
                     setattr(real, field, "")
                     continue
                 ext = Path(str(meta.get("name", ""))).suffix.lower()
                 if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
                     ext = ".png"
+                encoded_content = meta["content"]
+                max_encoded_size = ((5 * 1024 * 1024 + 2) // 3) * 4
+                if not isinstance(encoded_content, str) or len(encoded_content) > max_encoded_size:
+                    raise ValueError("صورة QR في النسخة الاحتياطية أكبر من الحد المسموح")
+                content = base64.b64decode(encoded_content, validate=True)
+                if len(content) > 5 * 1024 * 1024:
+                    raise ValueError("صورة QR في النسخة الاحتياطية أكبر من الحد المسموح")
+                if key == "bank_transfer_2":
+                    content_type = {
+                        ".png": "image/png", ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg", ".webp": "image/webp",
+                    }[ext]
+                    real.bank_transfer_qr_image_2_data = (
+                        f"data:{content_type};base64,{base64.b64encode(content).decode('ascii')}"
+                    )
+                    real.bank_transfer_qr_image_2 = f"db:{uuid.uuid4().hex}"
+                    continue
                 rel = f"sales_qr/{key}-restored{ext}"
                 p = Path(settings.MEDIA_ROOT) / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
-                content = base64.b64decode(meta["content"], validate=True)
-                if len(content) > 5 * 1024 * 1024:
-                    raise ValueError("صورة QR في النسخة الاحتياطية أكبر من الحد المسموح")
                 p.write_bytes(content)
                 setattr(real, field, rel)
-            real.save(update_fields=[*qr_fields.values(), "updated_at"])
+            real.save(update_fields=[*qr_fields.values(), "bank_transfer_qr_image_2_data", "updated_at"])
 
             # الصفوف المستعادة تحتفظ بمعرّفاتها الأصلية؛ حدّث عدّادات
             # التسلسل كي لا تتصادم الإدخالات الجديدة مع تلك المعرّفات.

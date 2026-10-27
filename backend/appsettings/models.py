@@ -59,6 +59,7 @@ class AppSettings(TimeStampedModel):
     whatsapp_qr_image = models.CharField(max_length=255, blank=True, default="", verbose_name="صورة رمز واتساب")
     bank_transfer_qr_image = models.CharField(max_length=255, blank=True, default="", verbose_name="صورة رمز التحويل البنكي")
     bank_transfer_qr_image_2 = models.CharField(max_length=255, blank=True, default="", verbose_name="صورة رمز التحويل البنكي الثاني")
+    bank_transfer_qr_image_2_data = models.TextField(blank=True, default="", verbose_name="بيانات صورة رمز البنك الثاني")
     low_stock_threshold = models.DecimalField(
         max_digits=12,
         decimal_places=2,

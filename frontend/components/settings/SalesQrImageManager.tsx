@@ -27,7 +27,8 @@ export default function SalesQrImageManager() {
       toast('error', 'اختر صورة PNG أو JPG أو WEBP');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
       toast('error', 'حجم الصورة يجب ألا يتجاوز 5 ميجابايت');
       return;
     }

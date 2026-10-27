@@ -420,6 +420,24 @@ class BackupRestoreTest(TestCase):
         Supplier.objects.all().delete()
         Branch.objects.exclude(code=AUTH_ADMIN_BRANCH_CODE).delete()
 
+    def test_second_bank_qr_survives_backup_restore_without_media_file(self):
+        settings = AppSettings.load()
+        settings.bank_transfer_qr_image_2 = "db:test-version"
+        settings.bank_transfer_qr_image_2_data = "data:image/png;base64,iVBORw0KGgo="
+        settings.save(update_fields=[
+            "bank_transfer_qr_image_2", "bank_transfer_qr_image_2_data", "updated_at",
+        ])
+
+        restore_backup(bk_export(settings))
+
+        restored = AppSettings.load()
+        self.assertEqual(restored.bank_transfer_qr_image_2_data, "data:image/png;base64,iVBORw0KGgo=")
+        self.assertTrue(restored.bank_transfer_qr_image_2.startswith("db:"))
+        image = self.c.get("/api/settings/sales-qr/bank_transfer_2/file/")
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image["Content-Type"], "image/png")
+        self.assertEqual(b"".join(image.streaming_content), b"\x89PNG\r\n\x1a\n")
+
     def test_backup_restore_roundtrip(self):
         Supplier.objects.create(name="مورد تجريبي")
         DailySale.objects.create(
@@ -581,6 +599,23 @@ class BackupRestoreTest(TestCase):
         self.assertEqual(Branch.objects.count(), 0)
         self.assertEqual(Supplier.objects.count(), 0)
         self.assertEqual(ExpenseCategory.objects.count(), 0)
+
+
+class SecondBankQrUploadTest(SettingsAPITest):
+    def test_second_bank_image_is_stored_in_database_and_served(self):
+        image_bytes = b"\x89PNG\r\n\x1a\nqr-test"
+        upload = SimpleUploadedFile("bank-two.png", image_bytes, content_type="image/png")
+        response = self.c.post(
+            "/api/settings/sales-qr/bank_transfer_2/", {"file": upload}, format="multipart",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+
+        settings = AppSettings.load()
+        self.assertTrue(settings.bank_transfer_qr_image_2.startswith("db:"))
+        self.assertTrue(settings.bank_transfer_qr_image_2_data.startswith("data:image/png;base64,"))
+        served = self.c.get("/api/settings/sales-qr/bank_transfer_2/file/")
+        self.assertEqual(served.status_code, 200)
+        self.assertEqual(b"".join(served.streaming_content), image_bytes)
 
 
 class LargeBackupRestoreTest(TestCase):
