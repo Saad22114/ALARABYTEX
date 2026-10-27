@@ -68,6 +68,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
       <div className="app-header-inner flex items-center justify-between px-4 sm:px-8 py-4 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
+            type="button"
             onClick={onMenuClick}
             className="lg:hidden p-2 rounded-xl hover:bg-sand-100 text-neutral-600 transition-colors"
             aria-label="فتح القائمة"

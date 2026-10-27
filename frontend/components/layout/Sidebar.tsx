@@ -26,7 +26,7 @@ import {
   Handshake,
   QrCode,
 } from 'lucide-react';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Fragment } from 'react';
 import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
@@ -78,6 +78,23 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const [logoPreviewOpen, setLogoPreviewOpen] = useState(false);
   const { settings } = useSettings();
   const { session } = useAuth();
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      const sidebar = navRef.current?.closest('aside');
+      if (sidebar && event.target instanceof Node && !sidebar.contains(event.target)) onClose();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePress, true);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress, true);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open, onClose]);
 
   useLayoutEffect(() => {
     try {
@@ -165,6 +182,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                 </div>
               </div>
             <button
+              type="button"
               onClick={onClose}
                     className="lg:hidden rounded-xl border border-white/10 bg-white/5 p-2 text-[#e8e4db] transition-colors hover:border-brand-300/30 hover:bg-brand-300/10"
               aria-label="إغلاق القائمة"
