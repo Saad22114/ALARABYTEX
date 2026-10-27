@@ -260,7 +260,8 @@ export default function DashboardPage() {
     <AppShell>
       <div className="dashboard-page space-y-6">
         <section className="dashboard-hero relative isolate overflow-hidden rounded-[26px] border border-brand-300/20 bg-gradient-to-br from-brand-950 via-brand-900 to-brand-700 px-5 py-6 text-white shadow-2xl shadow-brand-950/15 sm:px-8 sm:py-7">
-          <div aria-hidden="true" className="dashboard-hero-weave absolute inset-0 opacity-60" />
+          <div aria-hidden="true" className="dashboard-hero-weave absolute inset-0 opacity-30" />
+          <div aria-hidden="true" className="dashboard-hero-honeycomb absolute inset-0" />
           <div aria-hidden="true" className="absolute -left-16 -top-24 h-72 w-72 rounded-full bg-brand-300/20 blur-3xl" />
           <div aria-hidden="true" className="absolute -bottom-32 right-[38%] h-64 w-64 rounded-full bg-brand-500/20 blur-3xl" />
           <div className="relative z-10 flex flex-wrap items-center justify-between gap-6">

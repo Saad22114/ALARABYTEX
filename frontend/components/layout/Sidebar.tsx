@@ -128,10 +128,11 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           z-50 lg:z-40 no-print
           transition-transform duration-300 ease-in-out
           ${open ? 'translate-x-0' : 'translate-x-full'}
-          lg:translate-x-0
+          lg:translate-x-0 isolate overflow-hidden
         `}
       >
-        <div className="relative overflow-hidden border-b border-white/[0.09] px-5 pb-5 pt-6 bg-gradient-to-br from-brand-800 via-brand-900 to-brand-950">
+        <div aria-hidden="true" className="sidebar-honeycomb" />
+        <div className="relative z-[1] overflow-hidden border-b border-white/[0.09] px-5 pb-5 pt-6 bg-gradient-to-br from-brand-800 via-brand-900 to-brand-950">
           <div aria-hidden="true" className="absolute -left-10 -top-16 h-40 w-40 rounded-full bg-brand-300/[0.12] blur-3xl" />
           <div aria-hidden="true" className="absolute bottom-0 right-0 h-px w-2/3 bg-gradient-to-l from-brand-300/45 to-transparent" />
           <div className="flex items-center justify-between">
@@ -178,7 +179,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           onScroll={(event) => {
             try { sessionStorage.setItem('sidebar-scroll-top', String(event.currentTarget.scrollTop)); } catch {}
           }}
-          className="flex-1 overflow-y-auto px-3 pb-4 pt-3"
+          className="relative z-[1] flex-1 overflow-y-auto px-3 pb-4 pt-3"
         >
           {visibleItems.map((item) => {
             const active = isActive(item.href);
@@ -215,7 +216,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-4 py-4">
+        <div className="relative z-[1] border-t border-white/10 px-4 py-4">
           <div className="flex items-center justify-between rounded-xl border border-brand-300/15 bg-gradient-to-l from-brand-300/[0.09] via-white/[0.035] to-white/[0.015] px-3 py-2.5 shadow-inner shadow-white/[0.02]">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-brand-300 shadow-[0_0_8px_rgba(255,255,255,0.35)]" />

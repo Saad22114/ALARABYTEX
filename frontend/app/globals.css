@@ -639,6 +639,17 @@ svg.lucide-messages-square {
   background-attachment: fixed;
 }
 
+/* A quiet, regular honeycomb texture carries the approved motif across every
+   operational page while keeping the dashboard hero's stronger treatment. */
+.app-main:not(:has(.dashboard-page)) {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48.5' height='42' viewBox='0 0 48.5 42'%3E%3Cg fill='none' stroke='%23b49a69' stroke-opacity='.13' stroke-width='.7'%3E%3Cpath d='M16 0 28.125 7v14L16 28 3.875 21V7L16 0Zm24.25 0L52.375 7v14L40.25 28 28.125 21V7L40.25 0ZM3.875 21 16 28v14L3.875 49-8.25 42V28l12.125-7Zm24.25 0L40.25 28v14L28.125 49 16 42V28l12.125-7Z'/%3E%3C/g%3E%3C/svg%3E"),
+    radial-gradient(ellipse 38rem 26rem at 100% 0%, rgb(var(--brand-100) / 0.3), transparent 72%),
+    radial-gradient(ellipse 32rem 22rem at 0% 72%, rgb(var(--brand-50) / 0.72), transparent 75%);
+  background-size: 97px 84px, auto, auto;
+  background-repeat: repeat, no-repeat, no-repeat;
+}
+
 .app-header {
   position: sticky;
   background-color: rgb(var(--surface) / 0.9);
@@ -674,6 +685,40 @@ svg.lucide-messages-square {
   mask-image: linear-gradient(105deg, transparent 4%, #000 43%, #000 100%);
   animation: dashboard-weave-drift 36s linear infinite;
   pointer-events: none;
+}
+
+.dashboard-hero-honeycomb {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48.5' height='42' viewBox='0 0 48.5 42'%3E%3Cg fill='none' stroke='%23fff' stroke-opacity='.45' stroke-width='1'%3E%3Cpath d='M16 0 28.125 7v14L16 28 3.875 21V7L16 0Zm24.25 0L52.375 7v14L40.25 28 28.125 21V7L40.25 0ZM3.875 21 16 28v14L3.875 49-8.25 42V28l12.125-7Zm24.25 0L40.25 28v14L28.125 49 16 42V28l12.125-7Z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 97px 84px;
+  mask-image: linear-gradient(105deg, transparent 2%, #000 38%, #000 100%);
+  opacity: 0.28;
+  animation: dashboard-honeycomb-drift 54s linear infinite;
+  pointer-events: none;
+}
+
+.sidebar-honeycomb {
+  position: absolute;
+  z-index: 0;
+  top: 9rem;
+  right: 0;
+  bottom: 4rem;
+  left: 0;
+  background-color: rgb(var(--brand-300));
+  mask-image: linear-gradient(180deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 8%, #000 92%, transparent);
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+.sidebar-honeycomb::before {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48.5' height='42' viewBox='0 0 48.5 42'%3E%3Cg fill='none' stroke='%23fff' stroke-opacity='.55' stroke-width='.8'%3E%3Cpath d='M16 0 28.125 7v14L16 28 3.875 21V7L16 0Zm24.25 0L52.375 7v14L40.25 28 28.125 21V7L40.25 0ZM3.875 21 16 28v14L3.875 49-8.25 42V28l12.125-7Zm24.25 0L40.25 28v14L28.125 49 16 42V28l12.125-7Z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 97px 84px;
+  background-repeat: repeat;
+  content: '';
 }
 
 /* Refined dashboard surfaces, scoped to the home page only. */
@@ -738,6 +783,11 @@ svg.lucide-messages-square {
 @keyframes dashboard-weave-drift {
   from { background-position: 0 0, 0 0; }
   to { background-position: 180px 0, -120px 0; }
+}
+
+@keyframes dashboard-honeycomb-drift {
+  from { background-position: 0 0; }
+  to { background-position: 97px 84px; }
 }
 
 .app-main input:not([type='checkbox']):not([type='radio']),

@@ -436,7 +436,7 @@ class BackupRestoreTest(TestCase):
         image = self.c.get("/api/settings/sales-qr/bank_transfer_2/file/")
         self.assertEqual(image.status_code, 200)
         self.assertEqual(image["Content-Type"], "image/png")
-        self.assertEqual(b"".join(image.streaming_content), b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(response_bytes(image), b"\x89PNG\r\n\x1a\n")
 
     def test_backup_restore_roundtrip(self):
         Supplier.objects.create(name="مورد تجريبي")
@@ -615,7 +615,7 @@ class SecondBankQrUploadTest(SettingsAPITest):
         self.assertTrue(settings.bank_transfer_qr_image_2_data.startswith("data:image/png;base64,"))
         served = self.c.get("/api/settings/sales-qr/bank_transfer_2/file/")
         self.assertEqual(served.status_code, 200)
-        self.assertEqual(b"".join(served.streaming_content), image_bytes)
+        self.assertEqual(response_bytes(served), image_bytes)
 
 
 class LargeBackupRestoreTest(TestCase):
