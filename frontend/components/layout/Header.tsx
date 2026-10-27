@@ -31,9 +31,10 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
 
 interface HeaderProps {
   onMenuClick: () => void;
+  menuOpen: boolean;
 }
 
-export default function Header({ onMenuClick }: HeaderProps) {
+export default function Header({ onMenuClick, menuOpen }: HeaderProps) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const today = formatArabicDate(new Date());
@@ -72,6 +73,8 @@ export default function Header({ onMenuClick }: HeaderProps) {
             onClick={onMenuClick}
             className="lg:hidden p-2 rounded-xl hover:bg-sand-100 text-neutral-600 transition-colors"
             aria-label="فتح القائمة"
+            aria-expanded={menuOpen}
+            aria-controls="app-sidebar"
           >
             <Menu size={22} />
           </button>

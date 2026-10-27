@@ -140,6 +140,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         />
       )}
       <aside
+        id="app-sidebar"
         className={`
           fixed right-0 top-0 bottom-0 w-72 bg-gradient-to-b from-brand-900 via-brand-950 to-brand-950 text-[#f3f1ec] flex flex-col
           z-50 lg:z-40 no-print
@@ -184,8 +185,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             <button
               type="button"
               onClick={onClose}
-                    className="lg:hidden rounded-xl border border-white/10 bg-white/5 p-2 text-[#e8e4db] transition-colors hover:border-brand-300/30 hover:bg-brand-300/10"
+              onPointerUp={onClose}
+              className="relative z-10 inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-xl border border-white/10 bg-white/5 p-2 text-[#e8e4db] transition-colors hover:border-brand-300/30 hover:bg-brand-300/10 lg:hidden"
               aria-label="إغلاق القائمة"
+              title="إغلاق القائمة"
             >
               <X size={20} />
             </button>
