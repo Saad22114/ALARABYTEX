@@ -29,6 +29,7 @@ yarn-error.log*
 out/
 .vercel
 *.tsbuildinfo
+frontend/.android-toolchain/
 
 # IDE / Editor
 .vscode/
@@ -56,3 +57,7 @@ backend/public/
 backend/_*.py
 backend/_*.txt
 backend/core/tests_zz_probe.py
+
+# Generated delivery artifacts
+project-backups/
+APK/*.apk

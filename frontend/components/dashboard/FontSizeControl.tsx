@@ -27,7 +27,7 @@ export default function FontSizeControl() {
 
   return (
     <div role="group" aria-label="التحكم في حجم الكتابة" className="inline-flex items-center gap-0.5 rounded-xl border border-sand-200 bg-surface p-1 text-neutral-600 shadow-sm">
-      <Type size={15} className="mx-1 text-brand-600" aria-hidden="true" />
+      <Type size={15} className="mx-1 hidden text-brand-600 sm:block" aria-hidden="true" />
       <span className="hidden px-1 text-[11px] font-medium text-neutral-500 xl:inline">حجم الخط</span>
       <button
         type="button"
@@ -56,7 +56,7 @@ export default function FontSizeControl() {
         title="إعادة الحجم الافتراضي (100%)"
         disabled={scale === DEFAULT_FONT_SCALE}
         onClick={() => updateScale(DEFAULT_FONT_SCALE)}
-        className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-sand-100 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-neutral-100"
+        className="hidden rounded-lg p-1.5 text-neutral-500 transition hover:bg-sand-100 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-neutral-100 sm:inline-flex"
       >
         <RotateCcw size={14} />
       </button>

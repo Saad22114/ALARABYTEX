@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Alaraby Tex</string>
+    <string name="title_activity_main">Alaraby Tex</string>
+    <string name="package_name">com.alarabytex.mobile</string>
+    <string name="custom_url_scheme">com.alarabytex.mobile</string>
+</resources>

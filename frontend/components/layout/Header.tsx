@@ -65,8 +65,8 @@ export default function Header({ onMenuClick }: HeaderProps) {
 
   return (
     <header className="app-header sticky top-0 z-30 bg-surface border-b border-sand-200 shadow-sm no-print">
-      <div className="app-header-inner flex items-center justify-between px-4 sm:px-8 py-4 gap-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="app-header-inner flex flex-wrap items-center justify-between px-4 sm:px-8 py-3 sm:py-4 gap-x-3 gap-y-2">
+        <div className="flex w-full sm:w-auto items-center gap-3 min-w-0">
           <button
             type="button"
             onClick={onMenuClick}
@@ -82,7 +82,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1 sm:gap-4 shrink-0">
+        <div className="flex w-full sm:w-auto flex-wrap items-center justify-end gap-1 sm:gap-4 shrink-0">
           <FontSizeControl />
           <button
             onClick={toggleDark}
