@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { applyFontScale, loadFontScale } from '@/lib/fontScale';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    applyFontScale(loadFontScale());
+  }, []);
 
   useEffect(() => {
     if (menuOpen) {

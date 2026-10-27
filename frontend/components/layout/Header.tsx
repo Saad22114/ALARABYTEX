@@ -9,6 +9,7 @@ import NotificationsBell from './NotificationsBell';
 import Avatar from '@/components/ui/Avatar';
 import EmployeeInfoModal from '@/components/employees/EmployeeInfoModal';
 import ImagePreview from '@/components/ui/ImagePreview';
+import FontSizeControl from '@/components/dashboard/FontSizeControl';
 import { useEffect, useState } from 'react';
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
@@ -81,6 +82,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
           </div>
         </div>
         <div className="flex items-center gap-1 sm:gap-4 shrink-0">
+          <FontSizeControl />
           <button
             onClick={toggleDark}
             aria-label="تبديل الوضع الليلي"
