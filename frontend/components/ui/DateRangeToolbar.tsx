@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import DateRangePicker from './DateRangePicker';
+import DayOfMonthCounter from './DayOfMonthCounter';
 
 /**
  * ``all`` ليست فترةً بل غيابُها: نطاقٌ بلا حدَّين. تحتفظ بها في النوع
@@ -100,7 +101,6 @@ export default function DateRangeToolbar({
   const fallback = getRangeForKey('month');
   const pickerFrom = from || fallback.from;
   const pickerTo = to || fallback.to;
-
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`}>
       {RANGE_LABELS.map((r) => (
@@ -153,9 +153,11 @@ export default function DateRangeToolbar({
             to={pickerTo}
             onChangeFrom={(v) => onChange(v, pickerTo)}
             onChangeTo={(v) => onChange(pickerFrom, v)}
+            showDayCounter={false}
           />
         </div>
       )}
+      <DayOfMonthCounter from={from} to={to} onChange={onChange} />
     </div>
   );
 }

@@ -10,48 +10,16 @@ import { formatCurrency } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { getSalesBySupplierFabric, SupplierFabricSalesResult } from '@/services/sales';
 import { Branch } from '@/types';
-import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
-
-function currentMonthAndDay() {
-  const now = new Date();
-  return {
-    month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
-    day: now.getDate(),
-  };
-}
-
-function daysInMonth(month: string) {
-  const [year, monthNumber] = month.split('-').map(Number);
-  return new Date(year, monthNumber, 0).getDate();
-}
-
-function isoDay(month: string, day: number) {
-  const [year, monthNumber] = month.split('-');
-  return `${year}-${monthNumber}-${String(day).padStart(2, '0')}`;
-}
 
 export default function SupplierFabricSalesReport({ branches, initialBranch = '' }: { branches: Branch[]; initialBranch?: string }) {
   const { toast } = useToast();
   const [from, setFrom] = useState(getRangeForKey('today').from);
   const [to, setTo] = useState(getRangeForKey('today').to);
   const [branch, setBranch] = useState(initialBranch);
-  const initialDay = currentMonthAndDay();
-  const [dayMonth, setDayMonth] = useState(initialDay.month);
-  const [dayNumber, setDayNumber] = useState(initialDay.day);
   const [report, setReport] = useState<SupplierFabricSalesResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [schemaError, setSchemaError] = useState(false);
   const invalidRange = Boolean(from && to && from > to);
-  const monthDayCount = daysInMonth(dayMonth);
-
-  function applySingleDay(month: string, day: number) {
-    const boundedDay = Math.max(1, Math.min(day, daysInMonth(month)));
-    setDayMonth(month);
-    setDayNumber(boundedDay);
-    const selectedDate = isoDay(month, boundedDay);
-    setFrom(selectedDate);
-    setTo(selectedDate);
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -93,45 +61,6 @@ export default function SupplierFabricSalesReport({ branches, initialBranch = ''
           ]}
           className="w-full sm:max-w-xs"
         />
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-sand-200 bg-sand-50/70 px-3 py-2">
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-600"><CalendarDays size={16} />يوم واحد</span>
-          <input
-            aria-label="شهر التقرير اليومي"
-            type="month"
-            value={dayMonth}
-            onChange={(event) => event.target.value && applySingleDay(event.target.value, dayNumber)}
-            className="rounded-lg border border-sand-300 bg-surface px-2.5 py-1.5 text-sm text-neutral-700"
-          />
-          <button
-            type="button"
-            aria-label="اليوم السابق من الشهر"
-            disabled={dayNumber <= 1}
-            onClick={() => applySingleDay(dayMonth, dayNumber - 1)}
-            className="rounded-lg border border-sand-300 bg-surface p-1.5 text-neutral-600 transition hover:bg-sand-100 disabled:cursor-not-allowed disabled:opacity-40"
-          ><ChevronRight size={17} /></button>
-          <label className="flex items-center gap-1 text-sm text-neutral-600">
-            <input
-              aria-label="رقم اليوم"
-              type="number"
-              min={1}
-              max={monthDayCount}
-              value={dayNumber}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isInteger(value) && value >= 1 && value <= monthDayCount) applySingleDay(dayMonth, value);
-              }}
-              className="w-16 rounded-lg border border-sand-300 bg-surface px-2 py-1.5 text-center font-bold tabular-nums"
-            />
-            <span>من {monthDayCount}</span>
-          </label>
-          <button
-            type="button"
-            aria-label="اليوم التالي من الشهر"
-            disabled={dayNumber >= monthDayCount}
-            onClick={() => applySingleDay(dayMonth, dayNumber + 1)}
-            className="rounded-lg border border-sand-300 bg-surface p-1.5 text-neutral-600 transition hover:bg-sand-100 disabled:cursor-not-allowed disabled:opacity-40"
-          ><ChevronLeft size={17} /></button>
-        </div>
         <DateRangeToolbar from={from} to={to} onChange={(start, end) => { setFrom(start); setTo(end); }} />
         {invalidRange && <p className="text-sm font-medium text-red-600">تاريخ البداية يجب أن يكون قبل تاريخ النهاية أو مساويًا له.</p>}
       </Card>

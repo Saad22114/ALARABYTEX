@@ -1,17 +1,20 @@
 'use client';
 
 import React from 'react';
+import DayOfMonthCounter from './DayOfMonthCounter';
 
 interface DateRangePickerProps {
   from: string;
   to: string;
   onChangeFrom: (v: string) => void;
   onChangeTo: (v: string) => void;
+  showDayCounter?: boolean;
 }
 
-export default function DateRangePicker({ from, to, onChangeFrom, onChangeTo }: DateRangePickerProps) {
+export default function DateRangePicker({ from, to, onChangeFrom, onChangeTo, showDayCounter = true }: DateRangePickerProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
+      {showDayCounter && <DayOfMonthCounter from={from} to={to} onChange={(start, end) => { onChangeFrom(start); onChangeTo(end); }} />}
       <div className="space-y-1">
         <label className="block text-xs text-neutral-500">من</label>
         <input
