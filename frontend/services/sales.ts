@@ -50,7 +50,8 @@ export async function getSalesByEmployee(
 export interface SupplierFabricSalesRow {
   supplier: number | null;
   supplier_name: string;
-  sales_total: number;
+  yards_total: number;
+  supplier_due: number;
   items_count: number;
 }
 

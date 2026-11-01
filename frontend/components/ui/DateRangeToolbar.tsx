@@ -8,10 +8,11 @@ import DateRangePicker from './DateRangePicker';
  * نفسه لأنها تُكتشف من `getActivePreset` كما تُكتشف الفترات، ولأن زرّها
  * يُرسم على قدمِ ما سواها لا في موضعٍ خاص.
  */
-export type DateRangeKey = 'today' | 'week' | 'month' | 'last_month' | 'all';
+export type DateRangeKey = 'today' | 'yesterday' | 'week' | 'month' | 'last_month' | 'all';
 
 const RANGE_LABELS: { key: Exclude<DateRangeKey, 'all'>; label: string }[] = [
   { key: 'today', label: 'اليوم' },
+  { key: 'yesterday', label: 'أمس' },
   { key: 'week', label: 'الأسبوع' },
   { key: 'month', label: 'الشهر' },
   { key: 'last_month', label: 'الشهر الماضي' },
@@ -32,6 +33,11 @@ export function getRangeForKey(key: DateRangeKey): { from: string; to: string } 
   const today = toISODate(now);
 
   if (key === 'today') return { from: today, to: today };
+  if (key === 'yesterday') {
+    const yesterday = new Date(y, m, now.getDate() - 1);
+    const date = toISODate(yesterday);
+    return { from: date, to: date };
+  }
 
   if (key === 'week') {
     const start = new Date(y, m, now.getDate() - 6);
@@ -56,7 +62,7 @@ export function getActivePreset(from: string, to: string): DateRangeKey | null {
   // حدٌّ واحد دون الآخر ليس «الكل» بل اختيارٌ ناقص، فيُترك للشاشة
   // تُظهر منتقيَها بدل أن يدّعي المشهدُ ما ليس فيه.
   if (from === '' && to === '') return 'all';
-  const keys: DateRangeKey[] = ['today', 'week', 'month', 'last_month'];
+  const keys: DateRangeKey[] = ['today', 'yesterday', 'week', 'month', 'last_month'];
   for (const k of keys) {
     const r = getRangeForKey(k);
     if (r.from === from && r.to === to) return k;
@@ -83,9 +89,8 @@ interface DateRangeToolbarProps {
 export default function DateRangeToolbar({
   from, to, onChange, allowAll = false, allActive, onSelectAll, className = '',
 }: DateRangeToolbarProps) {
-  const [selected, setSelected] = useState<DateRangeKey | null>(null);
   const detected = getActivePreset(from, to);
-  const active = selected ?? detected;
+  const active = detected;
   const showingAll = allActive ?? detected === 'all';
   const [customOpen, setCustomOpen] = useState(false);
   const showPicker = customOpen || (active === null && !showingAll);
@@ -102,7 +107,6 @@ export default function DateRangeToolbar({
         <button
           key={r.key}
           onClick={() => {
-            setSelected(r.key);
             setCustomOpen(false);
             const range = getRangeForKey(r.key);
             onChange(range.from, range.to);
@@ -119,7 +123,6 @@ export default function DateRangeToolbar({
       {allowAll && (
         <button
           onClick={() => {
-            setSelected(null);
             setCustomOpen(false);
             if (onSelectAll) onSelectAll();
             else onChange('', '');

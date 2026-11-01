@@ -244,6 +244,15 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
       }),
     [fabrics],
   );
+  const topSellingRanks = useMemo(
+    () => new Map(
+      saleFabrics
+        .filter((fabric) => Number(fabric.sold_quantity ?? 0) > 0)
+        .slice(0, 3)
+        .map((fabric, index) => [fabric.id, index + 1] as const),
+    ),
+    [saleFabrics],
+  );
 
   const inStockSaleFabrics = useMemo(() => {
     if (!stock || stockBranch !== selected?.branch) return [];
@@ -1168,10 +1177,14 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       label="القماش"
                       value={line.fabric ?? ''}
                       onChange={(e) => changeFabricOrType(idx, { fabric: Number(e.target.value) })}
-                      options={inStockSaleFabrics.map((f, index) => ({
-                        value: f.id,
-                        label: `${index === 0 && Number(f.sold_quantity ?? 0) > 0 ? '★ الأكثر مبيعًا — ' : ''}${f.name}`,
-                      }))}
+                      options={inStockSaleFabrics.map((f) => {
+                        const rank = topSellingRanks.get(f.id);
+                        const marker = rank === 1 ? '🥇 الأكثر مبيعًا — '
+                          : rank === 2 ? '🥈 الثاني مبيعًا — '
+                            : rank === 3 ? '🥉 الثالث مبيعًا — '
+                              : '';
+                        return { value: f.id, label: `${marker}${f.name}` };
+                      })}
                       placeholder={
                         stockLoading
                           ? 'جارٍ تحميل مخزون الفرع...'

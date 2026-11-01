@@ -417,7 +417,7 @@ export default function SalesPage() {
             {Boolean(me?.permissions?.sales?.view) && (isManager || hasWindow(me?.permissions, 'sales', 'supplier-fabric-sales')) && (
               <button type="button" onClick={() => setTab('supplier-fabric-sales')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'supplier-fabric-sales' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
                 <Factory size={16} />
-                مبيعات الأقمشة حسب المورد
+                تكلفة الأقمشة حسب المورد
               </button>
             )}
             {hasWindow(me?.permissions, 'sales', 'sales') && (

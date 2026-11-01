@@ -2,7 +2,8 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Count, F, Sum
+from django.db.models import Case, Count, DecimalField, ExpressionWrapper, F, Sum, Value, When
+from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -297,17 +298,36 @@ class SupplierFabricSalesView(APIView):
                 return Response({"detail": "تاريخ النهاية غير صالح"}, status=status.HTTP_400_BAD_REQUEST)
             items = items.filter(sale_date__lte=parsed)
 
-        rows = list(items.values("fabric__supplier_id", "fabric__supplier__name").annotate(
-            sales_total=Sum("total"),
+        yard_quantity = Case(
+            When(
+                sale_type=SaleSessionItem.SaleType.ROLL,
+                then=F("quantity") * Coalesce(
+                    F("fabric__yards_per_roll"),
+                    Value(Decimal("0")),
+                    output_field=DecimalField(max_digits=8, decimal_places=2),
+                ),
+            ),
+            default=F("quantity"),
+            output_field=DecimalField(max_digits=20, decimal_places=4),
+        )
+        rows = list(items.annotate(
+            yards_sold=ExpressionWrapper(yard_quantity, output_field=DecimalField(max_digits=20, decimal_places=4)),
+        ).values("fabric__supplier_id", "fabric__supplier__name").annotate(
+            yards_total=Sum("yards_sold"),
+            supplier_due=Sum(ExpressionWrapper(
+                F("yards_sold") * F("fabric__purchase_price"),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
+            )),
             items_count=Count("id"),
-        ).order_by("-sales_total", "fabric__supplier__name"))
+        ).order_by("-supplier_due", "fabric__supplier__name"))
         results = [{
             "supplier": row["fabric__supplier_id"],
             "supplier_name": row["fabric__supplier__name"] or "أقمشة دون مورد محدد",
-            "sales_total": float(row["sales_total"] or 0),
+            "yards_total": float(row["yards_total"] or 0),
+            "supplier_due": float(row["supplier_due"] or 0),
             "items_count": row["items_count"],
         } for row in rows]
         return Response({
             "results": results,
-            "grand_total": float(sum((row["sales_total"] or 0) for row in rows)),
+            "grand_total": float(sum((row["supplier_due"] or 0) for row in rows)),
         })
