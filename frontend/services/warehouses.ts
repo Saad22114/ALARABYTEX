@@ -52,6 +52,35 @@ export interface AdjustmentWrite {
   items: Array<{ fabric: number; yards: number; rolls_count?: number }>;
 }
 
+export interface ConsumableRequest {
+  id: number;
+  fabric: number;
+  fabric_name: string;
+  fabric_code: string;
+  warehouse: number;
+  warehouse_name: string;
+  branch: number | null;
+  branch_name: string;
+  yards: number;
+  date: string;
+  requested_by: number;
+  requested_by_name: string;
+  status: 'requested' | 'approved' | 'rejected';
+  status_label: string;
+  approved_by: number | null;
+  approved_by_name: string | null;
+  approved_at: string | null;
+  decision_note: string;
+  created_at: string;
+}
+
+export interface ConsumableRequestWrite {
+  branch: number;
+  fabric: number;
+  yards: number;
+  date: string;
+}
+
 // المخازن
 export async function listWarehouses(params?: Record<string, string | number | undefined | null>): Promise<Paginated<Warehouse>> {
   return apiRequest<Paginated<Warehouse>>(`/warehouses/${buildQuery(params || {})}`);
@@ -74,6 +103,24 @@ export async function deleteWarehouse(id: number, adminPassword?: string): Promi
 
 export async function getWarehouseSummary(id: number): Promise<WarehouseBalance[]> {
   return apiRequest<WarehouseBalance[]>(`/warehouses/${id}/summary/`);
+}
+
+export async function listConsumableRequests(params?: Record<string, string | number | undefined | null>): Promise<Paginated<ConsumableRequest>> {
+  return apiRequest<Paginated<ConsumableRequest>>(`/warehouses/consumables/${buildQuery(params || {})}`);
+}
+
+export async function createConsumableRequest(data: ConsumableRequestWrite): Promise<ConsumableRequest> {
+  return apiRequest<ConsumableRequest>('/warehouses/consumables/', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function approveConsumableRequest(id: number): Promise<ConsumableRequest> {
+  return apiRequest<ConsumableRequest>(`/warehouses/consumables/${id}/approve/`, { method: 'POST' });
+}
+
+export async function rejectConsumableRequest(id: number, decision_note?: string): Promise<ConsumableRequest> {
+  return apiRequest<ConsumableRequest>(`/warehouses/consumables/${id}/reject/`, {
+    method: 'POST', body: JSON.stringify({ decision_note: decision_note || '' }),
+  });
 }
 
 // الطاقات

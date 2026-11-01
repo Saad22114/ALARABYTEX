@@ -17,6 +17,7 @@ from .models import (
     GoodsReceiptItem,
     StockAdjustment,
     StockAdjustmentItem,
+    ConsumableRequest,
     StockCount,
     StockCountItem,
     StockMovement,
@@ -27,6 +28,35 @@ from .models import (
     Warehouse,
 )
 from .services import public_summary
+
+
+class ConsumableRequestSerializer(serializers.ModelSerializer):
+    fabric_name = serializers.CharField(source="fabric.name", read_only=True)
+    fabric_code = serializers.CharField(source="fabric.code", read_only=True)
+    warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
+    branch = serializers.IntegerField(source="warehouse.branch_id", read_only=True)
+    branch_name = serializers.CharField(source="warehouse.branch.name", read_only=True)
+    requested_by_name = serializers.CharField(source="requested_by.name", read_only=True)
+    approved_by_name = serializers.CharField(source="approved_by.name", read_only=True, allow_null=True)
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = ConsumableRequest
+        fields = [
+            "id", "fabric", "fabric_name", "fabric_code", "warehouse", "warehouse_name",
+            "branch", "branch_name", "yards", "date", "requested_by", "requested_by_name",
+            "status", "status_label", "approved_by", "approved_by_name", "approved_at", "decision_note",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class ConsumableRequestCreateSerializer(serializers.Serializer):
+    branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.filter(is_active=True))
+    fabric = serializers.PrimaryKeyRelatedField(queryset=Fabric.objects.filter(is_active=True))
+    yards = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    date = serializers.DateField()
+    decision_note = serializers.CharField(required=False, allow_blank=True, max_length=255)
 
 
 class WarehouseSerializer(serializers.ModelSerializer):

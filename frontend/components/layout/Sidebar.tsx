@@ -25,6 +25,7 @@ import {
   CircleDollarSign,
   Handshake,
   QrCode,
+  PackageMinus,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Fragment } from 'react';
@@ -37,6 +38,7 @@ const navItems = [
   { key: 'sales', href: '/sales', label: 'المبيعات', icon: ShoppingCart, iconColor: 'text-emerald-300' },
   { key: 'sales-links', href: '/sales-links', label: 'روابط التواصل والتحويل', icon: QrCode, iconColor: 'text-pink-300' },
   { key: 'warehouses', href: '/warehouses', label: 'المخازن', icon: Warehouse, iconColor: 'text-amber-300' },
+  { key: 'consumables', href: '/warehouses/consumables', label: 'مستهلكات المخزون', icon: PackageMinus, iconColor: 'text-orange-300' },
   { key: 'branches', href: '/branches', label: 'الفروع', icon: MapPinned, iconColor: 'text-brand-300' },
   { key: 'expenses', href: '/expenses', label: 'المصاريف', icon: ReceiptText, iconColor: 'text-rose-300' },
   { key: 'reports', href: '/reports', label: 'التقارير', icon: ChartNoAxesCombined, iconColor: 'text-cyan-300' },

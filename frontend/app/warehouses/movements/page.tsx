@@ -28,6 +28,7 @@ const TYPE_META: Record<string, { label: string; variant: 'success' | 'warning' 
   count: { label: 'فارق جرد', variant: 'warning' },
   opening: { label: 'رصيد افتتاحي', variant: 'neutral' },
   sale: { label: 'مبيعات', variant: 'danger' },
+  consumption: { label: 'مستهلكات', variant: 'danger' },
 };
 
 export default function MovementsPage() {

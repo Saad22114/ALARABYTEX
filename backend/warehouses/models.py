@@ -331,6 +331,40 @@ class StockAdjustmentItem(TimeStampedModel):
         ordering = ["id"]
 
 
+class ConsumableRequest(TimeStampedModel):
+    class Status(models.TextChoices):
+        REQUESTED = "requested", "بانتظار موافقة المدير"
+        APPROVED = "approved", "تم الصرف"
+        REJECTED = "rejected", "مرفوض"
+
+    warehouse = models.ForeignKey(
+        Warehouse, on_delete=models.PROTECT, related_name="consumable_requests", verbose_name="المخزن/الفرع"
+    )
+    fabric = models.ForeignKey(
+        "suppliers.Fabric", on_delete=models.PROTECT, related_name="consumable_requests", verbose_name="القماش"
+    )
+    yards = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="الكمية (ياردة)")
+    date = models.DateField(verbose_name="تاريخ الطلب/الصرف", default=timezone.localdate)
+    requested_by = models.ForeignKey(
+        "sale_sessions.Employee", on_delete=models.PROTECT, related_name="consumable_requests", verbose_name="مقدم الطلب"
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.REQUESTED, verbose_name="الحالة")
+    approved_by = models.ForeignKey(
+        "sale_sessions.Employee", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="approved_consumable_requests", verbose_name="المعتمد"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True, verbose_name="وقت الاعتماد")
+    decision_note = models.CharField(max_length=255, blank=True, verbose_name="ملاحظة القرار")
+
+    class Meta:
+        verbose_name = "طلب مستهلكات"
+        verbose_name_plural = "طلبات المستهلكات"
+        ordering = ["-date", "-id"]
+
+    def __str__(self):
+        return f"{self.fabric.name} - {self.yards} ياردة - {self.get_status_display()}"
+
+
 class StockCount(TimeStampedModel):
     """جلسة جرد مخزون.
 
@@ -454,6 +488,7 @@ class StockMovement(TimeStampedModel):
         ADJUSTMENT_OUT = "adjustment_out", "تسوية خصم"
         COUNT = "count", "تسوية جرد"
         SALE = "sale", "مبيعات"
+        CONSUMPTION = "consumption", "مستهلكات"
         OPENING = "opening", "رصيد افتتاحي"
 
     warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="movements", verbose_name="المخزن")

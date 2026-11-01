@@ -64,6 +64,7 @@ SECTIONS = [
         {"key": "counts", "label": "الجرد"},
         {"key": "movements", "label": "الحركات"},
     ]},
+    {"key": "consumables", "label": "مستهلكات المخزون", "fixed": False, "actions": ["view", "create"]},
     {"key": "expenses", "label": "المصاريف", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
         {"key": "expense_list", "label": "قائمة المصاريف"},
         {"key": "categories", "label": "تصنيفات المصاريف"},
@@ -168,6 +169,7 @@ ROLE_PRESETS = {
             "employees": {"view": False, "create": False, "edit": False, "delete": False},
             "payroll": {"view": False, "create": False, "edit": False, "delete": False},
             "warehouses": {"view": True, "create": False, "edit": False, "delete": False},
+            "consumables": {"view": True, "create": True},
             "attendance": {"view": True, "create": False, "edit": False, "delete": False},
             "expenses": {"view": False, "create": False, "edit": False, "delete": False},
             "reports": {"view": True, "create": False, "edit": False, "delete": False},

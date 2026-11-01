@@ -15,7 +15,7 @@ import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Input from '@/components/ui/Input';
-import { Plus, Pencil, Trash2, Eye, ArrowLeftRight, PackagePlus, Scale, ClipboardCheck } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, ArrowLeftRight, PackagePlus, Scale, ClipboardCheck, PackageMinus } from 'lucide-react';
 import StockTab from '@/components/warehouses/StockTab';
 import {
   Warehouse,
@@ -48,6 +48,7 @@ const MOVEMENT_LABEL: Record<string, string> = {
   count: 'فارق جرد',
   opening: 'رصيد افتتاحي',
   sale: 'مبيعات',
+  consumption: 'مستهلكات',
 };
 
 function WarehouseForm({
@@ -255,6 +256,11 @@ export default function WarehousesPage() {
         </div>
 
         <div className="warehouse-quick-actions flex flex-wrap items-center gap-2">
+          {hasWindow(me?.permissions, 'consumables', 'view') && (
+            <Link href="/warehouses/consumables">
+              <Button variant="secondary" size="sm"><PackageMinus size={16} />مستهلكات المخزون</Button>
+            </Link>
+          )}
           <Link href="/warehouses/receipts">
             <Button variant="secondary" size="sm">
               <PackagePlus size={16} />

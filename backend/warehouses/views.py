@@ -21,6 +21,7 @@ from .models import (
     DocumentSequence,
     FabricRoll,
     GoodsReceipt,
+    ConsumableRequest,
     StockAdjustment,
     StockAdjustmentItem,
     StockCount,
@@ -34,6 +35,8 @@ from .serializers import (
     FabricRollSerializer,
     GoodsReceiptSerializer,
     GoodsReceiptWriteSerializer,
+    ConsumableRequestSerializer,
+    ConsumableRequestCreateSerializer,
     StockAdjustmentSerializer,
     StockAdjustmentWriteSerializer,
     StockCountItemWriteSerializer,
@@ -58,6 +61,7 @@ from .services import (
     post_receipt,
     public_summary,
     remove_count_line,
+    consume_rolls,
 )
 
 
@@ -390,6 +394,109 @@ class StockAdjustmentViewSet(viewsets.ModelViewSet):
         instance = serializer.save()
         apply_adjustment(instance)
         return Response(StockAdjustmentSerializer(instance).data, status=status.HTTP_201_CREATED)
+
+
+class ConsumableRequestViewSet(viewsets.ModelViewSet):
+    """طلبات استهلاك مخزون لا تخصمه إلا موافقة مدير أو مشرف."""
+    permission_section = "consumables"
+    queryset = ConsumableRequest.objects.select_related(
+        "warehouse__branch", "fabric", "requested_by", "approved_by",
+    )
+    serializer_class = ConsumableRequestSerializer
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        return scope_queryset(self.request, super().get_queryset(), branch_field="warehouse__branch")
+
+    def create(self, request, *args, **kwargs):
+        serializer = ConsumableRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        branch = values["branch"]
+        allowed = allowed_branch_ids(request)
+        if allowed is not None and branch.pk not in allowed:
+            return Response({"detail": "لا يمكنك تسجيل مستهلكات لفرع خارج فروعك المسموحة"}, status=status.HTTP_403_FORBIDDEN)
+        warehouse = Warehouse.objects.filter(branch=branch, is_active=True).first()
+        if warehouse is None:
+            return Response({"detail": "لا يوجد مخزن نشط مرتبط بهذا الفرع"}, status=status.HTTP_400_BAD_REQUEST)
+        employee = get_request_employee(request)
+        item = ConsumableRequest.objects.create(
+            warehouse=warehouse,
+            fabric=values["fabric"],
+            yards=values["yards"],
+            date=values["date"],
+            requested_by=employee,
+            decision_note=values.get("decision_note", ""),
+        )
+        from sale_sessions.models import Employee
+        from sale_sessions.notifications import notify_employee
+        approvers = Employee.objects.filter(is_active=True, role__in=["admin", "supervisor"])
+        for approver in approvers:
+            if approver.has_permission("consumables", "view"):
+                notify_employee(
+                    approver, "consumable_request", "طلب مستهلكات بانتظار الاعتماد",
+                    f"طلب {employee.name} صرف {item.yards} ياردة من {item.fabric.name} في {branch.name}.",
+                    "/warehouses/consumables",
+                )
+        return Response(self.get_serializer(item).data, status=status.HTTP_201_CREATED)
+
+    def _require_manager(self, request):
+        employee = get_request_employee(request)
+        if employee is None or str(employee.role or "").strip().lower() not in {"admin", "supervisor"}:
+            return None, Response({"detail": "اعتماد أو رفض طلب المستهلكات متاح للمدير أو المشرف فقط"}, status=status.HTTP_403_FORBIDDEN)
+        return employee, None
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        employee, denied = self._require_manager(request)
+        if denied:
+            return denied
+        with transaction.atomic():
+            item = self.get_queryset().select_for_update().filter(pk=pk).first()
+            if item is None:
+                return Response({"detail": "طلب المستهلكات غير موجود"}, status=status.HTTP_404_NOT_FOUND)
+            if item.status != ConsumableRequest.Status.REQUESTED:
+                return Response({"detail": "تم اتخاذ قرار على هذا الطلب مسبقاً"}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                consume_rolls(
+                    item.warehouse, item.fabric, item.yards,
+                    StockMovement.Type.CONSUMPTION,
+                    reference=ConsumableRequest, reference_id=item.pk,
+                    reference_no=f"CON-{item.pk:06d}", date=item.date,
+                    notes=f"صرف مستهلكات — طلب #{item.pk}",
+                )
+            except serializers.ValidationError as exc:
+                return Response({"detail": _message(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            item.status = ConsumableRequest.Status.APPROVED
+            item.approved_by = employee
+            item.approved_at = timezone.now()
+            item.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        from sale_sessions.notifications import notify_employee
+        notify_employee(
+            item.requested_by, "consumable_approved", "تم اعتماد طلب المستهلكات",
+            f"تم اعتماد صرف {item.yards} ياردة من {item.fabric.name}.", "/warehouses/consumables",
+        )
+        return Response(self.get_serializer(item).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        employee, denied = self._require_manager(request)
+        if denied:
+            return denied
+        item = self.get_object()
+        if item.status != ConsumableRequest.Status.REQUESTED:
+            return Response({"detail": "تم اتخاذ قرار على هذا الطلب مسبقاً"}, status=status.HTTP_400_BAD_REQUEST)
+        item.status = ConsumableRequest.Status.REJECTED
+        item.approved_by = employee
+        item.approved_at = timezone.now()
+        item.decision_note = str(request.data.get("decision_note") or item.decision_note or "").strip()[:255]
+        item.save(update_fields=["status", "approved_by", "approved_at", "decision_note", "updated_at"])
+        from sale_sessions.notifications import notify_employee
+        notify_employee(
+            item.requested_by, "consumable_rejected", "تم رفض طلب المستهلكات",
+            item.decision_note or f"تم رفض طلب صرف {item.fabric.name}.", "/warehouses/consumables",
+        )
+        return Response(self.get_serializer(item).data)
 
 
 class StockCountViewSet(viewsets.ModelViewSet):

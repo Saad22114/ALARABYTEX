@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     FabricRollViewSet,
+    ConsumableRequestViewSet,
     GoodsReceiptViewSet,
     StockAdjustmentViewSet,
     StockBalanceSetView,
@@ -16,6 +17,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register("warehouses/rolls", FabricRollViewSet, basename="fabric-roll")
+router.register("warehouses/consumables", ConsumableRequestViewSet, basename="consumable-request")
 router.register("warehouses/receipts", GoodsReceiptViewSet, basename="goods-receipt")
 router.register("warehouses/transfers", StockTransferViewSet, basename="stock-transfer")
 router.register("warehouses/adjustments", StockAdjustmentViewSet, basename="stock-adjustment")
