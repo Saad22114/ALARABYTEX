@@ -5,14 +5,17 @@ import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
 import Table, { Td, Th, Tr } from '@/components/ui/Table';
 import DateRangeToolbar, { getRangeForKey } from '@/components/ui/DateRangeToolbar';
+import Select from '@/components/ui/Select';
 import { formatCurrency } from '@/lib/format';
 import { useToast } from '@/components/ui/Toast';
 import { getSalesBySupplierFabric, SupplierFabricSalesResult } from '@/services/sales';
+import { Branch } from '@/types';
 
-export default function SupplierFabricSalesReport({ branch }: { branch?: string }) {
+export default function SupplierFabricSalesReport({ branches, initialBranch = '' }: { branches: Branch[]; initialBranch?: string }) {
   const { toast } = useToast();
   const [from, setFrom] = useState(getRangeForKey('today').from);
   const [to, setTo] = useState(getRangeForKey('today').to);
+  const [branch, setBranch] = useState(initialBranch);
   const [report, setReport] = useState<SupplierFabricSalesResult | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,6 +36,16 @@ export default function SupplierFabricSalesReport({ branch }: { branch?: string 
           <h2 className="text-lg font-bold text-neutral-900">مبيعات الأقمشة حسب المورد</h2>
           <p className="mt-1 text-sm text-neutral-500">قيمة بنود الأقمشة المباعة، مجمعة حسب المورد الأساسي المسجل لكل قماش.</p>
         </div>
+        <Select
+          aria-label="فرع التقرير"
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+          options={[
+            { value: '', label: 'كل الفروع المسموحة' },
+            ...branches.map((item) => ({ value: String(item.id), label: item.name })),
+          ]}
+          className="w-full sm:max-w-xs"
+        />
         <DateRangeToolbar from={from} to={to} onChange={(start, end) => { setFrom(start); setTo(end); }} />
       </Card>
 

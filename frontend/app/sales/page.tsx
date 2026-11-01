@@ -951,7 +951,7 @@ export default function SalesPage() {
         ) : tab === 'fabric-prices' && hasWindow(me?.permissions, 'sales', 'sales') ? (
           <FabricPriceGuide />
         ) : tab === 'supplier-fabric-sales' && me?.permissions?.sales?.view && (isManager || hasWindow(me?.permissions, 'sales', 'supplier-fabric-sales')) ? (
-          <SupplierFabricSalesReport branch={filterBranch} />
+          <SupplierFabricSalesReport branches={branches} initialBranch={filterBranch} />
         ) : tab === 'links' && hasWindow(me?.permissions, 'sales', 'sales') ? (
           <SalesLinksGuide />
         ) : null}
