@@ -46,3 +46,22 @@ export async function getSalesByEmployee(
   const q = buildQuery(params || {});
   return apiRequest<SalesByEmployeeResult>(`/sales/by-employee/${q}`);
 }
+
+export interface SupplierFabricSalesRow {
+  supplier: number | null;
+  supplier_name: string;
+  sales_total: number;
+  items_count: number;
+}
+
+export interface SupplierFabricSalesResult {
+  results: SupplierFabricSalesRow[];
+  grand_total: number;
+}
+
+export async function getSalesBySupplierFabric(
+  params?: Record<string, string | number | undefined | null>
+): Promise<SupplierFabricSalesResult> {
+  const q = buildQuery(params || {});
+  return apiRequest<SupplierFabricSalesResult>(`/sales/by-supplier-fabric/${q}`);
+}

@@ -3,12 +3,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Bell, BellRing, MessageSquareText, RefreshCw, Volume2, VolumeX, Wallet } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { getDashboardAlerts } from '@/services/dashboard';
 import { DashboardAlertsResult } from '@/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useCurrentEmployee } from '@/components/providers/CurrentEmployeeProvider';
 import { AppNotification, getNotifications, markAllNotificationsRead, markNotificationRead } from '@/services/notifications';
 import { useToast } from '@/components/ui/Toast';
+
+const nativeNotificationChannelId = 'alaraby_updates';
+
+function nativeNotificationId(id: AppNotification['id']): number {
+  let hash = 0;
+  for (const character of String(id)) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return Math.abs(hash) || 1;
+}
 
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
@@ -32,16 +42,45 @@ export default function NotificationsBell() {
   }, []);
 
   useEffect(() => {
+    const nativeApp = Capacitor.isNativePlatform();
     try {
       const sound = localStorage.getItem('qomash_notification_sound') === '1';
       const desktop = localStorage.getItem('qomash_notification_desktop') === '1';
       setSoundEnabled(sound);
       soundEnabledRef.current = sound;
-      setDesktopEnabled(desktop && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted');
-      desktopEnabledRef.current = desktop && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+      if (nativeApp) {
+        LocalNotifications.createChannel({
+          id: nativeNotificationChannelId,
+          name: 'إشعارات القماش العربي',
+          description: 'تنبيهات المبيعات والرسائل والنظام',
+          importance: 4,
+          vibration: true,
+        }).catch(() => {});
+        LocalNotifications.checkPermissions().then(({ display }) => {
+          const permission = display === 'granted' ? 'granted' : display === 'denied' ? 'denied' : 'default';
+          const enabled = desktop && permission === 'granted';
+          setDesktopPermission(permission);
+          setDesktopEnabled(enabled);
+          desktopEnabledRef.current = enabled;
+        }).catch(() => setDesktopPermission('unsupported'));
+      } else {
+        const enabled = desktop && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+        setDesktopEnabled(enabled);
+        desktopEnabledRef.current = enabled;
+        setDesktopPermission(typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported');
+      }
     } catch {}
-    setDesktopPermission(typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported');
-    return () => { void audioContextRef.current?.close().catch(() => {}); };
+    let notificationActionListener: { remove: () => Promise<void> } | undefined;
+    if (nativeApp) {
+      LocalNotifications.addListener('localNotificationActionPerformed', ({ notification }) => {
+        const url = notification.extra?.url;
+        if (typeof url === 'string' && url.startsWith('/')) window.location.assign(url);
+      }).then((listener) => { notificationActionListener = listener; }).catch(() => {});
+    }
+    return () => {
+      void notificationActionListener?.remove();
+      void audioContextRef.current?.close().catch(() => {});
+    };
   }, []);
 
   const playChime = useCallback((force = false) => {
@@ -85,6 +124,18 @@ export default function NotificationsBell() {
       try { localStorage.setItem('qomash_notification_desktop', '0'); } catch {}
       return;
     }
+    if (Capacitor.isNativePlatform()) {
+      let permission = await LocalNotifications.checkPermissions();
+      if (permission.display !== 'granted') permission = await LocalNotifications.requestPermissions();
+      const enabled = permission.display === 'granted';
+      setDesktopPermission(enabled ? 'granted' : permission.display === 'denied' ? 'denied' : 'default');
+      setDesktopEnabled(enabled);
+      desktopEnabledRef.current = enabled;
+      try { localStorage.setItem('qomash_notification_desktop', enabled ? '1' : '0'); } catch {}
+      if (enabled) toast('success', 'تم تفعيل إشعارات التطبيق');
+      else if (permission.display === 'denied') toast('error', 'إذن الإشعارات محظور من إعدادات التطبيق');
+      return;
+    }
     if (!('Notification' in window)) {
       setDesktopPermission('unsupported');
       toast('error', 'هذا المتصفح لا يدعم إشعارات سطح المكتب');
@@ -103,6 +154,21 @@ export default function NotificationsBell() {
   };
 
   const showDesktopNotification = useCallback((item: AppNotification) => {
+    if (Capacitor.isNativePlatform()) {
+      if (!desktopEnabledRef.current) return;
+      void LocalNotifications.schedule({
+        notifications: [{
+          id: nativeNotificationId(item.id),
+          title: item.title,
+          body: item.body || 'لديك إشعار جديد في النظام',
+          channelId: nativeNotificationChannelId,
+          smallIcon: 'ic_stat_notification',
+          isExactNotification: false,
+          extra: { url: item.url || '/' },
+        }],
+      }).catch(() => {});
+      return;
+    }
     if (!desktopEnabledRef.current || !('Notification' in window) || Notification.permission !== 'granted') return;
     const desktopNotification = new Notification(item.title, {
       body: item.body || 'لديك إشعار جديد في النظام',
@@ -221,7 +287,9 @@ export default function NotificationsBell() {
             </button>
             <button type="button" onClick={toggleDesktopNotifications} className={`flex items-center justify-center gap-2 rounded-lg border px-2 py-2 text-xs font-medium transition ${desktopEnabled ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-sand-200 text-neutral-500 hover:bg-sand-50'}`}>
               <BellRing size={15} />
-              {desktopEnabled ? 'إشعار المتصفح مفعّل' : 'تفعيل إشعار المتصفح'}
+              {Capacitor.isNativePlatform()
+                ? desktopEnabled ? 'إشعار التطبيق مفعّل' : 'تفعيل إشعار التطبيق'
+                : desktopEnabled ? 'إشعار المتصفح مفعّل' : 'تفعيل إشعار المتصفح'}
             </button>
             {desktopPermission === 'denied' && <p className="col-span-2 text-[11px] text-amber-700">إذن المتصفح محظور. اسمح بالإشعارات لهذا الموقع من إعدادات المتصفح.</p>}
             {desktopPermission === 'unsupported' && <p className="col-span-2 text-[11px] text-neutral-400">إشعارات سطح المكتب غير مدعومة في هذا المتصفح أو الاتصال.</p>}

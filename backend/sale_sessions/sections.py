@@ -29,6 +29,7 @@ SECTIONS = [
         {"key": "sessions", "label": "ورديات البيع"},
         {"key": "closed", "label": "الورديات المحفوظة"},
         {"key": "by_employee", "label": "توزيع المبيعات على الموظفين"},
+        {"key": "supplier-fabric-sales", "label": "مبيعات الأقمشة حسب المورد"},
     ]},
     {"key": "sales-links", "label": "روابط التواصل والتحويل", "fixed": False, "actions": ["view"]},
     {"key": "sessions", "label": "ورديات البيع", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
@@ -158,7 +159,10 @@ ROLE_PRESETS = {
             "customers": {"view": True, "create": True, "edit": True, "delete": False},
             "partners": {"view": False, "create": False, "edit": False, "delete": False},
             "fabrics": {"view": True, "create": False, "edit": False, "delete": False},
-            "sales": {"view": True, "create": True, "edit": True, "delete": False},
+            "sales": {
+                "view": True, "create": True, "edit": True, "delete": False,
+                "windows": ["sales", "sessions", "closed", "by_employee"],
+            },
             "sales-links": {"view": True},
             "sessions": {"view": True, "create": True, "edit": True, "delete": False},
             "employees": {"view": False, "create": False, "edit": False, "delete": False},

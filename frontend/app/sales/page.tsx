@@ -13,6 +13,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import SessionsPanel from '@/components/sessions/SessionsPanel';
 import FabricPriceGuide from '@/components/sales/FabricPriceGuide';
 import SalesLinksGuide from '@/components/sales/SalesLinksGuide';
+import SupplierFabricSalesReport from '@/components/sales/SupplierFabricSalesReport';
 import SessionItemEditModal from '@/components/sessions/SessionItemEditModal';
 import SessionDetailsModal from '@/components/sessions/SessionDetailsModal';
 import SessionEditModal from '@/components/sessions/SessionEditModal';
@@ -24,7 +25,7 @@ import {
   Plus, Pencil, Trash2, Store, Timer,
   IndianRupee, Banknote, Users, ChevronDown, ChevronLeft, Archive, Eye, EyeOff, ChevronsUp, ChevronsDownUp,
   Printer, Share2, CheckCircle,
-  Tags, QrCode,
+  Tags, QrCode, Factory,
 } from 'lucide-react';
 import {
   Branch, Employee, DailySale,
@@ -59,7 +60,7 @@ export default function SalesPage() {
   const { session } = useAuth();
   const me = session?.employee;
   const isManager = Boolean(me && (me.role === 'admin' || me.role === 'supervisor'));
-  const [tab, setTab] = useUrlState<'sales' | 'sessions' | 'fabric-prices' | 'links'>('tab', 'sales');
+  const [tab, setTab] = useUrlState<'sales' | 'sessions' | 'fabric-prices' | 'supplier-fabric-sales' | 'links'>('tab', 'sales');
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -411,6 +412,12 @@ export default function SalesPage() {
               <button type="button" onClick={() => setTab('fabric-prices')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'fabric-prices' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
                 <Tags size={16} />
                 دليل أسعار الأقمشة
+              </button>
+            )}
+            {Boolean(me?.permissions?.sales?.view) && (isManager || hasWindow(me?.permissions, 'sales', 'supplier-fabric-sales')) && (
+              <button type="button" onClick={() => setTab('supplier-fabric-sales')} className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors ${tab === 'supplier-fabric-sales' ? 'bg-brand-600 text-white' : 'text-neutral-600 hover:bg-sand-100'}`}>
+                <Factory size={16} />
+                مبيعات الأقمشة حسب المورد
               </button>
             )}
             {hasWindow(me?.permissions, 'sales', 'sales') && (
@@ -943,6 +950,8 @@ export default function SalesPage() {
           <SessionsPanel onChanged={refreshSalesTab} onSaleGenerated={handleSaleGenerated} />
         ) : tab === 'fabric-prices' && hasWindow(me?.permissions, 'sales', 'sales') ? (
           <FabricPriceGuide />
+        ) : tab === 'supplier-fabric-sales' && me?.permissions?.sales?.view && (isManager || hasWindow(me?.permissions, 'sales', 'supplier-fabric-sales')) ? (
+          <SupplierFabricSalesReport branch={filterBranch} />
         ) : tab === 'links' && hasWindow(me?.permissions, 'sales', 'sales') ? (
           <SalesLinksGuide />
         ) : null}

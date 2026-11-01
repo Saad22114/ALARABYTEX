@@ -144,7 +144,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         className={`
           fixed right-0 top-0 bottom-0 w-72 bg-gradient-to-b from-brand-900 via-brand-950 to-brand-950 text-[#f3f1ec] flex flex-col
           z-50 lg:z-40 no-print
-          transition-transform duration-300 ease-in-out
+          transition-transform duration-200 ease-out
           ${open ? 'translate-x-0' : 'translate-x-full'}
           lg:translate-x-0 isolate overflow-hidden
         `}

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.alarabytex.mobile',
-  appName: 'Alaraby Tex',
+  appName: 'القماش العربي',
   webDir: 'www',
   server: {
     // The APK loads the already deployed website, which uses the same Render API/database.
@@ -13,6 +13,12 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: false,
+  },
+  plugins: {
+    LocalNotifications: {
+      smallIcon: 'ic_stat_notification',
+      iconColor: '#b7832f',
+    },
   },
 };
 

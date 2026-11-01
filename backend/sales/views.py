@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db.models import Count, F, Sum
+from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -12,6 +13,7 @@ from core.branch_scope import scope_queryset
 from warehouses.models import FabricRoll, Warehouse
 
 from .models import DailySale, DailySaleItem
+from sale_sessions.models import SaleSessionItem
 from .serializers import DailySaleReadSerializer, DailySaleWriteSerializer
 
 
@@ -259,4 +261,53 @@ class SaleStockView(APIView):
             "warehouse": warehouse.pk,
             "warehouse_name": warehouse.name,
             "items": items,
+        })
+
+
+class SupplierFabricSalesView(APIView):
+    """قيمة الأقمشة المباعة مجمعة حسب المورد الأساسي للقماش."""
+    permission_section = "sales"
+
+    def get(self, request):
+        employee = getattr(request.user, "employee", None)
+        if employee is None or (
+            str(employee.role or "").strip().lower() not in {"admin", "supervisor"}
+            and not employee.has_window("sales", "supplier-fabric-sales")
+        ):
+            return Response({"detail": "لا تملك صلاحية عرض هذا التقرير"}, status=status.HTTP_403_FORBIDDEN)
+
+        items = scope_queryset(
+            request,
+            SaleSessionItem.objects.select_related("fabric__supplier", "session"),
+            branch_field="session__branch",
+        ).filter(is_returned=False)
+        branch = request.query_params.get("branch")
+        if branch:
+            items = items.filter(session__branch_id=branch)
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+        if date_from:
+            parsed = parse_date(date_from)
+            if parsed is None:
+                return Response({"detail": "تاريخ البداية غير صالح"}, status=status.HTTP_400_BAD_REQUEST)
+            items = items.filter(sale_date__gte=parsed)
+        if date_to:
+            parsed = parse_date(date_to)
+            if parsed is None:
+                return Response({"detail": "تاريخ النهاية غير صالح"}, status=status.HTTP_400_BAD_REQUEST)
+            items = items.filter(sale_date__lte=parsed)
+
+        rows = list(items.values("fabric__supplier_id", "fabric__supplier__name").annotate(
+            sales_total=Sum("total"),
+            items_count=Count("id"),
+        ).order_by("-sales_total", "fabric__supplier__name"))
+        results = [{
+            "supplier": row["fabric__supplier_id"],
+            "supplier_name": row["fabric__supplier__name"] or "أقمشة دون مورد محدد",
+            "sales_total": float(row["sales_total"] or 0),
+            "items_count": row["items_count"],
+        } for row in rows]
+        return Response({
+            "results": results,
+            "grand_total": float(sum((row["sales_total"] or 0) for row in rows)),
         })
