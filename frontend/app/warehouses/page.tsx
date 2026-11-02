@@ -15,8 +15,9 @@ import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import Spinner from '@/components/ui/Spinner';
 import Input from '@/components/ui/Input';
-import { Plus, Pencil, Trash2, Eye, ArrowLeftRight, PackagePlus, Scale, ClipboardCheck, PackageMinus } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, ArrowLeftRight, PackagePlus, Scale, ClipboardCheck } from 'lucide-react';
 import StockTab from '@/components/warehouses/StockTab';
+import ConsumablesPanel from '@/components/warehouses/ConsumablesPanel';
 import {
   Warehouse,
   Paginated,
@@ -135,7 +136,7 @@ export default function WarehousesPage() {
   const [adminPassword, setAdminPassword] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [viewing, setViewing] = useState<Warehouse | null>(null);
-  const [pageTab, setPageTab] = useUrlState<'warehouses' | 'stock'>('view', 'warehouses');
+  const [pageTab, setPageTab] = useUrlState<'warehouses' | 'stock' | 'consumables'>('view', 'warehouses');
   const [tab, setTab] = useUrlState<'stock' | 'rolls' | 'movements'>('wtab', 'stock');
   const [summary, setSummary] = useState<WarehouseBalance[]>([]);
   const [rolls, setRolls] = useState<FabricRoll[]>([]);
@@ -252,15 +253,22 @@ export default function WarehousesPage() {
                 {t.label}
               </button>
             ))}
+            {me?.permissions?.consumables?.view && (
+              <button
+                onClick={() => setPageTab('consumables')}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
+                  pageTab === 'consumables'
+                    ? 'bg-brand-600 text-white shadow-sm'
+                    : 'bg-surface text-neutral-600 border border-sand-200 hover:bg-sand-50'
+                }`}
+              >
+                مستهلكات المخزون
+              </button>
+            )}
           </div>
         </div>
 
         <div className="warehouse-quick-actions flex flex-wrap items-center gap-2">
-          {hasWindow(me?.permissions, 'consumables', 'view') && (
-            <Link href="/warehouses/consumables">
-              <Button variant="secondary" size="sm"><PackageMinus size={16} />مستهلكات المخزون</Button>
-            </Link>
-          )}
           <Link href="/warehouses/receipts">
             <Button variant="secondary" size="sm">
               <PackagePlus size={16} />
@@ -293,7 +301,9 @@ export default function WarehousesPage() {
           </button>
         </div>
 
-        {pageTab === 'stock' ? (
+        {pageTab === 'consumables' ? (
+          <ConsumablesPanel />
+        ) : pageTab === 'stock' ? (
           <StockTab />
         ) : (
           <>

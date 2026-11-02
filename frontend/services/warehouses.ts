@@ -81,6 +81,17 @@ export interface ConsumableRequestWrite {
   date: string;
 }
 
+export interface ConsumableAvailability {
+  warehouse: number;
+  warehouse_name: string;
+  items: Array<{ fabric: number; available_yards: number | string }>;
+  available_yards?: number | string;
+}
+
+export async function getConsumableAvailability(params: { branch: number; fabric?: number }): Promise<ConsumableAvailability> {
+  return apiRequest<ConsumableAvailability>(`/warehouses/consumables/availability/${buildQuery(params)}`);
+}
+
 // المخازن
 export async function listWarehouses(params?: Record<string, string | number | undefined | null>): Promise<Paginated<Warehouse>> {
   return apiRequest<Paginated<Warehouse>>(`/warehouses/${buildQuery(params || {})}`);

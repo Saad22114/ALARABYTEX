@@ -35,7 +35,7 @@ class ConsumableRequestSerializer(serializers.ModelSerializer):
     fabric_code = serializers.CharField(source="fabric.code", read_only=True)
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
     branch = serializers.IntegerField(source="warehouse.branch_id", read_only=True)
-    branch_name = serializers.CharField(source="warehouse.branch.name", read_only=True)
+    branch_name = serializers.SerializerMethodField()
     requested_by_name = serializers.CharField(source="requested_by.name", read_only=True)
     approved_by_name = serializers.CharField(source="approved_by.name", read_only=True, allow_null=True)
     status_label = serializers.CharField(source="get_status_display", read_only=True)
@@ -49,6 +49,9 @@ class ConsumableRequestSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+    def get_branch_name(self, obj):
+        return obj.warehouse.branch.name if obj.warehouse.branch_id else ""
 
 
 class ConsumableRequestCreateSerializer(serializers.Serializer):

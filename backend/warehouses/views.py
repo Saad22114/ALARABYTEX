@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+import logging
 
 from django.db import transaction
 from django.db.models import Count, F, Max, Sum
@@ -9,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from branches.models import Branch
 from suppliers.models import Fabric
 from core.admin_secret import require_admin_password
 from core.branch_scope import allowed_branch_ids, scope_queryset, scope_queryset_or
@@ -63,6 +65,8 @@ from .services import (
     remove_count_line,
     consume_rolls,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _message(exc):
@@ -408,6 +412,72 @@ class ConsumableRequestViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return scope_queryset(self.request, super().get_queryset(), branch_field="warehouse__branch")
 
+    @staticmethod
+    def _stock_available(warehouse, fabric):
+        physical = FabricRoll.objects.filter(
+            warehouse=warehouse,
+            fabric=fabric,
+            status=FabricRoll.Status.AVAILABLE,
+            remaining_yards__gt=0,
+        ).aggregate(total=Sum("remaining_yards"))["total"] or Decimal("0")
+        pending = ConsumableRequest.objects.filter(
+            warehouse=warehouse,
+            fabric=fabric,
+            status=ConsumableRequest.Status.REQUESTED,
+        ).aggregate(total=Sum("yards"))["total"] or Decimal("0")
+        return physical, pending, max(physical - pending, Decimal("0"))
+
+    @action(detail=False, methods=["get"])
+    def availability(self, request):
+        try:
+            branch_id = int(request.query_params.get("branch", ""))
+        except (TypeError, ValueError):
+            return Response({"detail": "اختر الفرع للتحقق من الأقمشة المتاحة"}, status=status.HTTP_400_BAD_REQUEST)
+        branch = get_object_or_404(Branch, pk=branch_id, is_active=True)
+        allowed = allowed_branch_ids(request)
+        if allowed is not None and branch.pk not in allowed:
+            return Response({"detail": "لا يمكنك الاطلاع على مخزون فرع خارج فروعك المسموحة"}, status=status.HTTP_403_FORBIDDEN)
+        warehouse = Warehouse.objects.filter(branch=branch, is_active=True).first()
+        if warehouse is None:
+            warehouse = Warehouse.objects.filter(code=f"BR-{branch.code}", is_active=True).first()
+        if warehouse is None:
+            return Response({"detail": "لا يوجد مخزن نشط مرتبط بهذا الفرع"}, status=status.HTTP_400_BAD_REQUEST)
+        fabric_value = request.query_params.get("fabric")
+        if fabric_value:
+            try:
+                fabric = Fabric.objects.get(pk=int(fabric_value), is_active=True)
+            except (TypeError, ValueError, Fabric.DoesNotExist):
+                return Response({"detail": "القماش المحدد غير موجود أو غير نشط"}, status=status.HTTP_404_NOT_FOUND)
+            _physical, _pending, available = self._stock_available(warehouse, fabric)
+            items = [{"fabric": fabric.pk, "available_yards": available}] if available > 0 else []
+        else:
+            physical_by_fabric = {
+                row["fabric_id"]: row["total"] or Decimal("0")
+                for row in FabricRoll.objects.filter(
+                    warehouse=warehouse,
+                    status=FabricRoll.Status.AVAILABLE,
+                    remaining_yards__gt=0,
+                ).values("fabric_id").annotate(total=Sum("remaining_yards"))
+            }
+            pending_by_fabric = {
+                row["fabric_id"]: row["total"] or Decimal("0")
+                for row in ConsumableRequest.objects.filter(
+                    warehouse=warehouse,
+                    status=ConsumableRequest.Status.REQUESTED,
+                ).values("fabric_id").annotate(total=Sum("yards"))
+            }
+            items = [
+                {"fabric": fabric_id, "available_yards": max(quantity - pending_by_fabric.get(fabric_id, Decimal("0")), Decimal("0"))}
+                for fabric_id, quantity in physical_by_fabric.items()
+                if quantity > pending_by_fabric.get(fabric_id, Decimal("0"))
+            ]
+        return Response({
+            "warehouse": warehouse.pk,
+            "warehouse_name": warehouse.name,
+            "items": items,
+            **({"available_yards": items[0]["available_yards"] if items else Decimal("0")} if fabric_value else {}),
+        })
+
     def create(self, request, *args, **kwargs):
         serializer = ConsumableRequestCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -416,18 +486,29 @@ class ConsumableRequestViewSet(viewsets.ModelViewSet):
         allowed = allowed_branch_ids(request)
         if allowed is not None and branch.pk not in allowed:
             return Response({"detail": "لا يمكنك تسجيل مستهلكات لفرع خارج فروعك المسموحة"}, status=status.HTTP_403_FORBIDDEN)
-        warehouse = Warehouse.objects.filter(branch=branch, is_active=True).first()
-        if warehouse is None:
-            return Response({"detail": "لا يوجد مخزن نشط مرتبط بهذا الفرع"}, status=status.HTTP_400_BAD_REQUEST)
         employee = get_request_employee(request)
-        item = ConsumableRequest.objects.create(
-            warehouse=warehouse,
-            fabric=values["fabric"],
-            yards=values["yards"],
-            date=values["date"],
-            requested_by=employee,
-            decision_note=values.get("decision_note", ""),
-        )
+        with transaction.atomic():
+            warehouse = Warehouse.objects.select_for_update().filter(branch=branch, is_active=True).first()
+            if warehouse is None:
+                warehouse = Warehouse.objects.select_for_update().filter(code=f"BR-{branch.code}", is_active=True).first()
+                if warehouse is not None and warehouse.branch_id is None:
+                    warehouse.branch = branch
+                    warehouse.save(update_fields=["branch"])
+            if warehouse is None:
+                return Response({"detail": "لا يوجد مخزن نشط مرتبط بهذا الفرع"}, status=status.HTTP_400_BAD_REQUEST)
+            _physical, _pending, available = self._stock_available(warehouse, values["fabric"])
+            if values["yards"] > available:
+                return Response({
+                    "detail": f"الكمية المطلوبة تتجاوز المتاح في مخزن {branch.name}. المتاح {available} ياردة، والمطلوب {values['yards']} ياردة."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            item = ConsumableRequest.objects.create(
+                warehouse=warehouse,
+                fabric=values["fabric"],
+                yards=values["yards"],
+                date=values["date"],
+                requested_by=employee,
+                decision_note=values.get("decision_note", ""),
+            )
         from sale_sessions.models import Employee
         from sale_sessions.notifications import notify_employee
         approvers = Employee.objects.filter(is_active=True, role__in=["admin", "supervisor"])
@@ -451,13 +532,15 @@ class ConsumableRequestViewSet(viewsets.ModelViewSet):
         employee, denied = self._require_manager(request)
         if denied:
             return denied
-        with transaction.atomic():
-            item = self.get_queryset().select_for_update().filter(pk=pk).first()
-            if item is None:
-                return Response({"detail": "طلب المستهلكات غير موجود"}, status=status.HTTP_404_NOT_FOUND)
-            if item.status != ConsumableRequest.Status.REQUESTED:
-                return Response({"detail": "تم اتخاذ قرار على هذا الطلب مسبقاً"}, status=status.HTTP_400_BAD_REQUEST)
-            try:
+        try:
+            with transaction.atomic():
+                # queryset joins warehouse.branch (علاقة اختيارية)، لذا يجب قصر
+                # قفل PostgreSQL على صف الطلب لتجنب FOR UPDATE على طرف LEFT JOIN.
+                item = self.get_queryset().select_for_update(of=("self",)).filter(pk=pk).first()
+                if item is None:
+                    return Response({"detail": "طلب المستهلكات غير موجود"}, status=status.HTTP_404_NOT_FOUND)
+                if item.status != ConsumableRequest.Status.REQUESTED:
+                    return Response({"detail": "تم اتخاذ قرار على هذا الطلب مسبقاً"}, status=status.HTTP_400_BAD_REQUEST)
                 consume_rolls(
                     item.warehouse, item.fabric, item.yards,
                     StockMovement.Type.CONSUMPTION,
@@ -465,17 +548,22 @@ class ConsumableRequestViewSet(viewsets.ModelViewSet):
                     reference_no=f"CON-{item.pk:06d}", date=item.date,
                     notes=f"صرف مستهلكات — طلب #{item.pk}",
                 )
-            except serializers.ValidationError as exc:
-                return Response({"detail": _message(exc)}, status=status.HTTP_400_BAD_REQUEST)
-            item.status = ConsumableRequest.Status.APPROVED
-            item.approved_by = employee
-            item.approved_at = timezone.now()
-            item.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+                item.status = ConsumableRequest.Status.APPROVED
+                item.approved_by = employee
+                item.approved_at = timezone.now()
+                item.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        except serializers.ValidationError as exc:
+            return Response({"detail": _message(exc)}, status=status.HTTP_400_BAD_REQUEST)
         from sale_sessions.notifications import notify_employee
-        notify_employee(
-            item.requested_by, "consumable_approved", "تم اعتماد طلب المستهلكات",
-            f"تم اعتماد صرف {item.yards} ياردة من {item.fabric.name}.", "/warehouses/consumables",
-        )
+        try:
+            notify_employee(
+                item.requested_by, "consumable_approved", "تم اعتماد طلب المستهلكات",
+                f"تم اعتماد صرف {item.yards} ياردة من {item.fabric.name}.", "/warehouses/consumables",
+            )
+        except Exception:
+            # اعتماد المخزون قد تم داخل المعاملة؛ فشل الإشعار لا ينبغي أن يعرض
+            # العملية كأنها فشلت ويمنع المستخدم من معرفة أن الخصم اكتمل.
+            logger.exception("Failed to notify requester after consumable approval (request=%s)", item.pk)
         return Response(self.get_serializer(item).data)
 
     @action(detail=True, methods=["post"])

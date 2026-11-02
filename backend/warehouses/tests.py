@@ -9,7 +9,7 @@ from branches.models import Branch
 from suppliers.models import Fabric, Supplier
 from sale_sessions.models import Employee
 
-from .models import FabricRoll, GoodsReceipt, StockMovement, StockTransfer, Warehouse
+from .models import ConsumableRequest, FabricRoll, GoodsReceipt, StockMovement, StockTransfer, Warehouse
 
 
 def create_fabric(name="قماش"):
@@ -60,6 +60,42 @@ class WarehouseAPITest(TestCase):
         r = self.c.get(f"/api/warehouses/{wh.pk}/summary/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data[0]["total_yards"], 6)
+
+
+class ConsumableRequestApprovalAPITest(TestCase):
+    def setUp(self):
+        self.c = APIClient()
+        self.user, self.manager = authenticate_admin(self.c)
+        self.branch = Branch.objects.create(name="فرع استهلاك", code="CONS-01")
+        self.warehouse = Warehouse.objects.create(name="مخزن الاستهلاك", code="CONS-WH", branch=self.branch)
+        self.fabric = create_fabric("قماش استهلاك")
+        self.roll = FabricRoll.objects.create(
+            warehouse=self.warehouse, fabric=self.fabric,
+            yards=Decimal("20"), remaining_yards=Decimal("20"),
+        )
+        response = self.c.post("/api/warehouses/consumables/", {
+            "branch": self.branch.pk,
+            "fabric": self.fabric.pk,
+            "yards": "6.00",
+            "date": date.today().isoformat(),
+        }, format="json")
+        self.assertEqual(response.status_code, 201, getattr(response, "data", None))
+        self.request_id = response.data["id"]
+
+    def test_approve_consumable_request_deducts_stock_and_returns_request(self):
+        response = self.c.post(f"/api/warehouses/consumables/{self.request_id}/approve/")
+
+        self.assertEqual(response.status_code, 200, getattr(response, "data", None))
+        self.assertEqual(response.data["status"], ConsumableRequest.Status.APPROVED)
+        self.assertEqual(Decimal(response.data["yards"]), Decimal("6.00"))
+        self.roll.refresh_from_db()
+        self.assertEqual(self.roll.remaining_yards, Decimal("14.00"))
+        movement = StockMovement.objects.get(
+            movement_type=StockMovement.Type.CONSUMPTION,
+            reference_type="ConsumableRequest",
+            reference_id=self.request_id,
+        )
+        self.assertEqual(movement.quantity, Decimal("-6.00"))
 
 
 class GoodsReceiptAPITest(TestCase):
