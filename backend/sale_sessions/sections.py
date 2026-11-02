@@ -2,6 +2,7 @@ PERMISSION_ACTIONS = ["view", "create", "edit", "delete"]
 
 SECTIONS = [
     {"key": "dashboard", "label": "الرئيسية", "fixed": False, "actions": ["view"]},
+    {"key": "games", "label": "الألعاب والتسلية", "fixed": True, "actions": ["view"]},
     {"key": "my-salary", "label": "راتبي", "fixed": False, "actions": ["view"]},
     {"key": "branches", "label": "الفروع", "fixed": False, "actions": PERMISSION_ACTIONS, "windows": [
         {"key": "branches", "label": "قائمة الفروع"},
@@ -154,6 +155,7 @@ ROLE_PRESETS = {
         "description": "المبيعات والمخزون فقط — يُنشئ ويعيدل",
         "permissions": {
             "dashboard": {"view": True, "numbers_scope": "none"},
+            "games": {"view": True},
             "my-salary": {"view": True},
             "branches": {"view": True},
             "suppliers": {"view": False, "create": False, "edit": False, "delete": False},
@@ -185,6 +187,7 @@ ROLE_PRESETS = {
         "description": "يدير المحاسبة ويطّلع على كل شيء",
         "permissions": {
             "dashboard": {"view": True, "numbers_scope": "none"},
+            "games": {"view": True},
             "my-salary": {"view": True},
             "branches": {"view": True, "create": False, "edit": False, "delete": False},
             "suppliers": {"view": True, "create": True, "edit": True, "delete": False},
@@ -226,6 +229,7 @@ ROLE_PRESETS = {
         "description": "صلاحيات يدوية حسب القسم",
         "permissions": {
             "dashboard": {"view": True, "numbers_scope": "none"},
+            "games": {"view": True},
             "my-salary": {"view": False},
             "branches": {"view": False, "create": False, "edit": False, "delete": False},
             "suppliers": {"view": False, "create": False, "edit": False, "delete": False},

@@ -26,6 +26,7 @@ import {
   Handshake,
   QrCode,
   PackageMinus,
+  Dices,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Fragment } from 'react';
@@ -55,6 +56,7 @@ const navItems = [
   { key: 'themes', href: '/themes', label: 'الثيمات والتحكم', icon: Palette, iconColor: 'text-fuchsia-200' },
   { key: 'settings', href: '/settings', label: 'الإعدادات', icon: Settings2, iconColor: 'text-slate-200' },
   { key: 'partners', href: '/partners', label: 'الشركاء', icon: Handshake, iconColor: 'text-orange-200' },
+  { key: 'games', href: '/games', label: 'الألعاب والتسلية', icon: Dices, iconColor: 'text-violet-300' },
 ];
 
 // عناوين عرضية لتنظيم القائمة بصرياً؛ لا تغيّر الروابط أو الصلاحيات أو ترتيبها.
@@ -111,6 +113,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   };
 
   const visible = (key: string): boolean => {
+    if (key === 'games') return true;
     const hidden = new Set([
       ...(session?.employee.hidden_sections || []),
       ...(settings?.hidden_sections || []),

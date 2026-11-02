@@ -4,13 +4,121 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#123e35" />
-    <title>Alaraby Tex</title>
+    <title>القماش العربي</title>
+    <style>
+      * { box-sizing: border-box; }
+      :root { color-scheme: light; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom)); background: radial-gradient(ellipse at 50% -12%, #d5e9df, transparent 55%), linear-gradient(145deg,#f6f8f4,#e9eee8); color: #173c32; font-family: system-ui, "Segoe UI", sans-serif; }
+      main { width: min(100%, 430px); padding: 24px 20px 20px; border: 1px solid #dce7df; border-radius: 28px; background: rgba(255,255,255,.94); box-shadow: 0 22px 70px rgba(21,63,50,.13); text-align: center; }
+      .brand { display:flex; justify-content:center; align-items:center; gap:11px; margin-bottom:14px; }
+      .mark { display:grid; width:45px; height:45px; place-items:center; border-radius:15px; background:linear-gradient(145deg,#26755d,#123e35); color:white; font-size:23px; font-weight:800; box-shadow:0 8px 18px #123e3528; }
+      h1 { margin:0; font-size:20px; }
+      .subtitle { margin:3px 0 0; color:#77847e; font-size:12px; }
+      .connection { display:flex; align-items:center; justify-content:center; gap:8px; min-height:38px; margin:4px 0 12px; padding:8px 10px; border-radius:12px; background:#f3f7f3; color:#63736b; font-size:12px; }
+      .dot { width:8px;height:8px;border-radius:50%;background:#d29b3d;box-shadow:0 0 0 4px #d29b3d20; }
+      .dot.online { background:#36a276; box-shadow:0 0 0 4px #36a27620; }
+      .game-title { margin:10px 0 4px; font-size:18px; }
+      .game-hint { margin:0 0 14px; color:#77847e; font-size:12px; }
+      .board { width:min(78vw, 290px); margin:0 auto; display:grid; grid-template-columns:repeat(3,1fr); gap:9px; direction:ltr; }
+      .cell { aspect-ratio:1; border:1px solid #e1eae3; border-radius:18px; background:linear-gradient(145deg,#fbfdfb,#f0f5f0); color:#23644f; font:700 clamp(36px,13vw,56px)/1 system-ui,sans-serif; box-shadow:0 4px 12px #183d3210; cursor:pointer; transition:transform .13s,background .15s,box-shadow .15s; -webkit-tap-highlight-color:transparent; }
+      .cell:active { transform:scale(.95); }
+      .cell:disabled { cursor:default; }
+      .cell.cpu { color:#c28732; }
+      .cell.win { background:#e2f3e9; border-color:#75ba91; box-shadow:0 0 0 2px #75ba9140; }
+      .status { min-height:27px; margin:12px 0 8px; color:#36584a; font-size:14px; font-weight:650; }
+      .actions { display:flex; gap:9px; }
+      button.action { flex:1; min-height:44px; border:0; border-radius:13px; background:linear-gradient(110deg,#26755d,#123e35); color:white; font:600 13px system-ui,sans-serif; cursor:pointer; }
+      button.action.secondary { border:1px solid #dce7df; background:#f7faf7; color:#315747; }
+      .foot { margin:12px 0 0; color:#9aa59f; font-size:11px; }
+      @media (max-height:680px) { main { padding:17px 16px 14px; } .brand { margin-bottom:8px; } .connection { margin:0 0 7px; } .game-title { margin-top:5px; } .board { width:min(66vw,250px); gap:7px; } .cell { border-radius:14px; } }
+    </style>
   </head>
   <body>
-    <main style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:1.5rem;text-align:center;color:#123e35">
-      <h1>Alaraby Tex</h1>
-      <p>يتعذر الاتصال بالخدمة الآن. تحقق من اتصال الإنترنت ثم أعد المحاولة.</p>
-      <a href="https://alarabytex-frontend-lnex.onrender.com" style="display:inline-block;margin-top:1rem;padding:.75rem 1.25rem;border-radius:.75rem;background:#123e35;color:#fff;text-decoration:none">إعادة المحاولة</a>
+    <main>
+      <div class="brand"><div class="mark" aria-hidden="true">ع</div><div><h1>القماش العربي</h1><p class="subtitle">ننتظر عودة الخدمة… استمتع بلعبة سريعة</p></div></div>
+      <div class="connection" role="status" aria-live="polite"><span id="dot" class="dot"></span><span id="connectionText">جارٍ التحقق من الاتصال بالخادم</span></div>
+      <h2 class="game-title">إكس-أو ضد الكمبيوتر</h2>
+      <p class="game-hint">أنت <b style="color:#23644f">×</b> — الكمبيوتر <b style="color:#c28732">○</b></p>
+      <div id="board" class="board" aria-label="لوحة لعبة إكس أو"></div>
+      <p id="gameStatus" class="status" aria-live="polite">ابدأ اللعب — دورك</p>
+      <div class="actions"><button id="restart" class="action" type="button">لعبة جديدة</button><button id="tryNow" class="action secondary" type="button">فحص الاتصال الآن</button></div>
+      <p class="foot">تستمر محاولة الاتصال تلقائيًا أثناء اللعب</p>
     </main>
+    <script>
+      (() => {
+        const serviceUrl = 'https://alarabytex-frontend-lnex.onrender.com';
+        const storageKey = 'alarabytex-connect-retries';
+        const boardEl = document.getElementById('board');
+        const gameStatus = document.getElementById('gameStatus');
+        const connectionText = document.getElementById('connectionText');
+        const dot = document.getElementById('dot');
+        const cells = Array(9).fill('');
+        let gameOver = false, busy = false, timer, checking = false;
+
+        function winner(b) {
+          for (const [a,c,d] of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]])
+            if (b[a] && b[a] === b[c] && b[a] === b[d]) return { player:b[a], line:[a,c,d] };
+          return null;
+        }
+        function render(winLine = []) {
+          boardEl.replaceChildren();
+          cells.forEach((value,i) => {
+            const cell = document.createElement('button'); cell.type='button'; cell.className='cell' + (value==='O'?' cpu':'') + (winLine.includes(i)?' win':'');
+            cell.textContent = value==='X'?'×':value==='O'?'○':''; cell.setAttribute('aria-label', value ? `المربع ${i+1}: ${value}` : `المربع ${i+1}`);
+            cell.disabled = !!value || gameOver || busy; cell.addEventListener('click', () => play(i)); boardEl.appendChild(cell);
+          });
+        }
+        function finishIfNeeded() {
+          const result=winner(cells);
+          if(result){ gameOver=true; gameStatus.textContent=result.player==='X'?'أحسنت! فزت بالجولة 🎉':'فاز الكمبيوتر هذه المرة — جرب مجددًا'; render(result.line); return true; }
+          if(cells.every(Boolean)){ gameOver=true; gameStatus.textContent='تعادل جميل! ابدأ جولة أخرى'; render(); return true; }
+          return false;
+        }
+        function cpuMove() {
+          const free=cells.map((v,i)=>v?null:i).filter(v=>v!==null);
+          const findWinning=(mark)=>free.find(i=>{const b=[...cells];b[i]=mark;return !!winner(b);});
+          let pick=findWinning('O');
+          if(pick===undefined) pick=findWinning('X');
+          if(pick===undefined && free.includes(4)) pick=4;
+          if(pick===undefined){ const corners=free.filter(i=>[0,2,6,8].includes(i)); if(corners.length) pick=corners[Math.floor(Math.random()*corners.length)]; }
+          if(pick===undefined) pick=free[Math.floor(Math.random()*free.length)];
+          if(pick!==undefined) cells[pick]='O';
+        }
+        function play(i) {
+          if(gameOver||busy||cells[i]) return;
+          cells[i]='X'; if(finishIfNeeded()) return;
+          busy=true; gameStatus.textContent='الكمبيوتر يفكر…'; render();
+          setTimeout(()=>{cpuMove();busy=false;if(!finishIfNeeded()){gameStatus.textContent='دورك الآن';render();}},320);
+        }
+        function newGame(){cells.fill('');gameOver=false;busy=false;gameStatus.textContent='ابدأ اللعب — دورك';render();}
+        document.getElementById('restart').addEventListener('click',newGame); render();
+
+        async function checkService() {
+          clearTimeout(timer);
+          if(checking) return;
+          if(!navigator.onLine){connectionText.textContent='لا يوجد إنترنت — ستستمر المحاولة عند عودة الاتصال';dot.classList.remove('online');scheduleRetry(5000);return;}
+          checking=true; connectionText.textContent='جارٍ فحص الخادم في الخلفية…';
+          const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),10000);
+          try {
+            const response=await fetch(serviceUrl+'/?_='+Date.now(),{method:'GET',cache:'no-store',signal:controller.signal,mode:'no-cors'});
+            clearTimeout(timeout); checking=false;
+            // opaque no-cors responses still indicate that the host responded.
+            connectionText.textContent='عاد الاتصال — جارٍ فتح التطبيق'; dot.classList.add('online');
+            try{sessionStorage.removeItem(storageKey);}catch{}
+            setTimeout(()=>window.location.replace(serviceUrl),250);
+          } catch {
+            clearTimeout(timeout);checking=false;dot.classList.remove('online');
+            let count=0;try{count=Number(sessionStorage.getItem(storageKey)||'0')+1;sessionStorage.setItem(storageKey,String(count));}catch{count=1;}
+            connectionText.textContent='الخدمة غير متاحة بعد — يمكنك اللعب حتى تعود';
+            scheduleRetry(Math.min(3000*(2**Math.min(count-1,5)),60000));
+          }
+        }
+        function scheduleRetry(delay){clearTimeout(timer);timer=setTimeout(checkService,delay);}
+        document.getElementById('tryNow').addEventListener('click',checkService);
+        window.addEventListener('online',()=>{connectionText.textContent='عاد الإنترنت — جارٍ التحقق';scheduleRetry(400);});
+        window.addEventListener('offline',()=>{connectionText.textContent='لا يوجد إنترنت — ستستمر المحاولة عند عودة الاتصال';dot.classList.remove('online');clearTimeout(timer);});
+        checkService();
+      })();
+    </script>
   </body>
 </html>

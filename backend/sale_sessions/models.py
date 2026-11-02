@@ -319,3 +319,38 @@ class Notification(TimeStampedModel):
         ordering = ["-created_at", "-id"]
         verbose_name = "إشعار"
         verbose_name_plural = "الإشعارات"
+
+
+class GameResult(TimeStampedModel):
+    class Game(models.TextChoices):
+        TIC_TAC_TOE = "tic_tac_toe", "إكس-أو"
+        ROCK_PAPER_SCISSORS = "rock_paper_scissors", "حجر ورقة مقص"
+        NUMBER_GUESS = "number_guess", "تحدي الرقم"
+        MEMORY_SEQUENCE = "memory_sequence", "تحدي الذاكرة"
+        SEEGA = "seega", "سيجا"
+        MATH_LEVELS = "math_levels", "تحدي الحساب"
+
+    class Outcome(models.TextChoices):
+        WIN = "win", "فوز"
+        LOSS = "loss", "خسارة"
+        DRAW = "draw", "تعادل"
+
+    class Difficulty(models.TextChoices):
+        EASY = "easy", "سهل"
+        MEDIUM = "medium", "متوسط"
+        HARD = "hard", "صعب"
+
+    employee = models.ForeignKey(
+        Employee, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="game_results", verbose_name="الموظف",
+    )
+    employee_name = models.CharField(max_length=150, verbose_name="اسم الموظف")
+    game = models.CharField(max_length=30, choices=Game.choices, verbose_name="اللعبة")
+    outcome = models.CharField(max_length=10, choices=Outcome.choices, verbose_name="النتيجة")
+    difficulty = models.CharField(max_length=10, choices=Difficulty.choices, verbose_name="الصعوبة")
+    level = models.PositiveIntegerField(default=0, verbose_name="المستوى")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "نتيجة لعبة"
+        verbose_name_plural = "نتائج الألعاب"
