@@ -85,6 +85,7 @@ class Employee(TimeStampedModel, ActiveModel):
         max_length=50, blank=True, null=True, default=None, verbose_name="رقم الموظف"
     )
     multi_branch_access = models.BooleanField(default=False, verbose_name="دخول متعدد الفروع")
+    show_game_level = models.BooleanField(default=False, verbose_name="إظهار نقاط الفوز في الألعاب للموظفين")
     must_change_password = models.BooleanField(default=False, verbose_name="تغيير كلمة المرور عند أول دخول")
     theme = models.CharField(
         max_length=20, blank=True, default="", verbose_name="الثيم المفضل"
@@ -354,3 +355,28 @@ class GameResult(TimeStampedModel):
         ordering = ["-created_at", "-id"]
         verbose_name = "نتيجة لعبة"
         verbose_name_plural = "نتائج الألعاب"
+
+
+class GameChallenge(TimeStampedModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "بانتظار الرد"
+        ACCEPTED = "accepted", "مقبول"
+        DECLINED = "declined", "مرفوض"
+        COMPLETED = "completed", "انتهت المباراة"
+
+    requester = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="sent_game_challenges",
+        verbose_name="مرسل الطلب",
+    )
+    opponent = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="received_game_challenges",
+        verbose_name="الموظف المدعو",
+    )
+    game = models.CharField(max_length=30, choices=GameResult.Game.choices, verbose_name="اللعبة")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, verbose_name="الحالة")
+    game_state = models.JSONField(default=dict, blank=True, verbose_name="حالة المباراة")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "طلب تحدي لعبة"
+        verbose_name_plural = "طلبات تحديات الألعاب"

@@ -13,10 +13,10 @@ if ($backendRunning) {
     Write-Host "Backend is already running on port $backendPort" -ForegroundColor Green
 }
 else {
-    Write-Host "Starting Django Backend on port $backendPort..." -ForegroundColor Cyan
+    Write-Host "Applying database migrations before starting Django..." -ForegroundColor Cyan
 
     Start-Process powershell -ArgumentList "-NoExit", "-Command", `
-        "Set-Location '$backend'; .\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:$backendPort --noreload"
+        "Set-Location '$backend'; .\.venv\Scripts\python.exe manage.py migrate --noinput; if (`$LASTEXITCODE -ne 0) { throw 'Database migrations failed; backend was not started.' }; Write-Host 'Starting Django Backend on port $backendPort...' -ForegroundColor Cyan; .\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:$backendPort --noreload"
 }
 
 # =========================

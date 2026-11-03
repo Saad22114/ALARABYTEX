@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import AppShell from '@/components/layout/AppShell';
 import Avatar from '@/components/ui/Avatar';
 import Card from '@/components/ui/Card';
@@ -8,10 +9,10 @@ import Button from '@/components/ui/Button';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useToast } from '@/components/ui/Toast';
 import {
-  GameDifficulty, GameHistory, GameKey, GameOutcome, GameResult,
-  getGameHistory, saveGameResult,
+  GameChallenge, GameCommunity, GameDifficulty, GameHistory, GameKey, GameOutcome, GameResult,
+  createGameChallenge, getGameCommunity, getGameHistory, respondGameChallenge, saveGameResult, setGameLevelVisibility,
 } from '@/services/games';
-import { Dices, History, RotateCcw, Sparkles } from 'lucide-react';
+import { Check, Dices, History, RotateCcw, Send, Sparkles, Swords, Trophy, X } from 'lucide-react';
 
 const gameNames: Record<GameKey, string> = {
   tic_tac_toe: 'إكس-أو',
@@ -618,10 +619,15 @@ function MathLevelsGame({
 
 export default function GamesPage() {
   const { session } = useAuth();
+  const router = useRouter();
   const { toast } = useToast();
   const [activeGame, setActiveGame] = useState<GameKey>('tic_tac_toe');
   const [difficulty, setDifficulty] = useState<GameDifficulty>('medium');
   const [history, setHistory] = useState<GameHistory>({ totals: { wins: 0, losses: 0, draws: 0 }, results: [], math_progress: { highest_level: 0, unlocked_level: 1, season_length: 50 } });
+  const [community, setCommunity] = useState<GameCommunity | null>(null);
+  const [challengeEmployeeId, setChallengeEmployeeId] = useState('');
+  const [challengeGame, setChallengeGame] = useState<GameKey>('tic_tac_toe');
+  const [communityBusy, setCommunityBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [victoryKey, setVictoryKey] = useState(0);
@@ -634,6 +640,58 @@ export default function GamesPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [toast]);
+
+  const refreshCommunity = useCallback(async () => {
+    try { setCommunity(await getGameCommunity()); }
+    catch (error) { toast('error', `تعذر تحميل تحديات الألعاب: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`); }
+  }, [toast]);
+
+  useEffect(() => {
+    void refreshCommunity();
+    const timer = setInterval(() => { void refreshCommunity(); }, 5000);
+    return () => clearInterval(timer);
+  }, [refreshCommunity]);
+
+  useEffect(() => {
+    const active = community?.challenges.filter((challenge) => challenge.status === 'accepted').sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+    if (active) router.replace(`/games/challenge/${active.id}`);
+  }, [community, router]);
+
+  const toggleGameLevelVisibility = async (show: boolean) => {
+    setCommunityBusy(true);
+    try {
+      await setGameLevelVisibility(show);
+      await refreshCommunity();
+      toast('success', show ? 'أصبحت نقاط فوزك ظاهرة للموظفين' : 'أخفيت نقاط فوزك عن الموظفين');
+    } catch (error) { toast('error', error instanceof Error ? error.message : 'تعذر تحديث إعداد الظهور'); }
+    finally { setCommunityBusy(false); }
+  };
+
+  const sendChallenge = async () => {
+    if (!challengeEmployeeId) { toast('error', 'اختر الموظف الذي تريد تحديه'); return; }
+    setCommunityBusy(true);
+    try {
+      await createGameChallenge(Number(challengeEmployeeId), challengeGame);
+      await refreshCommunity();
+      toast('success', 'تم إرسال طلب التحدي');
+    } catch (error) { toast('error', error instanceof Error ? error.message : 'تعذر إرسال طلب التحدي'); }
+    finally { setCommunityBusy(false); }
+  };
+
+  const answerChallenge = async (challenge: GameChallenge, action: 'accept' | 'decline') => {
+    setCommunityBusy(true);
+    try {
+      const response = await respondGameChallenge(challenge.id, action);
+      if (action === 'accept') {
+        toast('success', 'قبلت طلب التحدي، جارٍ فتح المباراة');
+        router.push(`/games/challenge/${response.id}`);
+        return;
+      }
+      await refreshCommunity();
+      toast('success', 'تم رفض طلب التحدي');
+    } catch (error) { toast('error', error instanceof Error ? error.message : 'تعذر الرد على الطلب'); }
+    finally { setCommunityBusy(false); }
+  };
 
   const record = useCallback(async (game: GameKey, outcome: GameOutcome, level?: number) => {
     if (outcome === 'win') {
@@ -669,6 +727,44 @@ export default function GamesPage() {
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/15 bg-white/10"><Dices size={32} /></div>
         </div>
       </div>
+
+      <Card title="تحديات الموظفين" subtitle="أرسل طلب لعب، أو أجب عن التحديات الواردة">
+        <div className="grid gap-5 xl:grid-cols-[1fr_1.2fr_1.2fr]">
+          <div className="rounded-2xl border border-sand-200 p-4 dark:border-neutral-700">
+            <label className="flex cursor-pointer items-start gap-3">
+              <input type="checkbox" className="mt-1 h-4 w-4 accent-brand-700" checked={community?.show_game_level ?? false} disabled={!community || communityBusy} onChange={(event) => void toggleGameLevelVisibility(event.target.checked)} />
+              <span><b className="block text-sm">إظهار نقاط فوزي للموظفين</b><small className="mt-1 block leading-5 text-neutral-500">عند إيقافه تختفي نقاطك ومستواك في تحدي الحساب من قائمة الموظفين.</small></span>
+            </label>
+            <div className="mt-5 border-t border-sand-100 pt-4 dark:border-neutral-800">
+              <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Swords size={16} className="text-violet-600" /> أرسل تحديًا</h4>
+              <select aria-label="اختر لعبة التحدي" value={challengeGame} onChange={(event) => setChallengeGame(event.target.value as GameKey)} className="mb-2 w-full rounded-xl border border-sand-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900">
+                <option value="tic_tac_toe">إكس-أو · بالتناوب</option>
+                <option value="rock_paper_scissors">حجر ورقة مقص · اختيار سري</option>
+                <option value="seega">سيجا · تحريك القطع</option>
+              </select>
+              <select aria-label="اختر موظفًا للتحدي" value={challengeEmployeeId} onChange={(event) => setChallengeEmployeeId(event.target.value)} className="mb-2 w-full rounded-xl border border-sand-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900">
+                <option value="">اختر الموظف</option>
+                {community?.employees.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+              </select>
+              <Button size="sm" onClick={() => void sendChallenge()} disabled={communityBusy || !community?.employees.length}><Send size={14} /> إرسال طلب اللعب</Button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-sand-200 p-4 dark:border-neutral-700">
+            <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Trophy size={16} className="text-amber-500" /> الموظفون الذين يشاركون نقاطهم</h4>
+            {!community?.leaderboard.length ? <p className="py-5 text-center text-sm text-neutral-400">لا توجد نقاط ظاهرة حاليًا. فعّل خيار الظهور لتظهر في القائمة.</p> : <div className="max-h-64 space-y-2 overflow-y-auto">
+              {community.leaderboard.map((person, index) => <div key={person.id} className="flex items-center gap-3 rounded-xl bg-sand-50 px-3 py-2 dark:bg-neutral-800"><span className="w-5 text-center text-xs font-bold text-neutral-400">{index + 1}</span><Avatar name={person.name} avatar={person.avatar} avatarImage={person.avatar_image} size="sm" /><span className="min-w-0 flex-1 truncate text-sm font-medium">{person.name}</span><span className="text-xs font-bold text-amber-700 dark:text-amber-300">{person.wins || 0} فوز</span>{(person.math_level || 0) > 0 && <span className="text-[11px] text-violet-600 dark:text-violet-300">حساب: {person.math_level}</span>}</div>)}
+            </div>}
+          </div>
+
+          <div className="rounded-2xl border border-sand-200 p-4 dark:border-neutral-700">
+            <h4 className="mb-3 text-sm font-semibold">طلبات اللعب</h4>
+            {!community?.challenges.length ? <p className="py-5 text-center text-sm text-neutral-400">لا توجد طلبات لعب حتى الآن.</p> : <div className="max-h-64 space-y-2 overflow-y-auto">
+              {community.challenges.slice(0, 12).map((challenge) => <div key={challenge.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-sand-100 px-3 py-2 dark:border-neutral-800"><span className="min-w-0 flex-1 text-sm"><b>{challenge.is_incoming ? challenge.other_employee.name : `أنت ← ${challenge.other_employee.name}`}</b><span className="mx-1 text-neutral-400">·</span>{gameNames[challenge.game]}</span>{challenge.status === 'pending' && challenge.is_incoming ? <><button type="button" disabled={communityBusy} onClick={() => void answerChallenge(challenge, 'accept')} className="rounded-lg bg-emerald-50 p-2 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50" title="قبول"><Check size={15} /></button><button type="button" disabled={communityBusy} onClick={() => void answerChallenge(challenge, 'decline')} className="rounded-lg bg-rose-50 p-2 text-rose-700 hover:bg-rose-100 disabled:opacity-50" title="رفض"><X size={15} /></button></> : challenge.status === 'accepted' ? <button type="button" onClick={() => router.push(`/games/challenge/${challenge.id}`)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700">ادخل المباراة</button> : <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${challenge.status === 'declined' ? 'bg-neutral-100 text-neutral-500' : 'bg-amber-50 text-amber-700'}`}>{challenge.status === 'declined' ? 'مرفوض' : 'بانتظار الرد'}</span>}</div>)}
+            </div>}
+          </div>
+        </div>
+      </Card>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.8fr)]">
         <Card title="اختر اللعبة" subtitle={`مرحبًا ${session?.employee.name || ''}، سجل النتائج خاص بحسابك`}>
