@@ -233,7 +233,11 @@ export default function NotificationsBell() {
   const openNotification = async (item: AppNotification) => {
     if (!item.read_at) {
       await markNotificationRead(item.id).catch(() => {});
-      setNotifications((current) => current.map((n) => n.id === item.id ? { ...n, read_at: new Date().toISOString() } : n));
+      if (item.kind === 'message') {
+        setNotifications((current) => current.filter((n) => n.id !== item.id));
+      } else {
+        setNotifications((current) => current.map((n) => n.id === item.id ? { ...n, read_at: new Date().toISOString() } : n));
+      }
       setUnreadNotifications((count) => Math.max(0, count - 1));
     }
     setOpen(false);

@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from sale_sessions.models import Employee
+from sale_sessions.models import Employee, Notification
 from sale_sessions.notifications import notify_employee
 
 from .models import Message
@@ -189,6 +189,16 @@ class MessageThreadView(APIView):
                 for m in messages:
                     if m.pk in incoming_ids:
                         m.read_at = now
+
+            # إشعارات الرسائل مرتبطة باسم المرسل في عنوانها. عند فتح محادثته
+            # نزيل كل إشعاراته من قائمة غير المقروء، بما فيها إشعارات رسائل
+            # أقدم من الرسائل التي يعرضها الاستطلاع الحالي.
+            Notification.objects.filter(
+                recipient=me,
+                kind="message",
+                title=f"رسالة جديدة من {partner.name}",
+                read_at__isnull=True,
+            ).update(read_at=timezone.now())
 
         return Response({
             "with_employee": _employee_contact(partner),

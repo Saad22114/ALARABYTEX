@@ -226,6 +226,30 @@ class MessageThreadTests(MessagingSetup):
         m1.refresh_from_db()
         self.assertIsNotNone(m1.read_at)  # رسالة الواردة أصبحت مقروءة
 
+    def test_opening_conversation_clears_its_message_notifications_only(self):
+        Message.objects.create(sender=self.partner, receiver=self.me, body="رسالة أولى")
+        Message.objects.create(sender=self.partner, receiver=self.me, body="رسالة ثانية")
+        opened_sender_notice = Notification.objects.create(
+            recipient=self.me, kind="message", title=f"رسالة جديدة من {self.partner.name}", body="رسالة ثانية", url="/messages",
+        )
+        unopened_sender = Notification.objects.create(
+            recipient=self.me, kind="message", title=f"رسالة جديدة من {self.silent.name}", body="رسالة أخرى", url="/messages",
+        )
+
+        response = self.client.get(
+            f"/api/messaging/messages/?employee={self.me.pk}&partner={self.partner.pk}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        opened_sender_notice.refresh_from_db()
+        unopened_sender.refresh_from_db()
+        self.assertIsNotNone(opened_sender_notice.read_at)
+        self.assertIsNone(unopened_sender.read_at)
+
+        listed = self.client.get("/api/notifications/")
+        result_ids = {item["id"] for item in listed.data["results"]}
+        self.assertNotIn(opened_sender_notice.pk, result_ids)
+        self.assertIn(unopened_sender.pk, result_ids)
+
     def test_after_id_incremental(self):
         Message.objects.create(sender=self.partner, receiver=self.me, body="قديم")
         newest = Message.objects.create(sender=self.partner, receiver=self.me, body="جديد")

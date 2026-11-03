@@ -27,7 +27,9 @@ class NotificationsView(APIView):
         employee = get_request_employee(request)
         if employee is None:
             return Response({"results": [], "unread_count": 0})
-        qs = Notification.objects.filter(recipient=employee).order_by("-created_at", "-id")
+        qs = Notification.objects.filter(recipient=employee).exclude(
+            kind="message", read_at__isnull=False,
+        ).order_by("-created_at", "-id")
         return Response({
             "results": [notification_data(item) for item in qs[:40]],
             "unread_count": qs.filter(read_at__isnull=True).count(),
