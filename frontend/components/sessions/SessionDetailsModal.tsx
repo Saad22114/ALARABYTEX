@@ -7,7 +7,7 @@ import Button from '@/components/ui/Button';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Table, { Th, Td, Tr } from '@/components/ui/Table';
 import EmptyState from '@/components/ui/EmptyState';
-import { formatCurrency, formatNumber, formatDate } from '@/lib/format';
+import { formatCurrency, formatNumber, formatDate, formatTime } from '@/lib/format';
 import { elapsedLabel } from '@/lib/shiftClock';
 import { reopenSaleSession } from '@/services/sessions';
 import { useToast } from '@/components/ui/Toast';
@@ -69,7 +69,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
   const exportCsv = useCallback(() => {
     if (!session) return;
     const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const header = ['القماش', 'النوع', 'الكمية', 'الياردات الفعلية', 'سعر الوحدة', 'طريقة الدفع', 'الإجمالي', 'تاريخ البيع'];
+    const header = ['القماش', 'النوع', 'الكمية', 'الياردات الفعلية', 'سعر الوحدة', 'طريقة الدفع', 'الإجمالي', 'تاريخ ووقت البيع'];
     const rows = session.items.map((it) => [
       it.fabric_name,
       it.sale_type_label,
@@ -78,7 +78,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
       num(it.unit_price),
       it.payment_method_label,
       num(it.total),
-      it.sale_date,
+      `${it.sale_date} ${formatTime(it.created_at)}`,
     ]);
     const footer = [
       ['الإجمالي', '', '', num(session.totals.yards), '', '', num(session.totals.total), ''],
@@ -118,7 +118,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
           <td class="num">${num(it.unit_price)}</td>
           <td>${paymentName[it.payment_method] ?? it.payment_method_label}</td>
           <td class="num">${num(it.total)} ${sym}</td>
-          <td class="num">${it.sale_date}</td>
+          <td class="num">${it.sale_date} ${formatTime(it.created_at)}</td>
         </tr>`
       )
       .join('');
@@ -166,7 +166,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
     session.items.length === 0
       ? '<p style="text-align:center;color:#6b7280;padding:20px">لا توجد بنود</p>'
       : `<table>
-        <thead><tr><th>القماش</th><th>النوع</th><th>الكمية</th><th>الياردات</th><th>سعر الوحدة</th><th>الدفع</th><th>الإجمالي</th><th>التاريخ</th></tr></thead>
+        <thead><tr><th>القماش</th><th>النوع</th><th>الكمية</th><th>الياردات</th><th>سعر الوحدة</th><th>الدفع</th><th>الإجمالي</th><th>تاريخ ووقت البيع</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`
   }
@@ -341,7 +341,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                       <Th>سعر الوحدة</Th>
                       <Th>طريقة الدفع</Th>
                       <Th>الإجمالي</Th>
-                      <Th>تاريخ البيع</Th>
+                      <Th>تاريخ ووقت البيع</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -375,7 +375,7 @@ export default function SessionDetailsModal({ open, session, onClose, onReopened
                             <span className="block text-[10px] font-normal text-neutral-400">صافي بعد رسوم {formatCurrency(item.card_fee_amount)}</span>
                           )}
                         </Td>
-                        <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)}</Td>
+                        <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)} · {formatTime(item.created_at)}</Td>
                       </Tr>
                     ))}
                   </tbody>

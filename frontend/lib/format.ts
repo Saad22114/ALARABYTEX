@@ -44,6 +44,17 @@ export function formatDate(iso: string): string {
   }
 }
 
+/** وقت إنشاء البيعة بتوقيت عُمان وبصيغة 24 ساعة (ساعات ودقائق فقط). */
+export function formatTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Muscat', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(d);
+}
+
 export function formatShortDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ar-EG-u-nu-latn', {
     month: 'short',

@@ -1422,6 +1422,7 @@ export interface SessionSaleItem {
   net_total: number;
   total: number;
   sale_date: string;
+  created_at?: string;
   yards_effective: number;
   customer_name: string;
   customer_phone: string;

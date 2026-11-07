@@ -49,7 +49,7 @@ import { useSettings } from '@/components/providers/SettingsProvider';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useDefaultEmployeeBranch } from '@/lib/useDefaultEmployeeBranch';
 import { toEmployee } from '@/lib/sessionEmployee';
-import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { formatCurrency, formatDate, formatNumber, formatTime } from '@/lib/format';
 import { counted } from '@/lib/arabic';
 import { saleGroupBadges, saleGroupKey } from '@/lib/saleGroups';
 import { elapsedLabel, elapsedMinutes } from '@/lib/shiftClock';
@@ -951,7 +951,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                       <Th>الخصم</Th>
                       <Th>طريقة الدفع</Th>
                       <Th>الإجمالي</Th>
-                      <Th>تاريخ البيع</Th>
+                      <Th>تاريخ ووقت البيع</Th>
                       <Th>{''}</Th>
                     </tr>
                   </thead>
@@ -1028,7 +1028,7 @@ export default function SessionsPanel({ onChanged, onSaleGenerated }: { onChange
                             <span className="block text-[10px] font-normal text-neutral-400">صافي بعد رسوم {formatCurrency(item.card_fee_amount)}</span>
                           )}
                         </Td>
-                        <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)}</Td>
+                        <Td className="tabular-nums text-sm text-neutral-500">{formatDate(item.sale_date)} · {formatTime(item.created_at)}</Td>
                         <Td>
                           <div className="flex items-center gap-1.5">
                             <button onClick={() => setMovingItem({ session: selected, item })} disabled={item.is_returned} title={item.is_returned ? 'لا يمكن نقل بند مسترجع' : 'نقل البند إلى وردية أخرى'} className="p-1.5 rounded-lg hover:bg-sky-50 text-sky-600 dark:hover:bg-sky-500/15 dark:text-sky-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">

@@ -235,7 +235,7 @@ class SaleSessionItemSerializer(serializers.ModelSerializer):
             "sale_type", "sale_type_label",
             "quantity", "unit_price", "discount_amount", "payment_method", "payment_method_label",
             "card_type", "card_type_label", "card_fee_amount", "net_total",
-            "total", "sale_date", "yards_effective",
+            "total", "sale_date", "created_at", "yards_effective",
             "customer_name", "customer_phone", "sale_group", "group_no",
             "is_returned", "returned_at", "return_reason",
         ]

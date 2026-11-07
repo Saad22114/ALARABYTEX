@@ -36,7 +36,7 @@ import { listSaleSessions, removeSessionItem, deleteSaleSession, getSessionFabri
 import { listBranches } from '@/services/branches';
 import { listEmployees } from '@/services/employees';
 import { listFabrics } from '@/services/fabrics';
-import { formatCurrency, formatNumber, formatDate } from '@/lib/format';
+import { formatCurrency, formatNumber, formatDate, formatTime } from '@/lib/format';
 import { openSalesInvoice, sessionToDailySales, buildInvoiceNumber } from '@/lib/invoice';
 import { useToast } from '@/components/ui/Toast';
 import { useSettings } from '@/components/providers/SettingsProvider';
@@ -704,7 +704,7 @@ export default function SalesPage() {
                                     <Th>سعر الوحدة</Th>
                                     <Th>طريقة الدفع</Th>
                                     <Th>الإجمالي</Th>
-                                    <Th>تاريخ البيع</Th>
+                                    <Th>تاريخ ووقت البيع</Th>
                                     <Th>إجراءات</Th>
                                   </tr>
                                 </thead>
@@ -745,7 +745,7 @@ export default function SalesPage() {
                                           <span className="block text-[10px] font-normal text-neutral-400">صافي بعد رسوم {formatCurrency(it.card_fee_amount)}</span>
                                         )}
                                       </Td>
-                                      <Td className="tabular-nums text-sm text-neutral-500">{formatDate(it.sale_date)}</Td>
+                                      <Td className="tabular-nums text-sm text-neutral-500">{formatDate(it.sale_date)} · {formatTime(it.created_at)}</Td>
                                       <Td>
                                         <div className="flex items-center gap-1.5">
                                           <button onClick={() => setEditClosedItem({ session: s, item: it })} disabled={it.is_returned} title={it.is_returned ? 'لا يمكن تعديل بند مسترجع' : 'تعديل البيعة'} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 dark:hover:bg-amber-500/15 dark:text-amber-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
